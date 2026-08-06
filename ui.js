@@ -88,8 +88,13 @@ function infoDot(o){return '<span class="info"'+tip(o)+' aria-hidden="true">i</s
    наследует цель сверху; в подсказке написано, откуда именно. */
 function focusTag(bl){
   if(!bl||bl.kind!=='kpi')return '';
-  if(!bl.inherited)return '<span class="kpi-tag"'+tip({title:'Фокус',
-    text:'Цель установлена на этом юните.',rows:[{label:'юнит',value:bl.owner.name}]})+'>Фокус</span>';
+  /* Своя цель — жёлтая метка со звездой. Дизайн-система запрещает жёлтый
+     в СВЕТОФОРЕ, но это не оценка: метка отвечает на вопрос «чей это фокус»,
+     а не «хорошо или плохо». Отдельный канал — отдельный цвет, и своя цель
+     находится в списке мгновенно. */
+  if(!bl.inherited)return '<span class="kpi-tag own"'+tip({title:'Фокус юнита',
+    text:'Цель установлена на этом юните и уходит вниз по всей его ветке.',
+    rows:[{label:'юнит',value:bl.owner.name}]})+'>★ Фокус</span>';
   return '<span class="kpi-tag inh"'+tip({title:'Фокус через родителя',
     text:'Своей цели у юнита нет — он наследует её сверху. Появится своя — начнёт работать она, и вниз пойдёт уже новое значение.',
     rows:[{label:'цель с уровня',value:bl.owner.name}]})+'>Фокус через родителя</span>';

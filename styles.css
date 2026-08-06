@@ -271,6 +271,11 @@ button{font-family:inherit}
 /* Значение и ориентир — соседние колонки, разделены волосяной линией,
    а не пустотой в треть таблицы. */
 .ptable.onepager td.lead{padding-right:var(--s5)}
+/* Все строки One-Pager одной высоты: у строки без ориентира просто больше
+   воздуха. Разная высота читалась как разная значимость метрики, хотя
+   отличалось только наполнение одной ячейки. */
+.ptable.onepager tbody tr.mrow{height:76px}
+.ptable.onepager td.vs{line-height:1.35}
 /* ИТОГО первой строкой + липкая шапка: итог не уезжает под скролл */
 .ptable.dense thead th{position:sticky;top:0;z-index:3;background:var(--card)}
 .ptable tr.total.top td{position:sticky;top:33px;z-index:2;border-top:0;
@@ -318,10 +323,14 @@ button{font-family:inherit}
 .sig-chip.good{background:var(--green-bg);color:var(--green-tx)}
 .sig-chip.bad{background:var(--red-bg);color:var(--red-tx)}
 .sig-chip.warn,.sig-chip.neutral{background:var(--surface2);color:var(--muted)}
-/* Метка «у метрики есть утверждённая цель» — метка, а не оценка. Только синий. */
+/* Метка «у метрики есть утверждённая цель» — метка, а не оценка.
+   Жёлтая со звездой — цель стоит на самом юните; серая — унаследована сверху.
+   Жёлтый здесь не нарушает светофор: это другой канал, он отвечает на вопрос
+   «чей фокус», а не «хорошо или плохо». */
 .kpi-tag{display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;
-  padding:2px var(--s3);border-radius:var(--r2);background:var(--blue-bg);color:#2b5fd0;
+  padding:2px var(--s3);border-radius:var(--r2);background:var(--surface2);color:var(--ink2);
   vertical-align:middle;cursor:help;white-space:nowrap}
+.kpi-tag.own{background:var(--warn-bg);color:var(--warn-tx)}
 .kpi-tag.inh{background:var(--surface2);color:var(--ink2)}
 /* «Ещё N целей по разрезам» — тоже метка, не оценка */
 .more-focus{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.3px;padding:2px var(--s3);

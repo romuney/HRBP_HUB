@@ -79,12 +79,6 @@ function benchName(){return D.benchmarkLabel(state)}
 function selMetricsOfBlock(blockKey){return D.metricsOfBlock(blockKey).filter(m=>state.metricSel.has(m.key))}
 function anySelInBlock(blockKey){return D.metricsOfBlock(blockKey).some(m=>state.metricSel.has(m.key))}
 function selMetrics(){return D.METRICS.filter(m=>state.metricSel.has(m.key))}
-/* главная метрика сводной таблицы: первая сравнимая среди выбранных метрик блока */
-function blockMain(blockKey){
-  const mets=selMetricsOfBlock(blockKey);
-  return ((mets.find(m=>D.comparable(m.key))||mets[0])||{}).key;
-}
-
 /* ---- ориентир метрики для активного юнита ---- */
 function baselineOf(metricKey,val,unitPath){
   return D.baselineFor(unitPath||activeUnit(),metricKey,val,state);
@@ -225,6 +219,11 @@ function renderChips(){
 }
 
 /* ================= ЯЧЕЙКА СРАВНЕНИЯ ================= */
+/* Ячейка ориентира.
+   Все три случая рисуют ОДНУ И ТУ ЖЕ структуру: строка ориентира и под ней
+   пилюля. Даже когда сравнивать не с чем — иначе строки таблицы получаются
+   разной высоты, и глаз читает разницу в наполнении как разницу в важности.
+   Лишний воздух в такой строке приемлем, скачущая сетка — нет. */
 function cmpCell(m,val,bl){
   if(bl.kind==='kpi'){
     const dir=m.better==='higher'?'не ниже':'не выше';
@@ -244,10 +243,10 @@ function cmpCell(m,val,bl){
               {label:'отклонение',value:D.fmtDelta(m.key,diff)}],
         note:'Мёртвая зона ±5%: внутри неё отклонение серое.'})+'>'+D.fmtDelta(m.key,diff)+'</span>';
   }
-  if(!D.comparable(m.key))return U.noCmpMark(m.better==='flat'
-    ?'У этой метрики «больше» не значит «лучше»: оценивать её цветом было бы враньём.'
-    :null);
-  return U.noCmpMark('База сравнения выключена на левой полке.');
+  const why=m.better==='flat'
+    ? 'У этой метрики «больше» не значит «лучше»: оценивать её цветом было бы враньём.'
+    : 'Абсолютная величина: сравнение со средней по компании показывало бы масштаб, а не оценку.';
+  return '<div class="tgt"><b>—</b>ориентира нет</div>'+U.noCmpMark(why);
 }
 
 /* ================= ВКЛАДКА: ONEPAGER ================= */
@@ -435,8 +434,6 @@ function renderTeams(){
   if(!liveBlocks.find(b=>b.key===state.blockTab))state.blockTab=liveBlocks[0].key;
   const block=D.BLOCK_BY_KEY[state.blockTab];
   const mets=selMetricsOfBlock(block.key);
-  const mainK=blockMain(block.key);
-  const mainM=D.METRIC_BY_KEY[mainK];
   const effSet=new Set(effectiveLeaves());
 
   html+=U.subTabs(liveBlocks.map(b=>[b.key,b.name]),state.blockTab,'block');
@@ -462,14 +459,11 @@ function renderTeams(){
   const expandable=expandableRows(root);
   const allOpen=expandable.length>0&&expandable.every(p=>openRows.has(p));
   const totalLeaves=[...effSet];
-  const blMain=D.baselineFor(root,mainK,aggLeaves(totalLeaves,mainK)[D.LAST],state);
-  const showVs=blMain.kind!=='none';
 
   /* ИТОГО первой строкой: при длинном списке итог не должен уезжать под скролл.
      Каретка у ИТОГО раскрывает и сворачивает всё дерево разом. */
   let tbl='<table class="ptable dense"><thead><tr><th class="txt">Юнит</th>'+
     mets.map(m=>'<th'+U.tip({title:m.name,text:m.hint})+'>'+esc(m.short)+'</th>').join('')+
-    (showVs?'<th class="vs">'+(blMain.kind==='kpi'?'К цели':'К базе')+'<span class="hint-col">'+esc(mainM.short)+'</span></th>':'')+
     '</tr></thead><tbody>';
   tbl+='<tr class="total top"><td class="txt"><span class="row-label">'+
     (expandable.length
@@ -478,14 +472,11 @@ function renderTeams(){
       : U.caretSpacer)+
     '<span class="row-body">ИТОГО · '+esc(D.NODE_BY_PATH[root]?D.NODE_BY_PATH[root].name:populationLabel())+
     '<span class="unit-sub">'+D.fmtInt(aggLeaves(totalLeaves,'headcount')[D.LAST])+' чел</span></span></span></td>'+
-    mets.map(m=>'<td'+(m.key===mainK?' class="lead"':'')+'>'+D.fmtVal(m.key,aggLeaves(totalLeaves,m.key)[D.LAST])+'</td>').join('')+
-    (showVs?'<td class="vs"><span class="cell neutral">'+D.fmtVal(mainK,blMain.kind==='kpi'?blMain.target:blMain.base)+'</span></td>':'')+
+    mets.map(m=>'<td>'+D.fmtVal(m.key,aggLeaves(totalLeaves,m.key)[D.LAST])+'</td>').join('')+
     '</tr>';
 
   rows.forEach(r=>{
     const lp=rowLeaves(r.n.path);
-    const v=aggLeaves(lp,mainK)[D.LAST];
-    const bl=D.baselineFor(r.n.path,mainK,v,state);
     const kids=D.childrenOf(r.n.path).length, canExp=r.depth===1&&kids>0;
     const own=D.ownKpis(r.n.path).filter(x=>metKeys.indexOf(x.metric)>=0);
     const shownOwn=ownFocusCount(r.n.path,metKeys);
@@ -497,19 +488,16 @@ function renderTeams(){
           {title:'Детализация',text:'Юниты уровнем ниже внутри «'+r.n.name+'».'})
         :U.caretSpacer)+
       '<span class="row-body">'+esc(r.n.name)+
-        (shownOwn?' <span class="kpi-tag"'+U.tip({title:'Фокус',text:'На юните стоят свои цели.',
-            rows:[{label:'целей в фокусе',value:String(shownOwn)}]})+'>Фокус</span>':'')+
+        (shownOwn?' <span class="kpi-tag own"'+U.tip({title:'Фокус юнита',
+            text:'Цели установлены на этом юните и уходят вниз по всей его ветке.',
+            rows:[{label:'целей в фокусе',value:String(shownOwn)}]})+'>★ Фокус</span>':'')+
         (hiddenOwn.length?' '+U.multiFocusHint(hiddenOwn,true):'')+
         '<span class="unit-sub">'+D.levelLabel(r.n.level)+' · '+D.fmtInt(aggLeaves(lp,'headcount')[D.LAST])+' чел</span>'+
       '</span></span></td>'+
-      mets.map(m=>unitCell(r.n,m,lp,state.selTeam===r.n.path)).join('')+
-      (showVs?'<td class="vs">'+(bl.kind==='none'
-        ?'<span class="cell neutral">—</span>'
-        :'<span class="cell '+bl.state+'">'+D.fmtDelta(mainK,+(v-(bl.kind==='kpi'?bl.target:bl.base)).toFixed(1))+'</span>')+'</td>':'')+
-      '</tr>';
+      mets.map(m=>unitCell(r.n,m,lp,state.selTeam===r.n.path)).join('')+'</tr>';
   });
   if(!rows.length){
-    tbl+='<tr><td class="txt" colspan="'+(mets.length+1+(showVs?1:0))+'">'+
+    tbl+='<tr><td class="txt" colspan="'+(mets.length+1)+'">'+
       '<span class="row-body muted-row">'+(state.focusOnly
         ?'Под фильтром «Только фокусные» юнитов не осталось: ни по одной выбранной метрике целей здесь нет.'
         :'Внутри выбранного юнита нет подразделений, проходящих текущие разрезы.')+'</span></td></tr>';
