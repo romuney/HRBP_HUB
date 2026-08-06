@@ -14,7 +14,6 @@ const state={
   fullUnit:null,               // юнит из фильтра «Все юниты (вся глубина)». Переопределяет зону.
   focusOnly:false,             // «Только фокусные»: на OnePager — метрики с целью,
                                // на «Командах» — юниты, где хоть по одной метрике есть цель
-  bench:'company',
   /* разрезы численности — те же поля, что и условия применения целей */
   paint:'all', itSeg:'all', stream:'all', spec:'all', staffType:'all', hcType:'all',
   metricSel:new Set(D.METRICS.map(m=>m.key)),  // метрики для отображения
@@ -71,7 +70,10 @@ function populationLabel(){
   if(state.teamFilter)return D.NODE_BY_PATH[state.teamFilter].name;
   return D.zoneLabel(state.hrbpId);
 }
-function benchName(){return D.BENCHMARKS.find(b=>b.key===state.bench).name}
+/* База сравнения выводится из ФИЛЬТРОВ, а не из выбранного юнита.
+   Выбрали HQ — сравнение со всем HQ компании; добавили IT — со всем HQ IT.
+   Переход по дереву базу не меняет, и в шапке отчёта это написано прямо. */
+function benchName(){return D.benchmarkLabel(state)}
 
 /* ---- выбранные метрики ---- */
 function selMetricsOfBlock(blockKey){return D.metricsOfBlock(blockKey).filter(m=>state.metricSel.has(m.key))}
@@ -85,14 +87,21 @@ function blockMain(blockKey){
 
 /* ---- ориентир метрики для активного юнита ---- */
 function baselineOf(metricKey,val,unitPath){
-  return D.baselineFor(unitPath||activeUnit(),metricKey,val,state,state.bench);
+  return D.baselineFor(unitPath||activeUnit(),metricKey,val,state);
 }
-/* сколько целей юнита сейчас скрыто фильтрами (свои + унаследованные от владельца) */
-function hiddenFocus(metricKey,bl,unitPath){
+/* Цели юнита, закрытые текущими разрезами. Возвращаем сами правила, а не
+   счётчик: подсказка должна назвать разрез и значение, иначе «примените
+   фильтры» не говорит, какие именно. */
+function hiddenFocusRules(metricKey,bl,unitPath){
   const u=unitPath||activeUnit();
-  let n=D.hiddenKpiCount(u,state,metricKey);
-  if(bl&&bl.kind==='kpi'&&bl.inherited&&bl.owner.path!==u)n+=D.hiddenKpiCount(bl.owner.path,state,metricKey);
-  return n;
+  const seen=new Set();
+  const out=[];
+  const add=p=>D.ownKpis(p,metricKey).forEach(r=>{
+    if(!D.ruleMatches(r,state)&&!seen.has(r.id)){seen.add(r.id);out.push(r)}
+  });
+  add(u);
+  if(bl&&bl.kind==='kpi'&&bl.inherited)add(bl.owner.path);
+  return out;
 }
 
 /* ================= ВЫПАДАЮЩИЕ СПИСКИ ================= */
@@ -148,7 +157,7 @@ function renderShelf(){
   /* разрезы численности — один список определений на фильтры и на окно целей */
   const cuts=D.FILTER_DEFS.map(f=>
     '<div class="shelf-grp">'+
-      '<div class="shelf-h"><span class="dot-acc"></span>'+esc(f.label)+'</div>'+
+      '<div class="shelf-h">'+esc(f.label)+'</div>'+
       '<div class="ctl"><select data-cut="'+f.key+'">'+
         f.list.map(o=>'<option value="'+o.key+'" '+(state[f.key]===o.key?'selected':'')+'>'+esc(o.name)+'</option>').join('')+
       '</select></div>'+
@@ -156,12 +165,12 @@ function renderShelf(){
 
   document.getElementById('shelf').innerHTML=
     '<div class="shelf-grp">'+
-      '<div class="shelf-h"><span class="dot-acc"></span>HRBP</div>'+
+      '<div class="shelf-h">HRBP</div>'+
       '<div class="ctl"><select id="hrbpSel" aria-label="HRBP">'+hrbpOptionsHTML()+'</select></div>'+
       '<div class="role-row"><span class="role-chip role-'+h.role+'">'+h.role+' HRBP · '+D.hrbpSubordinateCount(state.hrbpId)+' в подчинении</span></div>'+
     '</div>'+
     '<div class="shelf-grp">'+
-      '<div class="shelf-h"><span class="dot-acc"></span>Фокус</div>'+
+      '<div class="shelf-h">Фокус</div>'+
       '<label class="focus-toggle '+(state.focusOnly?'on':'')+'" for="focusToggle">'+
         '<input type="checkbox" id="focusToggle" '+(state.focusOnly?'checked':'')+'>'+
         '<span class="ft-track"><span class="ft-knob"></span></span>'+
@@ -169,24 +178,18 @@ function renderShelf(){
       '<div class="ft-hint">'+focusHint+'</div>'+
     '</div>'+
     '<div class="shelf-grp">'+
-      '<div class="shelf-h"><span class="dot-acc"></span>Юнит зоны · −1</div>'+
+      '<div class="shelf-h">Юнит зоны · −1</div>'+
       '<div class="ctl"><select id="teamSel" aria-label="Юнит зоны">'+teamOptionsHTML()+'</select></div>'+
     '</div>'+
     '<div class="shelf-grp">'+
-      '<div class="shelf-h"><span class="dot-acc"></span>Все юниты · вся глубина</div>'+
+      '<div class="shelf-h">Все юниты · вся глубина</div>'+
       '<div class="ctl"><select id="fullSel" aria-label="Все юниты компании">'+fullOptionsHTML()+'</select></div>'+
       '<div class="ft-hint">● — на юните стоит своя цель</div>'+
-    '</div>'+
-    '<div class="shelf-grp">'+
-      '<div class="shelf-h"><span class="dot-acc"></span>Сравнение</div>'+
-      '<div class="ctl"><select id="benchSel" aria-label="База сравнения">'+
-        D.BENCHMARKS.map(o=>'<option value="'+o.key+'" '+(o.key===state.bench?'selected':'')+'>'+esc(o.name)+'</option>').join('')+
-      '</select></div>'+
     '</div>'+
     '<div class="shelf-sep">Разрезы численности</div>'+
     cuts+
     '<div class="shelf-grp">'+
-      '<div class="shelf-h"><span class="dot-acc"></span>Метрики для отображения</div>'+
+      '<div class="shelf-h">Метрики для отображения</div>'+
       '<button class="mf-toggle" id="mfToggle" aria-expanded="'+(state.metricOpen?'true':'false')+'">'+
         '<span>'+sel+' из '+total+' метрик</span><span class="mf-caret" aria-hidden="true">'+(state.metricOpen?'▾':'▸')+'</span></button>'+
       '<div class="mf-drop '+(state.metricOpen?'':'hidden')+'">'+
@@ -199,7 +202,6 @@ function renderShelf(){
   document.getElementById('focusToggle').onchange=e=>{state.focusOnly=e.target.checked;state.selTeam=null;state.openMetric=null;rerender()};
   document.getElementById('teamSel').onchange=e=>{state.teamFilter=e.target.value||null;state.fullUnit=null;state.selTeam=null;state.openMetric=null;openRows.clear();rerender()};
   document.getElementById('fullSel').onchange=e=>{state.fullUnit=e.target.value||null;state.teamFilter=null;state.selTeam=null;state.openMetric=null;openRows.clear();rerender()};
-  document.getElementById('benchSel').onchange=e=>{state.bench=e.target.value;rerender()};
   document.querySelectorAll('[data-cut]').forEach(s=>s.onchange=e=>{state[s.getAttribute('data-cut')]=e.target.value;state.selTeam=null;rerender()});
   document.getElementById('mfToggle').onclick=()=>{state.metricOpen=!state.metricOpen;renderShelf()};
   document.querySelectorAll('.mf-item input').forEach(c=>c.onchange=()=>{const k=c.getAttribute('data-metric');if(c.checked)state.metricSel.add(k);else state.metricSel.delete(k);rerender()});
@@ -213,7 +215,10 @@ function renderChips(){
     '<span class="chip">'+esc(D.FILTER_BY_KEY[c.k].label)+': '+esc(c.label)+
     '<button class="x" data-unchip="'+c.k+'" aria-label="Снять фильтр">×</button></span>').join('');
   const unit='<span class="chip bench">Юнит: <b>'+esc(populationLabel())+'</b></span>';
-  const bench=state.bench==='none'?'':'<span class="chip bench">База сравнения: <b>'+esc(benchName())+'</b></span>';
+  const bench='<span class="chip bench"'+U.tip({title:'База сравнения',
+    text:'Собирается из разрезов численности, а не из выбранного юнита. Снимите разрез — база расширится.',
+    rows:[{label:'юнитов в базе',value:String(D.benchmarkLeaves(state).length)}]})+
+    '>База: <b>'+esc(benchName())+'</b></span>';
   document.getElementById('chips').innerHTML=unit+chips+bench;
   document.getElementById('periodBadge').textContent=D.PERIOD_LABEL;
   document.querySelectorAll('[data-unchip]').forEach(b=>b.onclick=()=>{state[b.getAttribute('data-unchip')]='all';rerender()});
@@ -254,7 +259,7 @@ function renderOnePager(){
 
   let html='<div class="page-h"><div class="ph-row"><h2>Сводка HRBP</h2></div>'+
     '<p>'+esc(h.note)+' Разрезы численности: <b>'+esc(D.filterLabel(state))+'</b>.'+
-    (state.bench!=='none'?' Метрики без утверждённой цели сравниваются с базой <b>'+esc(benchName())+'</b>.':'')+
+    ' Метрики без утверждённой цели сравниваются с базой <b>'+esc(benchName())+'</b> — она собирается из тех же разрезов, но по всей компании.'+
     ' У метрик с целью сравнение идёт с целью, а не с базой.</p></div>';
 
   if(leaves.length===0){
@@ -308,33 +313,35 @@ function renderOnePager(){
     let rows='';
     withBl.forEach(({m,s,val,bl})=>{
       const d=D.deltas(s);
-      const hid=hiddenFocus(m.key,bl);
+      const hid=hiddenFocusRules(m.key,bl);
       rows+='<tr class="mrow'+(bl.kind==='kpi'?' focus-row':'')+'" data-metric="'+m.key+'" tabindex="0" role="button"'+
           ' aria-expanded="'+(state.openMetric===m.key?'true':'false')+'">'+
         '<td class="txt"><span class="row-label">'+
           U.caret(state.openMetric===m.key,'openm',m.key,'Показать динамику')+
           '<span class="row-body">'+esc(m.name)+U.infoDot({title:m.name,text:m.hint})+
           (bl.kind==='kpi'?' '+U.focusTag(bl):'')+
-          (hid?' '+U.multiFocusHint(hid):'')+
+          (hid.length?' '+U.multiFocusHint(hid):'')+
           '<span class="unit-sub">'+(m.better==='flat'?'больше не значит лучше'
             :(m.better==='higher'?'выше — лучше':'ниже — лучше'))+'</span></span></span></td>'+
         '<td class="lead">'+D.fmtVal(m.key,val)+'</td>'+
         '<td class="vs">'+cmpCell(m,val,bl)+'</td>'+
         '<td>'+U.momChip(m.key,d.mom)+'</td>'+
         '<td>'+U.yoyChip(m.key,d.yoy)+'</td>'+
-        '<td class="sparkcell">'+U.spark(s,bl.state)+'</td></tr>';
+        '<td class="sparkcell">'+U.spark(D.windowOf(s),D.statesOver(activeUnit(),m.key,D.windowOf(s),state))+'</td></tr>';
       if(state.openMetric===m.key){
         rows+='<tr class="detail-row"><td colspan="6"><div class="detail-chart" id="dc-'+m.key+'"></div></td></tr>';
       }
     });
 
-    const tbl='<table class="ptable dense"><colgroup><col style="width:34%"><col style="width:11%">'+
-      '<col style="width:19%"><col style="width:12%"><col style="width:12%"><col style="width:12%"></colgroup>'+
+    /* Значение и ориентир стоят рядом: пока между ними была пустая колонка,
+       глаз проходил зазор в треть таблицы, а спарклайну не хватало ширины. */
+    const tbl='<table class="ptable dense onepager"><colgroup><col style="width:30%"><col style="width:10%">'+
+      '<col style="width:15%"><col style="width:11%"><col style="width:11%"><col style="width:23%"></colgroup>'+
       '<thead><tr><th class="txt">Метрика</th><th>Значение</th>'+
       '<th class="vs">Ориентир<span class="hint-col">цель или база</span></th>'+
       '<th>Изменение<span class="hint-col">к '+esc(D.PREV_LABEL)+'</span></th>'+
-      '<th>За год<span class="hint-col">к '+esc(D.YEAR_LABEL)+'</span></th>'+
-      '<th>12 мес</th></tr></thead><tbody>'+rows+'</tbody></table>';
+      '<th>Год к году<span class="hint-col">к '+esc(D.YEAR_LABEL)+'</span></th>'+
+      '<th class="sparkcell">12 мес</th></tr></thead><tbody>'+rows+'</tbody></table>';
 
     html+='<div class="block-gap">'+
       U.panel({title:block.name,sub:block.hint+' · клик по строке раскрывает динамику',
@@ -351,9 +358,11 @@ function renderOnePager(){
     const k=state.openMetric;
     const s=scopeSeries(k);
     const bl=baselineOf(k,s[D.LAST]);
-    const bench=(bl.kind==='bench')?D.benchSeries(state.bench,k):null;
-    mkChart('dc-'+k,CH.lineOption(k,s,bench,benchName(),
-      bl.kind==='kpi'?bl.target:null,D.METRIC_BY_KEY[k].name+' — динамика'));
+    mkChart('dc-'+k,CH.yoyOption(k,s,{
+      kpi:bl.kind==='kpi'?bl.target:null,
+      bench:bl.kind==='bench'?D.benchmarkSeries(state,k):null,
+      benchLabel:benchName(),
+      title:D.METRIC_BY_KEY[k].name+' — год к году'}));
   }
   bindRowToggle('.mrow','metric',k=>{state.openMetric=state.openMetric===k?null:k;rerender()});
   /* каретка делает то же, что клик по строке, но не даёт событию всплыть:
@@ -391,26 +400,32 @@ function ownFocusCount(path,metKeys){
 function expandableRows(root){
   return D.nodesBelow(root,1).filter(n=>D.childrenOf(n.path).length).map(n=>n.path);
 }
-/* ячейка метрики в строке юнита: цель этого юнита (своя или унаследованная) либо база */
-function unitCell(node,m,lp){
+/* Ячейка метрики в строке юнита.
+   В ячейке одна цифра — сама метрика, и цветом отмечена именно она: цель —
+   это ориентир, а не оценка, и красить её было бы неправдой. Цель показываем
+   второй строкой только у выбранной строки: иначе в таблице вдвое больше
+   чисел, чем вопросов, на которые она отвечает. */
+function unitCell(node,m,lp,selected){
   const val=aggLeaves(lp,m.key)[D.LAST];
-  const bl=D.baselineFor(node.path,m.key,val,state,state.bench);
+  const bl=D.baselineFor(node.path,m.key,val,state);
   const txt=D.fmtVal(m.key,val);
-  if(bl.kind==='kpi'){
-    return '<td class="kpi-cell"><span class="v">'+txt+'</span>'+
-      '<span class="cell '+bl.state+'"'+U.tip({title:'Цель '+m.name,
-        text:bl.inherited?'Унаследована с уровня «'+bl.owner.name+'».':'Стоит на этом юните.',
-        rows:[{label:'факт',value:D.fmtVal(m.key,val)},{label:'цель',value:D.fmtVal(m.key,bl.target)}]})+
-      '>'+D.fmtVal(m.key,bl.target)+'</span></td>';
-  }
-  return '<td>'+txt+'</td>';
+  if(bl.kind==='none')return '<td>'+txt+'</td>';
+  const ref=bl.kind==='kpi'?bl.target:bl.base;
+  const tipObj=bl.kind==='kpi'
+    ? {title:m.name,text:bl.inherited?'Цель унаследована с уровня «'+bl.owner.name+'».':'Цель стоит на этом юните.',
+       rows:[{label:'факт',value:txt},{label:'цель',value:D.fmtVal(m.key,ref)},
+             {label:'отклонение',value:D.fmtDelta(m.key,+(val-ref).toFixed(1))}]}
+    : {title:m.name,text:'Утверждённой цели нет — сравнение с базой.',
+       rows:[{label:'факт',value:txt},{label:benchName(),value:D.fmtVal(m.key,ref),dash:true,color:'#9aa0ac'}]};
+  return '<td class="kpi-cell"><span class="cell '+bl.state+'"'+U.tip(tipObj)+'>'+txt+'</span>'+
+    (selected?'<span class="cell-ref">'+(bl.kind==='kpi'?'цель ':'база ')+D.fmtVal(m.key,ref)+'</span>':'')+'</td>';
 }
 function renderTeams(){
   const liveBlocks=D.BLOCKS.filter(b=>anySelInBlock(b.key));
   let html='<div class="page-h"><div class="ph-row"><h2>Команды</h2></div>'+
     '<p>Сводная таблица по юнитам. Каретка у строки раскрывает её детализацию — юниты уровнем ниже. '+
-    'У метрики с утверждённой целью в ячейке подписана цель и её выполнение; у остальных — сравнение с базой '+
-    (state.bench==='none'?'выключено':'<b>'+esc(benchName())+'</b>')+'.</p></div>';
+    'Цветом отмечено само значение метрики: у метрик с целью — относительно цели, у остальных — относительно базы '+
+    '<b>'+esc(benchName())+'</b>. Клик по строке раскрывает ориентиры под значениями и меняет графики справа.</p></div>';
 
   if(liveBlocks.length===0){
     document.getElementById('view').innerHTML=html+
@@ -447,7 +462,7 @@ function renderTeams(){
   const expandable=expandableRows(root);
   const allOpen=expandable.length>0&&expandable.every(p=>openRows.has(p));
   const totalLeaves=[...effSet];
-  const blMain=D.baselineFor(root,mainK,aggLeaves(totalLeaves,mainK)[D.LAST],state,state.bench);
+  const blMain=D.baselineFor(root,mainK,aggLeaves(totalLeaves,mainK)[D.LAST],state);
   const showVs=blMain.kind!=='none';
 
   /* ИТОГО первой строкой: при длинном списке итог не должен уезжать под скролл.
@@ -470,11 +485,11 @@ function renderTeams(){
   rows.forEach(r=>{
     const lp=rowLeaves(r.n.path);
     const v=aggLeaves(lp,mainK)[D.LAST];
-    const bl=D.baselineFor(r.n.path,mainK,v,state,state.bench);
+    const bl=D.baselineFor(r.n.path,mainK,v,state);
     const kids=D.childrenOf(r.n.path).length, canExp=r.depth===1&&kids>0;
     const own=D.ownKpis(r.n.path).filter(x=>metKeys.indexOf(x.metric)>=0);
     const shownOwn=ownFocusCount(r.n.path,metKeys);
-    const hiddenOwn=own.length-shownOwn;
+    const hiddenOwn=own.filter(x=>!D.ruleMatches(x,state));
     tbl+='<tr class="urow'+(r.depth===2?' lvl2':'')+(state.selTeam===r.n.path?' sel':'')+
         '" data-node="'+r.n.path+'" tabindex="0" role="button">'+
       '<td class="txt"><span class="row-label">'+
@@ -484,10 +499,10 @@ function renderTeams(){
       '<span class="row-body">'+esc(r.n.name)+
         (shownOwn?' <span class="kpi-tag"'+U.tip({title:'Фокус',text:'На юните стоят свои цели.',
             rows:[{label:'целей в фокусе',value:String(shownOwn)}]})+'>Фокус</span>':'')+
-        (hiddenOwn?' '+U.multiFocusHint(hiddenOwn):'')+
+        (hiddenOwn.length?' '+U.multiFocusHint(hiddenOwn,true):'')+
         '<span class="unit-sub">'+D.levelLabel(r.n.level)+' · '+D.fmtInt(aggLeaves(lp,'headcount')[D.LAST])+' чел</span>'+
       '</span></span></td>'+
-      mets.map(m=>unitCell(r.n,m,lp)).join('')+
+      mets.map(m=>unitCell(r.n,m,lp,state.selTeam===r.n.path)).join('')+
       (showVs?'<td class="vs">'+(bl.kind==='none'
         ?'<span class="cell neutral">—</span>'
         :'<span class="cell '+bl.state+'">'+D.fmtDelta(mainK,+(v-(bl.kind==='kpi'?bl.target:bl.base)).toFixed(1))+'</span>')+'</td>':'')+
@@ -505,7 +520,7 @@ function renderTeams(){
     U.panel({cls:'split-l',title:'Юниты',sub:'клик по строке меняет динамику справа',body:tbl,bodyCls:'tbl-wrap'});
 
   let right='';
-  mets.forEach(m=>{right+='<div class="dyn-block"><h4>'+esc(m.name)+'</h4><div class="dyn-chart" id="dyn-'+m.key+'"></div></div>'});
+  mets.forEach(m=>{right+='<div class="dyn-block"><div class="dyn-chart" id="dyn-'+m.key+'"></div></div>'});
   html+=U.panel({cls:'split-r',title:'Динамика',sub:sel?sel.name:'—',body:right});
   html+='</div>'+U.tblNote('Данные прототипа сгенерированы детерминированно и не являются фактическими показателями. '+
     'Цели наследуются вниз по дереву: значение юнита сравнивается с ближайшей целью на нём самом или выше по ветке.');
@@ -515,9 +530,12 @@ function renderTeams(){
   if(sel){
     mets.forEach(m=>{
       const s=D.metricSeries(sel.path,m.key);
-      const bl=D.baselineFor(sel.path,m.key,s[D.LAST],state,state.bench);
-      const bench=(bl.kind==='bench')?D.benchSeries(state.bench,m.key):null;
-      mkChart('dyn-'+m.key,CH.lineOption(m.key,s,bench,benchName(),bl.kind==='kpi'?bl.target:null,null));
+      const bl=D.baselineFor(sel.path,m.key,s[D.LAST],state);
+      mkChart('dyn-'+m.key,CH.yoyOption(m.key,s,{
+        kpi:bl.kind==='kpi'?bl.target:null,
+        bench:bl.kind==='bench'?D.benchmarkSeries(state,m.key):null,
+        benchLabel:benchName(),
+        title:m.name}));
     });
   }
   document.querySelectorAll('[data-block]').forEach(b=>b.onclick=()=>{state.blockTab=b.getAttribute('data-block');state.selTeam=null;rerender()});
@@ -587,29 +605,33 @@ function renderTransformer(){
     U.subTabs([['dyn','Динамика по разрезу'],['pivot','Сводная таблица']],tf.mode,'mode')+
     '</div>';
 
-  const series=cutMonthlySeries(tf.metric,tf.cut);
-  const labels=D.MONTHS.map(mo=>mo.isYearStart?('{y|'+mo.y+'}'):mo.label);
+  /* Разрез показываем скользящим окном в двенадцать месяцев: полный ряд
+     тянется на полтора года ради графиков «год к году», а в таблицу столько
+     колонок не влезает, не ужимая числа сильнее, чем в них воздуха. */
+  const series=cutMonthlySeries(tf.metric,tf.cut).map(x=>({name:x.name,data:D.windowOf(x.data)}));
+  const win=D.windowMonths();
+  const labels=win.map(mo=>mo.label);
 
   if(tf.mode==='dyn'){
-    html+=U.panel({title:m.name+' · разрез «'+tf.cut+'»',sub:'динамика по месяцам',
+    html+=U.panel({title:m.name+' · разрез «'+tf.cut+'»',sub:'последние 12 месяцев',
       body:'<div class="tf-chart" id="tfChart"></div>'});
     document.getElementById('view').innerHTML=html;
     mkChart('tfChart',CH.groupedBarOption(series,labels,tf.metric));
   }else{
     let t='<table class="ptable dense"><thead><tr><th class="txt">'+esc(tf.cut)+'</th>';
-    D.MONTHS.forEach(mo=>t+='<th>'+esc(mo.isYearStart?mo.label+' '+String(mo.y).slice(2):mo.label)+'</th>');
+    win.forEach((mo,i)=>t+='<th>'+esc(i===0||mo.m===0?mo.label+' '+String(mo.y).slice(2):mo.label)+'</th>');
     t+='<th class="vs">За год<span class="hint-col">к '+esc(D.YEAR_LABEL)+'</span></th></tr></thead><tbody>';
-    const total=scopeSeries(tf.metric);
-    const dyt=+(total[D.LAST]-total[0]).toFixed(1);
+    const total=D.windowOf(scopeSeries(tf.metric));
+    const dyt=+(total[total.length-1]-total[0]).toFixed(1);
     t+='<tr class="total top"><td class="txt"><span class="row-label"><span class="caret-spacer"></span>'+
       '<span class="row-body">ИТОГО</span></span></td>'+
-      total.map((v,i)=>'<td class="'+(i===D.LAST?'cur':'')+'">'+D.fmtVal(tf.metric,v)+'</td>').join('')+
+      total.map((v,i)=>'<td class="'+(i===total.length-1?'cur':'')+'">'+D.fmtVal(tf.metric,v)+'</td>').join('')+
       '<td class="vs">'+U.deltaChip(tf.metric,dyt,'за год','Изменение с начала окна ('+D.YEAR_LABEL+').')+'</td></tr>';
     series.forEach(s=>{
-      const dy=+(s.data[D.LAST]-s.data[0]).toFixed(1);
+      const dy=+(s.data[s.data.length-1]-s.data[0]).toFixed(1);
       t+='<tr><td class="txt"><span class="row-label"><span class="caret-spacer"></span>'+
         '<span class="row-body">'+esc(s.name)+'</span></span></td>'+
-        s.data.map((v,i)=>'<td class="'+(i===D.LAST?'cur':'')+'">'+D.fmtVal(tf.metric,v)+'</td>').join('')+
+        s.data.map((v,i)=>'<td class="'+(i===s.data.length-1?'cur':'')+'">'+D.fmtVal(tf.metric,v)+'</td>').join('')+
         '<td class="vs">'+U.deltaChip(tf.metric,dy,'за год','Изменение с начала окна ('+D.YEAR_LABEL+').')+'</td></tr>';
     });
     t+='</tbody></table>';

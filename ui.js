@@ -72,7 +72,7 @@ function deltaChip(metricKey,dv,vsShort,tipText){
     D.fmtDelta(metricKey,dv)+(vsShort?'<span class="d-vs">'+esc(vsShort)+'</span>':'')+'</span>';
 }
 function momChip(metricKey,dv){return deltaChip(metricKey,dv,'к '+D.PREV_LABEL.split(' ')[0],'Сравнение с предыдущим месяцем ('+D.PREV_LABEL+').')}
-function yoyChip(metricKey,dv){return deltaChip(metricKey,dv,'за год','Сравнение с началом окна ('+D.YEAR_LABEL+').')}
+function yoyChip(metricKey,dv){return deltaChip(metricKey,dv,'год к году','Сравнение с тем же месяцем прошлого года ('+D.YEAR_LABEL+').')}
 
 /* метрика, которую с базой сравнивать бессмысленно, помечается словами,
    а не прочерком: прочерк читается как «данных нет» */
@@ -94,13 +94,24 @@ function focusTag(bl){
     text:'Своей цели у юнита нет — он наследует её сверху. Появится своя — начнёт работать она, и вниз пойдёт уже новое значение.',
     rows:[{label:'цель с уровня',value:bl.owner.name}]})+'>Фокус через родителя</span>';
 }
-/* подсказка «остальные цели видны через фильтры» */
-function multiFocusHint(n,where){
-  if(!n)return '';
-  return '<span class="more-focus"'+tip({title:'Ещё '+n+' '+plural(n,'цель','цели','целей')+' на этом юните',
-    text:'Они поставлены на отдельные разрезы численности (покраска, штат, стрим). Показать их можно, выбрав тот же разрез в фильтрах слева — иначе цель мерилась бы не по своей численности.'})+
-    '>+'+n+' по разрезам</span>'+(where?'':'');
+/* Подсказка про цели, закрытые фильтрами.
+   Раньше она говорила «примените фильтры» и не говорила КАКИЕ — HRBP видел,
+   что фокус есть, но не знал, куда идти. Теперь цели перечислены поимённо:
+   разрез, метрика и значение. */
+function multiFocusHint(rules,withMetric){
+  if(!rules||!rules.length)return '';
+  const D=window.HRBPDATA;
+  const rows=rules.slice(0,3).map(r=>({
+    label:(withMetric?D.METRIC_BY_KEY[r.metric].short+' · ':'')+D.filterLabel(r.filters),
+    value:D.fmtVal(r.metric,r.target)
+  }));
+  const notes=['Примените эти разрезы в фильтрах слева — тогда цель станет фокусом отчёта.'];
+  if(rules.length>3)notes.unshift('Показаны 3 из '+rules.length+'.');
+  return '<span class="more-focus"'+tip({
+    title:'Ещё '+rules.length+' '+plural(rules.length,'цель','цели','целей')+' по разрезам численности',
+    rows:rows,note:notes})+'>+'+rules.length+' по разрезам</span>';
 }
+
 function plural(n,one,few,many){
   const m10=n%10,m100=n%100;
   if(m10===1&&m100!==11)return one;
@@ -165,19 +176,19 @@ function cell(state,text,sub,tipObj){
 }
 
 /* ---------- Спарклайн ----------
-   Тренд в строке таблицы. Ось от нуля: урезанная шкала превращает колебание
-   в полпроцента в обвал. */
-function spark(series,state){
-  const w=118,h=26,n=series.length;
+   Тренд в строке таблицы. Ось от нуля, и цвет несёт КАЖДЫЙ бар, а не только
+   последний: месяц, в котором команда вышла за цель, должен быть виден в
+   строке, иначе спарклайн показывает форму, но молчит про оценку. */
+function spark(series,states){
+  const w=150,h=30,n=series.length,pad=3;
   const mx=Math.max(...series,0)||1;
-  const bw=w/n;
+  const bw=(w-pad*2)/n;
   let bars='';
   series.forEach((v,i)=>{
-    const bh=Math.max(1.5,(v/mx)*(h-3));
-    const x=i*bw+1, y=h-bh;
-    const last=i===n-1;
-    bars+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+(bw-2).toFixed(1)+
-      '" height="'+bh.toFixed(1)+'" rx="1.5" class="sb'+(last?' cur '+state:'')+'"/>';
+    const bh=Math.max(1.5,(v/mx)*(h-4));
+    const x=pad+i*bw, y=h-bh;
+    bars+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+Math.max(1,bw-2).toFixed(1)+
+      '" height="'+bh.toFixed(1)+'" rx="1.5" class="sb '+(states[i]||'neutral')+'"/>';
   });
   return '<svg class="spark" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" aria-hidden="true">'+bars+'</svg>';
 }

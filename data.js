@@ -14,18 +14,37 @@ function hashStr(s){let h=2166136261>>>0;for(let i=0;i<s.length;i++){h^=s.charCo
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
 function rng(seed){return mulberry32(hashStr(seed))}
 
-/* ---------- Периоды: 12 месяцев (июль 2025 — июнь 2026) ---------- */
+/* ---------- Периоды: янв 2025 — июнь 2026 ----------
+   Окно намеренно длиннее года: графики строятся «год к году», и для этого
+   нужен весь прошлый год целиком плюс отработанная часть текущего.
+   Индексы 0..11 — 2025-й, 12..17 — 2026-й.
+*/
 const MONTH_ABBR=['янв.','февр.','март','апр.','май','июнь','июль','авг.','сент.','окт.','нояб.','дек.'];
+const YEAR_PREV=2025, YEAR_CUR=2026;
+const CUR_LEN=6;                      // сколько месяцев текущего года уже закрыто
 const MONTHS=(function(){
-  const out=[];const seq=[[2025,6],[2025,7],[2025,8],[2025,9],[2025,10],[2025,11],[2026,0],[2026,1],[2026,2],[2026,3],[2026,4],[2026,5]];
-  for(const [y,m] of seq){out.push({y,m,label:MONTH_ABBR[m],isYearStart:m===0})}
+  const out=[];
+  for(let m=0;m<12;m++)out.push({y:YEAR_PREV,m,label:MONTH_ABBR[m]});
+  for(let m=0;m<CUR_LEN;m++)out.push({y:YEAR_CUR,m,label:MONTH_ABBR[m]});
   return out;
 })();
-const N=MONTHS.length;
-const LAST=N-1;
+const N=MONTHS.length;                // 18
+const LAST=N-1;                       // июнь 2026
+const CUR_START=12;                   // индекс января текущего года
+const WIN_FROM=LAST-11;               // начало скользящего окна «12 мес»
 const PERIOD_LABEL='июнь 2026';
 const PREV_LABEL='маю 2026';
-const YEAR_LABEL='июлю 2025';
+const YEAR_LABEL='июню 2025';
+/* Ряды для графика «год к году»: прошлый год целиком, текущий — с хвостом из
+   null, чтобы обе линии легли на одну ось из двенадцати месяцев. */
+function prevYearOf(series){return series.slice(0,12)}
+function curYearOf(series){
+  const out=series.slice(CUR_START);
+  while(out.length<12)out.push(null);
+  return out;
+}
+function windowOf(series){return series.slice(WIN_FROM,LAST+1)}
+function windowMonths(){return MONTHS.slice(WIN_FROM,LAST+1)}
 
 /* ---------- Логические блоки метрик (синхронизированы с OnePager) ---------- */
 const BLOCKS=[
@@ -113,21 +132,6 @@ const FILTER_DEFS=[
 const FILTER_BY_KEY=Object.fromEntries(FILTER_DEFS.map(f=>[f.key,f]));
 const EMPTY_FILTERS=Object.fromEntries(FILTER_DEFS.map(f=>[f.key,'all']));
 
-/* ---------- Бенчмарки (единое переключаемое сравнение) ---------- */
-const BENCHMARKS=[
-  {key:'none',    name:'Без сравнения'},
-  {key:'company', name:'Вся компания'},
-  {key:'hq',      name:'HQ (головной офис)'},
-  {key:'it',      name:'Все IT'},
-  {key:'nonit',   name:'Все nonIT'}
-];
-const BENCH_ANCHOR={
-  company:{retention_new:80.0,regret:5.2,nonregret:7.0,exit_reasons:84.0,headcount:48200,jun_team:22.0,jun_hire:30.0,region_hire:38.0,absentees:2.2,unused_vac:9.0},
-  hq:     {retention_new:83.0,regret:4.3,nonregret:6.5,exit_reasons:88.0,headcount:21500,jun_team:18.0,jun_hire:26.0,region_hire:30.0,absentees:1.8,unused_vac:7.0},
-  it:     {retention_new:85.0,regret:3.8,nonregret:6.0,exit_reasons:90.0,headcount:18900,jun_team:28.0,jun_hire:35.0,region_hire:45.0,absentees:1.5,unused_vac:6.0},
-  nonit:  {retention_new:76.0,regret:6.4,nonregret:8.0,exit_reasons:79.0,headcount:29300,jun_team:17.0,jun_hire:24.0,region_hire:33.0,absentees:3.0,unused_vac:12.0}
-};
-
 /* ---------- Оргдерево: 12 уровней управленческой структуры ----------
    level 1  — компания (вершина, «Вся компания»),
    level 2  — блоки/направления,
@@ -144,9 +148,56 @@ const BLOCK_DEFS=[
 ];
 const MAX_LEVEL=12;
 const LEVEL_ABBR={1:'Компания',2:'Блок',3:'Департамент',4:'Управление',5:'Отдел',6:'Центр',7:'Группа',8:'Подгруппа',9:'Команда',10:'Звено',11:'Подзвено',12:'Ячейка'};
-const LEVEL_SHORT={3:'Деп.',4:'Упр.',5:'Отд.',6:'Центр',7:'Гр.',8:'Подгр.',9:'Ком.',10:'Зв.',11:'Подзв.',12:'Яч.'};
 function levelLabel(level){return LEVEL_ABBR[level]||('ур. '+level)}
 const pad2=n=>String(n).padStart(2,'0');
+
+/* ---------- Названия подразделений ----------
+   Осмысленные имена вместо «Упр. 1.1.2»: в дашборде на двенадцать уровней
+   по кодам не сориентироваться — глазу не за что зацепиться, а список
+   юнитов в фильтре превращается в перебор номеров.
+*/
+const NAME_POOL={
+  IT:{
+    3:['Мобильная разработка','Веб-платформа','Бэкенд и интеграции','Архитектура решений','Качество и тестирование','Цифровые продукты','Платёжные сервисы','Данные и аналитика'],
+    4:['Разработка iOS','Разработка Android','Фронтенд-разработка','Сервисы и API','Автоматизация тестирования','Платформенные сервисы','Интеграционная шина','DevOps и релизы'],
+    5:['Отдел платежей','Отдел онбординга','Отдел личного кабинета','Отдел уведомлений','Отдел поиска','Отдел каталога','Отдел авторизации','Отдел отчётности'],
+    6:['Центр компетенций','Центр разработки','Центр интеграций','Центр качества','Центр аналитики','Центр эксплуатации'],
+    7:['Группа разработки','Группа поддержки','Группа аналитики','Группа внедрения','Группа релизов','Группа автотестов'],
+    8:['Подгруппа бэкенда','Подгруппа фронтенда','Подгруппа мобильных','Подгруппа данных','Подгруппа инфраструктуры'],
+    9:['Команда каталога','Команда корзины','Команда профиля','Команда поиска','Команда уведомлений','Команда витрины'],
+    10:['Звено API','Звено интерфейсов','Звено данных','Звено интеграций','Звено надёжности'],
+    11:['Подзвено сервисов','Подзвено миграций','Подзвено метрик','Подзвено кэша'],
+    12:['Ячейка разработки','Ячейка тестирования','Ячейка поддержки','Ячейка эксплуатации']
+  },
+  nonIT:{
+    3:['Клиентский сервис','Операционная поддержка','Качество обслуживания','Бизнес-процессы','Сопровождение клиентов','Административный блок'],
+    4:['Контакт-центр','Поддержка первой линии','Разбор обращений','Бэк-офис операций','Контроль качества','Обучение и методология','Документооборот','Планирование ресурсов'],
+    5:['Отдел голосовой поддержки','Отдел текстовых каналов','Отдел премиального сегмента','Отдел малого бизнеса','Отдел рекламаций','Отдел верификации','Отдел сверки операций','Сервисный деск'],
+    6:['Центр обслуживания','Центр контроля качества','Центр обучения','Центр планирования','Центр верификации'],
+    7:['Группа дневной смены','Группа вечерней смены','Группа эскалаций','Группа контроля','Группа наставников'],
+    8:['Подгруппа входящих','Подгруппа исходящих','Подгруппа чатов','Подгруппа почты','Подгруппа соцсетей'],
+    9:['Команда розницы','Команда бизнеса','Команда премиума','Команда взысканий','Команда лояльности'],
+    10:['Звено приёма','Звено разбора','Звено контроля','Звено отчётности'],
+    11:['Подзвено обращений','Подзвено претензий','Подзвено сверок'],
+    12:['Ячейка операторов','Ячейка кураторов','Ячейка контроля','Ячейка поддержки']
+  }
+};
+/* Имена уникальны по всему дереву: в плоском списке «Все юниты» два
+   одинаковых «Группа поддержки» неразличимы. Кончился пул — добавляем номер,
+   как это и бывает в живых оргструктурах. */
+const usedNames=new Set();
+function pickName(level,seg,path){
+  const pool=NAME_POOL[seg==='nonIT'?'nonIT':'IT'][level]||NAME_POOL.IT[12];
+  const start=Math.floor(rng('nm'+path)()*pool.length);
+  for(let i=0;i<pool.length;i++){
+    const cand=pool[(start+i)%pool.length];
+    if(!usedNames.has(cand)){usedNames.add(cand);return cand}
+  }
+  for(let n=2;;n++){
+    const cand=pool[start]+' '+n;
+    if(!usedNames.has(cand)){usedNames.add(cand);return cand}
+  }
+}
 
 const NODES=[];
 const ROOT={id:'T',path:'T',parent:null,level:1,name:'ТБанк',sort:0,domainId:null,leaf:false};
@@ -166,8 +217,6 @@ function leafAttrs(path,blockSeg){
   const hcType = hr<0.72?'core':(hr<0.84?'part':(hr<0.94?'project':'intern'));
   return {paint,it,staff,stream,spec,hcType};
 }
-function nodeCode(path){return path.split('/').slice(1).map(s=>String(parseInt(s,10))).join('.')}
-function genName(level,path){return level>=3 ? LEVEL_SHORT[level]+' '+nodeCode(path) : ''}
 
 /* onSpine — у каждого блока РОВНО ОДИН «хребет», уходящий на 12 уровней;
    остальные ветки схлопываются в листья тем раньше, чем глубже уровень. */
@@ -186,7 +235,7 @@ function genChildren(node,blockSeg,onSpine){
     else if(childOnSpine)       isLeaf=false;
     else { const lp = childLevel<=4 ? 0.40 : Math.min(0.94,(childLevel-3)*0.30); isLeaf=rng('leaf'+childPath)()<lp; }
     const child={id:childPath,path:childPath,parent:node.path,level:childLevel,
-      name:genName(childLevel,childPath),sort:sortCtr++,domainId:node.domainId,leaf:isLeaf};
+      name:pickName(childLevel,blockSeg,childPath),sort:sortCtr++,domainId:node.domainId,leaf:isLeaf};
     if(isLeaf)Object.assign(child,leafAttrs(childPath,blockSeg));
     NODES.push(child);
     if(!isLeaf)genChildren(child,blockSeg,childOnSpine);
@@ -512,24 +561,28 @@ function aggMetricLeaves(leafPaths,metricKey){
 }
 function lastVal(leafPaths,metricKey){return aggMetricLeaves(leafPaths,metricKey)[LAST]}
 
-/* ---------- Бенчмарк-ряды ---------- */
-const BENCH_SERIES={};
-['company','hq','it','nonit'].forEach(bk=>{
-  BENCH_SERIES[bk]={};
-  METRICS.forEach(m=>{
-    const anchor=BENCH_ANCHOR[bk][m.key];
-    const r=rng('bench'+bk+m.key);
-    const arr=[];
-    for(let i=0;i<N;i++){
-      const drift=(i-LAST)/N*0.06;
-      arr.push(m.fmt==='int'?Math.round(anchor*(1+drift)) : +(anchor*(1+drift+(r()-0.5)*0.02)).toFixed(1));
-    }
-    arr[LAST]=anchor;
-    BENCH_SERIES[bk][m.key]=arr;
-  });
-});
-function benchSeries(benchKey,metricKey){return benchKey==='none'?null:BENCH_SERIES[benchKey][metricKey]}
-function benchValue(benchKey,metricKey,idx){const s=benchSeries(benchKey,metricKey);return s?s[idx==null?LAST:idx]:null}
+/* ---------- База сравнения ----------
+   ГЛАВНОЕ ПРАВИЛО: база выводится из ФИЛЬТРОВ, а не из подразделения.
+   Выбрали HQ — сравнение со всем HQ компании; добавили IT — со всем HQ IT.
+   Выбор юнита базу не меняет, и это сказано в интерфейсе прямо.
+*/
+const BENCH_CACHE={};
+function benchKeyOf(st){return FILTER_DEFS.map(f=>st[f.key]||'all').join(',')}
+function benchmarkLeaves(st){
+  const k='L|'+benchKeyOf(st);
+  if(!BENCH_CACHE[k])BENCH_CACHE[k]=leavesUnder('T').map(l=>l.path).filter(p=>leafPasses(p,st));
+  return BENCH_CACHE[k];
+}
+function benchmarkSeries(st,metricKey){
+  const k='S|'+benchKeyOf(st)+'|'+metricKey;
+  if(!BENCH_CACHE[k])BENCH_CACHE[k]=aggMetricLeaves(benchmarkLeaves(st),metricKey);
+  return BENCH_CACHE[k];
+}
+function benchmarkValue(st,metricKey,idx){return benchmarkSeries(st,metricKey)[idx==null?LAST:idx]}
+function benchmarkLabel(st){
+  const parts=filterChips(st).map(c=>c.label);
+  return parts.length?('вся компания · '+parts.join(' + ')):'вся компания';
+}
 
 /* ============================================================
    ОЦЕНКА
@@ -560,17 +613,29 @@ function compareState(metricKey,value,base){
 }
 /* Единая развилка ориентира — одна на весь отчёт (карточка, ячейка, график).
    Есть цель — сравниваемся ТОЛЬКО с ней, база рядом не показывается. */
-function baselineFor(unitPath,metricKey,value,st,benchKey){
+function baselineFor(unitPath,metricKey,value,st){
   const k=resolveKpi(unitPath,metricKey,st);
   if(k){
     return {kind:'kpi',target:k.rule.target,rule:k.rule,owner:k.owner,inherited:k.inherited,
       state:stateForKpi(metricKey,value,k.rule.target)};
   }
-  if(benchKey&&benchKey!=='none'&&comparable(metricKey)){
-    const bv=benchValue(benchKey,metricKey);
-    if(bv!=null)return {kind:'bench',base:bv,state:compareState(metricKey,value,bv)};
+  if(comparable(metricKey)){
+    const bv=benchmarkValue(st,metricKey);
+    if(bv!=null)return {kind:'bench',base:bv,label:benchmarkLabel(st),
+      state:compareState(metricKey,value,bv)};
   }
   return {kind:'none',state:'neutral'};
+}
+/* состояние по каждому месяцу окна — для спарклайна: цветной не только
+   последний бар, а каждый, иначе тренд не читается */
+function statesOver(unitPath,metricKey,series,st){
+  const k=resolveKpi(unitPath,metricKey,st);
+  if(k)return series.map(v=>stateForKpi(metricKey,v,k.rule.target));
+  if(comparable(metricKey)){
+    const b=windowOf(benchmarkSeries(st,metricKey));
+    return series.map((v,i)=>compareState(metricKey,v,b[i]));
+  }
+  return series.map(()=>'neutral');
 }
 
 /* ---------- Форматтеры (ru-локаль) ----------
@@ -617,13 +682,15 @@ function deltaClass(metricKey,v){
 
 /* ---------- Дельты MoM / YoY ---------- */
 function deltas(series){
-  const last=series[LAST],prev=series[LAST-1],first=series[0];
-  return {mom:+(last-prev).toFixed(1), yoy:+(last-first).toFixed(1)};
+  const last=series[LAST];
+  return {mom:+(last-series[LAST-1]).toFixed(1),
+          yoy:+(last-series[LAST-12]).toFixed(1)};   // тот же месяц прошлого года
 }
 
-window.HRBPDATA={MONTHS,N,LAST,PERIOD_LABEL,PREV_LABEL,YEAR_LABEL,
+window.HRBPDATA={MONTHS,MONTH_ABBR,N,LAST,CUR_START,CUR_LEN,WIN_FROM,YEAR_PREV,YEAR_CUR,
+  prevYearOf,curYearOf,windowOf,windowMonths,PERIOD_LABEL,PREV_LABEL,YEAR_LABEL,
   BLOCKS,BLOCK_BY_KEY,METRICS,METRIC_BY_KEY,metricsOfBlock,targetable,comparable,
-  DEV_METRICS,WANTED_METRICS,BENCHMARKS,
+  DEV_METRICS,WANTED_METRICS,
   PAINTS,ITSEGS,STREAMS,SPECS,STAFFTYPES,HCTYPES,FILTER_DEFS,FILTER_BY_KEY,EMPTY_FILTERS,
   NODES,NODE_BY_PATH,ROOT,BLOCK_DEFS,MAX_LEVEL,LEVEL_ABBR,levelLabel,
   HRBP,HRBP_BY_ID,hrbpReportsTree,hrbpSubordinateCount,hrbpOfUnit,
@@ -632,6 +699,7 @@ window.HRBPDATA={MONTHS,N,LAST,PERIOD_LABEL,PREV_LABEL,YEAR_LABEL,
   leafPasses,filterChips,filterLabel,
   KPI_RULES,addKpi,removeKpi,ownKpis,hasOwnKpi,hiddenKpiCount,ruleMatches,ruleSpecificity,
   resolveKpi,anyKpiFor,
-  metricSeries,headcountAt,aggMetricLeaves,lastVal,benchSeries,benchValue,
-  stateForKpi,compareState,baselineFor,DEAD_ZONE,
+  metricSeries,headcountAt,aggMetricLeaves,lastVal,
+  benchmarkLeaves,benchmarkSeries,benchmarkValue,benchmarkLabel,
+  stateForKpi,compareState,baselineFor,statesOver,DEAD_ZONE,
   fmtInt,fmtNum1,fmtPct,fmtDays,fmtVal,fmtDelta,deltaClass,deltas,THIN,MINUS};

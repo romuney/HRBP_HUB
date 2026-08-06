@@ -107,7 +107,6 @@ button{font-family:inherit}
 .shelf-grp{margin-bottom:var(--s9)}
 .shelf-h{font-size:var(--fs-cap);text-transform:uppercase;letter-spacing:.5px;color:var(--muted);
   font-weight:800;margin:0 0 var(--s4);display:flex;align-items:center;gap:var(--s3)}
-.shelf-h .dot-acc{width:7px;height:7px;border-radius:var(--r1);background:var(--blue)}
 .shelf-sep{font-size:var(--fs-cap);text-transform:uppercase;letter-spacing:.5px;color:var(--muted2);
   font-weight:800;margin:0 0 var(--s6);padding-top:var(--s6);border-top:1px dashed var(--line)}
 .role-row{margin-top:var(--s4)}
@@ -260,8 +259,18 @@ button{font-family:inherit}
 .ptable tr.urow.sel{background:#f5f8ff;box-shadow:inset 3px 0 0 var(--act)}
 .ptable tr.lvl2 td.txt .row-body{padding-left:var(--s9)}
 .ptable tr.lvl2 td{background:#fcfcfd}
+/* Фон вложенной строки задан на ячейках, поэтому выделение тоже приходится
+   ставить на них: фон строки под ним не виден. */
+.ptable tr.lvl2.sel td{background:#f5f8ff}
 .ptable.dense th{padding:var(--s4) var(--s3);font-size:var(--fs-cap)}
 .ptable.dense td{padding:7px var(--s3)}
+/* Крайние колонки не липнут к краям панели: без этого имя метрики слева
+   и спарклайн справа упираются в границу таблицы. */
+.ptable.dense th.txt,.ptable.dense td.txt{padding-left:var(--s7)}
+.ptable.dense th:last-child,.ptable.dense td:last-child{padding-right:var(--s7)}
+/* Значение и ориентир — соседние колонки, разделены волосяной линией,
+   а не пустотой в треть таблицы. */
+.ptable.onepager td.lead{padding-right:var(--s5)}
 /* ИТОГО первой строкой + липкая шапка: итог не уезжает под скролл */
 .ptable.dense thead th{position:sticky;top:0;z-index:3;background:var(--card)}
 .ptable tr.total.top td{position:sticky;top:33px;z-index:2;border-top:0;
@@ -286,9 +295,10 @@ button{font-family:inherit}
 .cell.bad{background:var(--red-bg);color:var(--red-tx)}
 .cell.warn,.cell.neutral{background:var(--surface2);color:var(--ink2)}
 .cell .cell-sub{display:block;font-size:var(--fs-micro);font-weight:600;opacity:.8;margin-top:1px}
-/* ячейка «значение + цель» в сводной по юнитам */
-.kpi-cell .v{display:block;font-weight:800;color:var(--ink)}
-.kpi-cell .cell{margin-top:var(--s1);font-size:var(--fs-cap);padding:var(--s1) var(--s3)}
+/* ячейка сводной по юнитам: цветом отмечено само значение, ориентир —
+   мелкой строкой и только у выбранной строки */
+.kpi-cell .cell-ref{display:block;font-size:var(--fs-cap);color:var(--muted);
+  font-weight:600;margin-top:var(--s1);font-variant-numeric:tabular-nums}
 
 /* Блок «ориентир»: база или цель */
 .tgt{font-size:var(--fs-note);color:var(--muted);font-weight:600;line-height:1.35;
@@ -362,18 +372,20 @@ button{font-family:inherit}
 
 /* ============ Спарклайн ============ */
 .spark{display:inline-block;vertical-align:middle}
-.spark .sb{fill:#dfe3ea}
-.spark .sb.cur.good{fill:#80cf9a}
-.spark .sb.cur.bad{fill:#ef8c8c}
-.spark .sb.cur.warn,.spark .sb.cur.neutral{fill:#c7c8cc}
+/* Тона между фоном пилюли и её текстом: бар на белом читается, но остаётся
+   в том же бледном семействе, что светофор в соседней ячейке. */
+.spark .sb.good{fill:#80cf9a}
+.spark .sb.bad{fill:#ef8c8c}
+.spark .sb.warn,.spark .sb.neutral{fill:#c7c8cc}
 .sparkcell{text-align:center}
+.ptable td.sparkcell{padding-left:var(--s5);padding-right:var(--s7)}
+.ptable th.sparkcell{text-align:center;padding-right:var(--s7)}
 
 /* ============ Графики ============ */
-.detail-chart{height:250px;width:100%}
+.detail-chart{height:280px;width:100%}
 .detail-row td{padding:0 var(--s7) var(--s8);background:var(--hover)}
 .dyn-block{padding:0 var(--s2)}
-.dyn-block h4{margin:0 0 var(--s2);font-size:13px;font-weight:700}
-.dyn-chart{height:180px;width:100%}
+.dyn-chart{height:230px;width:100%}
 .tf-chart{height:400px;width:100%}
 
 /* ============ Каталог ============ */
