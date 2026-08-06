@@ -64,15 +64,15 @@ const BLOCK_BY_KEY=Object.fromEntries(BLOCKS.map(b=>[b.key,b]));
 */
 const METRICS=[
   // Блок 1 — Удержание и текучесть
-  {key:'retention_new', block:'retention', name:'Закрепляемость новичков',      short:'Закрепл.',  fmt:'pct',  better:'higher', unit:'%',   ref:85, hint:'Доля новичков, прошедших испытательный срок и оставшихся.'},
+  {key:'retention_new', scale:'share', block:'retention', name:'Закрепляемость новичков',      short:'Закрепл.',  fmt:'pct',  better:'higher', unit:'%',   ref:85, hint:'Доля новичков, прошедших испытательный срок и оставшихся.'},
   {key:'regret',        block:'retention', name:'Regrettable текучесть',         short:'Regret',    fmt:'pct',  better:'lower',  unit:'%',   ref:4,  hint:'Текучесть среди ценных сотрудников (нежелательные уходы), годовой темп.'},
   {key:'nonregret',     block:'retention', name:'Non regrettable текучесть',     short:'Non-reg.',  fmt:'pct',  better:'flat',   unit:'%',   ref:null, hint:'Текучесть без сожаления (управляемые уходы). Нейтральная: больше не значит лучше.'},
-  {key:'exit_reasons',  block:'retention', name:'Заполнение причин увольнений',  short:'Причины',   fmt:'pct',  better:'higher', unit:'%',   ref:90, hint:'Доля увольнений с заполненной причиной (качество данных оттока).'},
+  {key:'exit_reasons', scale:'share',  block:'retention', name:'Заполнение причин увольнений',  short:'Причины',   fmt:'pct',  better:'higher', unit:'%',   ref:90, hint:'Доля увольнений с заполненной причиной (качество данных оттока).'},
   // Блок 2 — Структура команды
   {key:'headcount',     block:'structure', name:'Численность',                   short:'Числ.',     fmt:'int',  better:'flat',   unit:'чел', ref:null, hint:'Списочная численность сотрудников на конец месяца. Абсолютная величина — с базой не сравнивается.'},
-  {key:'jun_team',      block:'structure', name:'% джунов в команде',            short:'Джуны',     fmt:'pct',  better:'higher', unit:'%',   ref:20, hint:'Доля сотрудников грейда Junior/Junior+ в команде.'},
-  {key:'jun_hire',      block:'structure', name:'% джунов в найме',              short:'Джуны найм',fmt:'pct',  better:'higher', unit:'%',   ref:30, hint:'Доля джунов среди принятых за период.'},
-  {key:'region_hire',   block:'structure', name:'% найма в регионах',           short:'Регион найм',fmt:'pct',  better:'higher', unit:'%',   ref:40, hint:'Доля найма вне Москвы и Санкт-Петербурга (регионализация).'},
+  {key:'jun_team', scale:'share',      block:'structure', name:'% джунов в команде',            short:'Джуны',     fmt:'pct',  better:'higher', unit:'%',   ref:20, hint:'Доля сотрудников грейда Junior/Junior+ в команде.'},
+  {key:'jun_hire', scale:'share',      block:'structure', name:'% джунов в найме',              short:'Джуны найм',fmt:'pct',  better:'higher', unit:'%',   ref:30, hint:'Доля джунов среди принятых за период.'},
+  {key:'region_hire', scale:'share',   block:'structure', name:'% найма в регионах',           short:'Регион найм',fmt:'pct',  better:'higher', unit:'%',   ref:40, hint:'Доля найма вне Москвы и Санкт-Петербурга (регионализация).'},
   // Блок 3 — Дисциплина и баланс
   {key:'absentees',     block:'discipline',name:'Прогульщики',                   short:'Прогулы',   fmt:'pct',  better:'lower',  unit:'%',   ref:1,  hint:'Доля сотрудников с неоправданными отсутствиями за период.'},
   {key:'unused_vac',    block:'discipline',name:'Неотгуленные отпуска',          short:'Отпуска',   fmt:'days', better:'lower',  unit:'дн',  ref:5,  hint:'Среднее число накопленных неотгуленных дней отпуска на сотрудника.'}
@@ -81,6 +81,9 @@ const METRIC_BY_KEY=Object.fromEntries(METRICS.map(m=>[m.key,m]));
 function metricsOfBlock(blockKey){return METRICS.filter(m=>m.block===blockKey)}
 /* метрика, на которую в принципе можно поставить цель и которую можно окрасить */
 function targetable(key){return METRIC_BY_KEY[key].better!=='flat'}
+/* доля от численности: шкала всегда 0–100%, площадь под линией закрашена —
+   пустое место под графиком превращается в саму долю, а не в воздух */
+function isShare(key){return METRIC_BY_KEY[key].scale==='share'}
 /* абсолютные величины с базой не сравниваются (212 человек против 2 968 — это масштаб, а не оценка) */
 function comparable(key){return METRIC_BY_KEY[key].fmt!=='int'&&METRIC_BY_KEY[key].better!=='flat'}
 
@@ -689,7 +692,7 @@ function deltas(series){
 
 window.HRBPDATA={MONTHS,MONTH_ABBR,N,LAST,CUR_START,CUR_LEN,WIN_FROM,YEAR_PREV,YEAR_CUR,
   prevYearOf,curYearOf,windowOf,windowMonths,PERIOD_LABEL,PREV_LABEL,YEAR_LABEL,
-  BLOCKS,BLOCK_BY_KEY,METRICS,METRIC_BY_KEY,metricsOfBlock,targetable,comparable,
+  BLOCKS,BLOCK_BY_KEY,METRICS,METRIC_BY_KEY,metricsOfBlock,targetable,comparable,isShare,
   DEV_METRICS,WANTED_METRICS,
   PAINTS,ITSEGS,STREAMS,SPECS,STAFFTYPES,HCTYPES,FILTER_DEFS,FILTER_BY_KEY,EMPTY_FILTERS,
   NODES,NODE_BY_PATH,ROOT,BLOCK_DEFS,MAX_LEVEL,LEVEL_ABBR,levelLabel,

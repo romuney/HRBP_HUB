@@ -19,12 +19,17 @@ const C_LABEL='#2b2b2b', C_AXIS='#8a909c', C_AXIS_LINE='#9ba4b5';
 const C_CUR='#3a3f4a', C_PREV='#c7c8cc', C_BENCH='#9aa0ac', C_KPI='#2b6cff';
 const SERIES_PALETTE=['#5f86c2','#97dece','#ac87c5','#cdbf97','#85cdfd','#9fae6a','#c98aa6','#686d76'];
 const VAL_SZ=11;
-const HEAD_H=34;   // полоса заголовка и легенды: график под неё не заезжает
+const HEAD_H=22;   // полоса заголовка и легенды: график под неё не заезжает
 
 const D=window.HRBPDATA;
 
 /* Верх шкалы — «круглое» число не ниже максимума. Низ всегда ноль:
    урезанная ось превращает колебание в полпроцента в обвал. */
+/* Доля от численности всегда меряется на 0–100%: у неё есть естественный
+   потолок, и «пустое место» под линией — это и есть сама доля, если её
+   закрасить. Для мелких процентов (текучесть, прогулы) потолок в 100%
+   раздавил бы график, там работает «круглая» шкала. */
+function shareAxis(){return {type:'value',min:0,max:100,show:false,splitLine:{show:false}}}
 function zeroAxis(maxVal){
   const nice=[1,1.2,1.5,2,2.5,3,4,5,6,8,10];
   const mx=Math.max(maxVal,1e-6);
@@ -84,6 +89,7 @@ function tooltipRows(metricKey){
 function yoyOption(metricKey,series,opts){
   opts=opts||{};
   const prev=D.prevYearOf(series), cur=D.curYearOf(series);
+  const share=D.isShare(metricKey);
   const labels=D.MONTH_ABBR;
   const legend=[String(D.YEAR_CUR),String(D.YEAR_PREV)];
   let mx=Math.max(...prev,...cur.filter(v=>v!=null));
@@ -94,6 +100,11 @@ function yoyOption(metricKey,series,opts){
       data:prev,z:2,label:{show:false}},
     {name:String(D.YEAR_CUR),type:'line',smooth:false,symbol:'circle',symbolSize:5,
       lineStyle:{width:2.6,color:C_CUR},itemStyle:{color:C_CUR},
+      /* Заливка гаснет книзу: сплошная плита от линии до нуля весит больше,
+         чем сама линия, и спорит с ней за внимание. Градиент показывает
+         «сколько набрано» и не превращается в отдельный объект. */
+      areaStyle:share?{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[
+        {offset:0,color:'rgba(58,63,74,.13)'},{offset:1,color:'rgba(58,63,74,0)'}]}}:undefined,
       data:cur,z:5,connectNulls:false,label:valueLabel(metricKey)}
   ];
   if(opts.kpi!=null){
@@ -110,10 +121,10 @@ function yoyOption(metricKey,series,opts){
       lineStyle:{width:1.6,type:'dashed',color:C_BENCH},itemStyle:{color:C_BENCH},label:{show:false}});
   }
   return Object.assign(head(opts.title,legend),{
-    grid:{left:10,right:14,top:HEAD_H+14,bottom:24,containLabel:true},
+    grid:{left:10,right:14,top:HEAD_H+10,bottom:22,containLabel:true},
     tooltip:Object.assign(tooltipBase(),{formatter:tooltipRows(metricKey)}),
     xAxis:monthAxis(labels),
-    yAxis:zeroAxis(mx),
+    yAxis:share?shareAxis():zeroAxis(mx),
     series:data,animationDuration:600,animationEasing:'cubicOut'
   });
 }
@@ -122,7 +133,7 @@ function yoyOption(metricKey,series,opts){
 function groupedBarOption(seriesDefs,monthsLabels,metricKey,title){
   const mx=Math.max(...seriesDefs.map(s=>Math.max(...s.data)));
   return Object.assign(head(title,seriesDefs.map(s=>s.name)),{
-    grid:{left:10,right:14,top:HEAD_H+14,bottom:24,containLabel:true},
+    grid:{left:10,right:14,top:HEAD_H+10,bottom:22,containLabel:true},
     tooltip:Object.assign(tooltipBase(),{axisPointer:{type:'shadow'},formatter:tooltipRows(metricKey)}),
     xAxis:Object.assign(monthAxis(monthsLabels),{boundaryGap:true}),
     yAxis:zeroAxis(mx),

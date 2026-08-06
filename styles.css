@@ -240,6 +240,12 @@ button{font-family:inherit}
   .split{height:clamp(520px,calc(100vh - var(--apphead-h) - 120px),1280px)}
 }
 
+/* крошки над таблицей: отвечают на вопрос «где я в дереве» */
+.crumbs{font-size:var(--fs-note);color:var(--muted);font-weight:600;margin:0 0 var(--s5);
+  line-height:1.5}
+.crumbs b{color:var(--ink2);font-weight:800}
+.crumb-sep{margin:0 var(--s3);color:var(--muted2)}
+
 /* ============ Таблицы ============ */
 .ptable{width:100%;border-collapse:collapse;font-size:var(--fs-body)}
 .ptable th{font-size:var(--fs-cap);text-transform:uppercase;letter-spacing:.2px;color:var(--muted);
@@ -257,7 +263,6 @@ button{font-family:inherit}
 .ptable tr.urow,.ptable tr.mrow{cursor:pointer}
 .ptable tr.urow:hover,.ptable tr.mrow:hover{background:var(--hover)}
 .ptable tr.urow.sel{background:#f5f8ff;box-shadow:inset 3px 0 0 var(--act)}
-.ptable tr.lvl2 td.txt .row-body{padding-left:var(--s9)}
 .ptable tr.lvl2 td{background:#fcfcfd}
 /* Фон вложенной строки задан на ячейках, поэтому выделение тоже приходится
    ставить на них: фон строки под ним не виден. */
@@ -275,12 +280,17 @@ button{font-family:inherit}
    воздуха. Разная высота читалась как разная значимость метрики, хотя
    отличалось только наполнение одной ячейки. */
 .ptable.onepager tbody tr.mrow{height:76px}
+/* Нижняя граница последней строки шла в паре с краем панели и читалась как
+   лишняя узкая полоса. Панель уже очерчена — второй линии не нужно. */
+.ptable tbody tr:last-child td{border-bottom:0}
 .ptable.onepager td.vs{line-height:1.35}
 /* ИТОГО первой строкой + липкая шапка: итог не уезжает под скролл */
 .ptable.dense thead th{position:sticky;top:0;z-index:3;background:var(--card)}
 .ptable tr.total.top td{position:sticky;top:33px;z-index:2;border-top:0;
   border-bottom:2px solid var(--line);background:var(--hover);font-weight:800;color:var(--ink)}
 .unit-sub{display:block;font-size:var(--fs-cap);color:var(--muted);font-weight:600;margin-top:1px}
+.unit-trail{display:block;font-size:var(--fs-cap);color:var(--muted2);font-weight:600;
+  margin-bottom:1px;white-space:normal}
 .muted-row{color:var(--muted);font-weight:600}
 
 /* Каретка раскрытия — своя колонка, не приклеена к тексту. */
@@ -309,6 +319,8 @@ button{font-family:inherit}
 .tgt{font-size:var(--fs-note);color:var(--muted);font-weight:600;line-height:1.35;
   white-space:nowrap;text-align:right;margin-bottom:var(--s1)}
 .tgt b{color:var(--ink2);font-weight:700;display:block;font-size:var(--fs-body)}
+.tgt .dash-mark{display:inline-block;width:12px;border-top:2px dashed var(--bench);
+  vertical-align:middle;margin-right:5px}
 
 /* ============ Пилюли и метки ============ */
 .delta{display:inline-flex;align-items:center;gap:var(--s2);font-size:var(--fs-note);font-weight:700;
@@ -380,14 +392,15 @@ button{font-family:inherit}
 .tip .t-n+.t-n{margin-top:var(--s1);padding-top:0;border-top:0}
 
 /* ============ Спарклайн ============ */
-.spark{display:inline-block;vertical-align:middle}
+.spark{display:block;width:100%;height:40px}
+.spark .sb-base{fill:var(--line)}
 /* Тона между фоном пилюли и её текстом: бар на белом читается, но остаётся
    в том же бледном семействе, что светофор в соседней ячейке. */
 .spark .sb.good{fill:#80cf9a}
 .spark .sb.bad{fill:#ef8c8c}
 .spark .sb.warn,.spark .sb.neutral{fill:#c7c8cc}
 .sparkcell{text-align:center}
-.ptable td.sparkcell{padding-left:var(--s5);padding-right:var(--s7)}
+.ptable td.sparkcell{padding:var(--s4) var(--s7) var(--s4) var(--s5)}
 .ptable th.sparkcell{text-align:center;padding-right:var(--s7)}
 
 /* ============ Графики ============ */

@@ -172,6 +172,15 @@ function renderShelf(){
       '<div class="ft-hint">'+focusHint+'</div>'+
     '</div>'+
     '<div class="shelf-grp">'+
+      '<div class="shelf-h">Метрики для отображения</div>'+
+      '<button class="mf-toggle" id="mfToggle" aria-expanded="'+(state.metricOpen?'true':'false')+'">'+
+        '<span>'+sel+' из '+total+' метрик</span><span class="mf-caret" aria-hidden="true">'+(state.metricOpen?'▾':'▸')+'</span></button>'+
+      '<div class="mf-drop '+(state.metricOpen?'':'hidden')+'">'+
+        '<div class="mf-actions"><button id="mfAll">Все</button><button id="mfNone">Снять все</button></div>'+
+        '<div class="metricfilter">'+mlist+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="shelf-grp">'+
       '<div class="shelf-h">Юнит зоны · −1</div>'+
       '<div class="ctl"><select id="teamSel" aria-label="Юнит зоны">'+teamOptionsHTML()+'</select></div>'+
     '</div>'+
@@ -181,16 +190,7 @@ function renderShelf(){
       '<div class="ft-hint">● — на юните стоит своя цель</div>'+
     '</div>'+
     '<div class="shelf-sep">Разрезы численности</div>'+
-    cuts+
-    '<div class="shelf-grp">'+
-      '<div class="shelf-h">Метрики для отображения</div>'+
-      '<button class="mf-toggle" id="mfToggle" aria-expanded="'+(state.metricOpen?'true':'false')+'">'+
-        '<span>'+sel+' из '+total+' метрик</span><span class="mf-caret" aria-hidden="true">'+(state.metricOpen?'▾':'▸')+'</span></button>'+
-      '<div class="mf-drop '+(state.metricOpen?'':'hidden')+'">'+
-        '<div class="mf-actions"><button id="mfAll">Все</button><button id="mfNone">Снять все</button></div>'+
-        '<div class="metricfilter">'+mlist+'</div>'+
-      '</div>'+
-    '</div>';
+    cuts;
 
   document.getElementById('hrbpSel').onchange=e=>{state.hrbpId=e.target.value;state.teamFilter=null;state.fullUnit=null;state.selTeam=null;state.openMetric=null;openRows.clear();rerender()};
   document.getElementById('focusToggle').onchange=e=>{state.focusOnly=e.target.checked;state.selTeam=null;state.openMetric=null;rerender()};
@@ -237,7 +237,8 @@ function cmpCell(m,val,bl){
   }
   if(bl.kind==='bench'){
     const diff=+(val-bl.base).toFixed(1);
-    return '<div class="tgt"><b>'+D.fmtVal(m.key,bl.base)+'</b>база: '+esc(benchName())+'</div>'+
+    return '<div class="tgt"><b>'+D.fmtVal(m.key,bl.base)+'</b>'+
+      '<i class="dash-mark"></i>база: '+esc(benchName())+'</div>'+
       '<span class="cell '+bl.state+'"'+U.tip({title:'Сравнение с базой',
         rows:[{label:'факт',value:D.fmtVal(m.key,val)},{label:benchName(),value:D.fmtVal(m.key,bl.base),dash:true,color:'#9aa0ac'},
               {label:'отклонение',value:D.fmtDelta(m.key,diff)}],
@@ -275,8 +276,23 @@ function renderOnePager(){
   /* карточки шапки */
   const people=aggLeaves(leaves,'headcount')[D.LAST];
   const ownK=D.ownKpis(unit).length;
-  const inhCount=selMetrics().filter(m=>{const b=baselineOf(m.key,scopeSeries(m.key)[D.LAST]);return b.kind==='kpi'&&b.inherited}).length;
-  const ownShown=selMetrics().filter(m=>{const b=baselineOf(m.key,scopeSeries(m.key)[D.LAST]);return b.kind==='kpi'&&!b.inherited}).length;
+  /* Число само по себе ничего не даёт: важно, С КАКОГО уровня цель пришла.
+     Собираем источники наследования и называем их поимённо. */
+  const inhOwners=[];
+  let ownShown=0;
+  selMetrics().forEach(m=>{
+    const b=baselineOf(m.key,scopeSeries(m.key)[D.LAST]);
+    if(b.kind!=='kpi')return;
+    if(b.inherited){if(inhOwners.indexOf(b.owner.name)<0)inhOwners.push(b.owner.name)}
+    else ownShown++;
+  });
+  const inhCount=selMetrics().filter(m=>{
+    const b=baselineOf(m.key,scopeSeries(m.key)[D.LAST]);return b.kind==='kpi'&&b.inherited;
+  }).length;
+  const inhFrom=inhOwners.length
+    ? (inhOwners.length===1?'с уровня «'+inhOwners[0]+'»'
+       :'с уровней: '+inhOwners.slice(0,2).join(', ')+(inhOwners.length>2?' и ещё '+(inhOwners.length-2):''))
+    : '';
   html+=U.kpis([
     U.kpiCard({label:'Юнит отчёта',value:populationLabel(),small:true,
       q:U.infoDot({title:'Юнит отчёта',text:'Выбирается фильтрами «Юнит зоны» и «Все юниты». От него считается наследование целей.'}),
@@ -292,7 +308,7 @@ function renderOnePager(){
     U.kpiCard({label:'Наследуемых целей',value:String(inhCount),
       q:U.infoDot({title:'Наследование',text:'Цель, поставленная выше по дереву, действует на всю ветку вниз, пока не встретится своя.'}),
       row1:inhCount?'<span class="kpi-tag inh">Фокус через родителя</span>':'<span class="k-sub">—</span>',
-      row2:'<div></div>'})
+      row2:'<span class="k-sub">'+(inhFrom||'наследовать не от кого')+'</span>'})
   ]);
 
   /* таблицы блоков */
@@ -384,6 +400,14 @@ function bindRowToggle(sel,attr,fn){
 
 /* ================= ВКЛАДКА: КОМАНДЫ ================= */
 /* строки сводной таблицы: юниты −1 от активного, раскрытые — со своими детьми (−1 от строки) */
+/* Родительская цепочка строки внутри текущего корня: без неё вложенная
+   строка висит без контекста — видно «Отдел авторизации», но не видно,
+   чей он. Корень отчёта в цепочку не входит: он уже назван в крошках. */
+function parentTrail(path,root){
+  return D.ancestorsOf(path)
+    .filter(n=>n.path!==path&&n.path.length>root.length)
+    .map(n=>n.name).join(' › ');
+}
 function pivotRows(root){
   const rows=[];
   D.nodesBelow(root,1).forEach(n=>{
@@ -487,7 +511,9 @@ function renderTeams(){
       (canExp?U.caret(openRows.has(r.n.path),'exp',r.n.path,'Раскрыть детализацию',
           {title:'Детализация',text:'Юниты уровнем ниже внутри «'+r.n.name+'».'})
         :U.caretSpacer)+
-      '<span class="row-body">'+esc(r.n.name)+
+      '<span class="row-body">'+
+        (parentTrail(r.n.path,root)?'<span class="unit-trail">'+esc(parentTrail(r.n.path,root))+' ›</span>':'')+
+        esc(r.n.name)+
         (shownOwn?' <span class="kpi-tag own"'+U.tip({title:'Фокус юнита',
             text:'Цели установлены на этом юните и уходят вниз по всей его ветке.',
             rows:[{label:'целей в фокусе',value:String(shownOwn)}]})+'>★ Фокус</span>':'')+
@@ -504,8 +530,12 @@ function renderTeams(){
   }
   tbl+='</tbody></table>';
 
-  html+=U.trafficLegend()+'<div class="split">'+
-    U.panel({cls:'split-l',title:'Юниты',sub:'клик по строке меняет динамику справа',body:tbl,bodyCls:'tbl-wrap'});
+  const crumbs=D.ancestorsOf(root).map((n,i,a)=>
+    i===a.length-1?'<b>'+esc(n.name)+'</b>':esc(n.name)).join('<span class="crumb-sep">›</span>');
+  html+=U.trafficLegend()+'<div class="crumbs">'+crumbs+'</div><div class="split">'+
+    U.panel({cls:'split-l',title:'Юниты',
+      sub:'клик по строке меняет графики справа и раскрывает ориентиры под значениями',
+      body:tbl,bodyCls:'tbl-wrap'});
 
   let right='';
   mets.forEach(m=>{right+='<div class="dyn-block"><div class="dyn-chart" id="dyn-'+m.key+'"></div></div>'});

@@ -185,17 +185,19 @@ function cell(state,text,sub,tipObj){
    последний: месяц, в котором команда вышла за цель, должен быть виден в
    строке, иначе спарклайн показывает форму, но молчит про оценку. */
 function spark(series,states){
-  const w=150,h=30,n=series.length,pad=3;
+  const w=200,h=40,n=series.length,pad=2;
   const mx=Math.max(...series,0)||1;
   const bw=(w-pad*2)/n;
   let bars='';
   series.forEach((v,i)=>{
-    const bh=Math.max(1.5,(v/mx)*(h-4));
+    const bh=Math.max(2,(v/mx)*(h-4));
     const x=pad+i*bw, y=h-bh;
     bars+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+Math.max(1,bw-2).toFixed(1)+
       '" height="'+bh.toFixed(1)+'" rx="1.5" class="sb '+(states[i]||'neutral')+'"/>';
   });
-  return '<svg class="spark" width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" aria-hidden="true">'+bars+'</svg>';
+  /* базовая линия нуля: без неё бары висят в воздухе и не читаются как один ряд */
+  bars+='<rect x="0" y="'+(h-1)+'" width="'+w+'" height="1" class="sb-base"/>';
+  return '<svg class="spark" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none" aria-hidden="true">'+bars+'</svg>';
 }
 
 window.HRBPUI={esc,tipHtml,tip,deltaChip,momChip,yoyChip,noCmpMark,infoDot,
