@@ -1,0 +1,45 @@
+# Публикация макета на GitHub Pages.
+#
+# Макет — статика: index.html в корне, стили и скрипты рядом, все ссылки
+# относительные. Поэтому собирать нечего: артефактом уезжает сам репозиторий.
+#
+# configure-pages с enablement: true включает Pages сам, если в настройках
+# репозитория они ещё не включены, — отдельный поход в Settings не нужен.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  # Ручной запуск: пересобрать страницу, не дожидаясь коммита в main.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Идёт одна публикация за раз. Начатую не отменяем: прерванный деплой
+# оставляет страницу в промежуточном состоянии.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
