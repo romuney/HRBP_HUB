@@ -35,6 +35,9 @@
 
 ## Публикация
 
-`.github/workflows/pages.yml` публикует корень репозитория на GitHub Pages при
-каждом пуше в `main` и по кнопке «Run workflow». Pages включаются самим
-workflow — заходить в Settings не нужно.
+GitHub Pages настроены на **Deploy from a branch → `main` / `(root)`**: макет
+публикуется из корня ветки `main`, отдельной сборки нет. Всё, что попадает
+в `main`, через минуту-другую оказывается на https://romuney.github.io/HRBP_HUB/
+
+`.nojekyll` выключает обработку Jekyll — собирать нечего, а лишний шаг умеет
+ронять файлы со служебными именами.
