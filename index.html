@@ -5,34 +5,47 @@
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>HRBP HUB — макет</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css"/>
 </head>
 <body>
+  <a class="skip-link" href="#view">Перейти к отчёту</a>
+
   <header class="apphead">
     <div class="apphead-top">
       <div class="logo">HRBP HUB <small>· макет</small></div>
-      <span class="badge-draft">⌄ Черновик</span>
+      <span class="badge-draft">Черновик</span>
       <div class="spacer"></div>
-      <button class="btn primary">⟲ Внести изменения в мастер</button>
-      <button class="btn">Редактировать</button>
+      <button class="btn" id="btnMaster">Внести изменения в мастер</button>
+      <button class="btn primary" id="btnKpi">Настроить KPI</button>
     </div>
-    <nav class="tabbar">
-      <button class="tab-top active" data-tab="onepager">OnePager</button>
+    <nav class="tabbar" aria-label="Разделы отчёта">
+      <button class="tab-top active" data-tab="onepager" aria-current="page">One-Pager</button>
       <button class="tab-top" data-tab="teams">Команды</button>
       <button class="tab-top" data-tab="transformer">Трансформеры</button>
       <button class="tab-top" data-tab="catalog">Каталог метрик</button>
     </nav>
   </header>
+
   <div class="layout">
-    <aside class="shelf" id="shelf"></aside>
-    <main class="content">
-      <div id="view"></div>
-    </main>
+    <aside class="shelf" id="shelf" aria-label="Фильтры отчёта"></aside>
+    <div class="main-col">
+      <section class="reporthead">
+        <div class="chips" id="chips"></div>
+        <span class="period" id="periodBadge"></span>
+      </section>
+      <main class="content" id="view" tabindex="-1"></main>
+    </div>
   </div>
+
+  <!-- Окно настройки целей: содержимое собирает app.js -->
+  <div class="ovl tall hidden" id="kpiOvl"></div>
+
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
   <script src="data.js"></script>
   <script src="charts.js"></script>
+  <script src="ui.js"></script>
   <script src="app.js"></script>
 <script data-pplx-inline-edit>
 (function () {
@@ -362,5 +375,6 @@
 })();
 
 
-</script></body>
+</script>
+</body>
 </html>
