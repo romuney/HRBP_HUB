@@ -3,6 +3,10 @@
    Самодостаточный детерминированный генератор.
    В Proteus эти структуры приходят из ClickHouse (см. спеку датасетов).
    Метрики — реальный перечень (action-метрики), разбиты на логические блоки.
+
+   Целевые значения (KPI) живут отдельным реестром KPI_RULES и НАСЛЕДУЮТСЯ
+   вниз по дереву: цель, поставленная на блок, действует на всю ветку, пока
+   ниже не встретится своя цель — начиная с неё и вниз работает она.
    ============================================================ */
 
 /* ---------- PRNG (детерминированный) ---------- */
@@ -19,6 +23,9 @@ const MONTHS=(function(){
 })();
 const N=MONTHS.length;
 const LAST=N-1;
+const PERIOD_LABEL='июнь 2026';
+const PREV_LABEL='маю 2026';
+const YEAR_LABEL='июлю 2025';
 
 /* ---------- Логические блоки метрик (синхронизированы с OnePager) ---------- */
 const BLOCKS=[
@@ -26,34 +33,39 @@ const BLOCKS=[
   {key:'structure', name:'Структура команды',     hint:'Численность, доля джунов, регионализация найма.'},
   {key:'discipline',name:'Дисциплина и баланс',   hint:'Прогулы и неотгуленные отпуска.'}
 ];
+const BLOCK_BY_KEY=Object.fromEntries(BLOCKS.map(b=>[b.key,b]));
 
-/* ---------- Конфиг метрик (действующие — на 1-й странице с бенчами) ----------
-   better: 'lower' | 'higher' | 'flat'
-   fmt: 'int' | 'pct' | 'days'
-   threshold: {green, red} — дефолтная цель метрики (порог светофора).
-              Реальные цели задаёт Senior HRBP во внешнем инструменте per команда×метрика.
-              Здесь threshold = «эталонная» цель; per-команда варьируется (см. leafThreshold).
-              Для 'flat' порога нет (нейтральная метрика без светофора).
+/* ---------- Конфиг метрик ----------
+   better: 'lower' | 'higher' | 'flat'   — направление «лучше»
+   fmt:    'int' | 'pct' | 'days'
+   ref:    ориентир метрики по компании (для подсказки в окне настройки KPI).
+           Настоящую цель ставит HRBP в реестре KPI — см. KPI_RULES.
+   Метрики с better:'flat' не окрашиваются и цель на них не ставится:
+   «больше» у них не значит «лучше».
 */
 const METRICS=[
   // Блок 1 — Удержание и текучесть
-  {key:'retention_new', block:'retention', name:'Закрепляемость новичков',      short:'Закрепл.',  fmt:'pct',  better:'higher', unit:'%',   threshold:{green:85,red:70}, hint:'Доля новичков, прошедших испытательный срок и оставшихся.'},
-  {key:'regret',        block:'retention', name:'Regrettable текучесть',         short:'Regret',    fmt:'pct',  better:'lower',  unit:'%',   threshold:{green:3,red:7},   hint:'Текучесть среди ценных сотрудников (нежелательные уходы), годовой темп.'},
-  {key:'nonregret',     block:'retention', name:'Non regrettable текучесть',     short:'Non-reg.',  fmt:'pct',  better:'flat',   unit:'%',   threshold:null,              hint:'Текучесть без сожаления (управляемые уходы). Нейтральная, без порога.'},
-  {key:'exit_reasons',  block:'retention', name:'Заполнение причин увольнений',  short:'Причины',   fmt:'pct',  better:'higher', unit:'%',   threshold:{green:90,red:70}, hint:'Доля увольнений с заполненной причиной (качество данных оттока).'},
+  {key:'retention_new', block:'retention', name:'Закрепляемость новичков',      short:'Закрепл.',  fmt:'pct',  better:'higher', unit:'%',   ref:85, hint:'Доля новичков, прошедших испытательный срок и оставшихся.'},
+  {key:'regret',        block:'retention', name:'Regrettable текучесть',         short:'Regret',    fmt:'pct',  better:'lower',  unit:'%',   ref:4,  hint:'Текучесть среди ценных сотрудников (нежелательные уходы), годовой темп.'},
+  {key:'nonregret',     block:'retention', name:'Non regrettable текучесть',     short:'Non-reg.',  fmt:'pct',  better:'flat',   unit:'%',   ref:null, hint:'Текучесть без сожаления (управляемые уходы). Нейтральная: больше не значит лучше.'},
+  {key:'exit_reasons',  block:'retention', name:'Заполнение причин увольнений',  short:'Причины',   fmt:'pct',  better:'higher', unit:'%',   ref:90, hint:'Доля увольнений с заполненной причиной (качество данных оттока).'},
   // Блок 2 — Структура команды
-  {key:'headcount',     block:'structure', name:'Численность',                   short:'Числ.',     fmt:'int',  better:'flat',   unit:'чел', threshold:null,              hint:'Списочная численность сотрудников на конец месяца.'},
-  {key:'jun_team',      block:'structure', name:'% джунов в команде',            short:'Джуны',     fmt:'pct',  better:'flat',   unit:'%',   threshold:null,              hint:'Доля сотрудников грейда Junior/Junior+ в команде.'},
-  {key:'jun_hire',      block:'structure', name:'% джунов в найме',              short:'Джуны найм',fmt:'pct',  better:'flat',   unit:'%',   threshold:null,              hint:'Доля джунов среди принятых за период.'},
-  {key:'region_hire',   block:'structure', name:'% найма в регионах',           short:'Регион найм',fmt:'pct', better:'higher', unit:'%',   threshold:{green:40,red:20}, hint:'Доля найма вне Москвы и СПб (регионализация).'},
+  {key:'headcount',     block:'structure', name:'Численность',                   short:'Числ.',     fmt:'int',  better:'flat',   unit:'чел', ref:null, hint:'Списочная численность сотрудников на конец месяца. Абсолютная величина — с базой не сравнивается.'},
+  {key:'jun_team',      block:'structure', name:'% джунов в команде',            short:'Джуны',     fmt:'pct',  better:'higher', unit:'%',   ref:20, hint:'Доля сотрудников грейда Junior/Junior+ в команде.'},
+  {key:'jun_hire',      block:'structure', name:'% джунов в найме',              short:'Джуны найм',fmt:'pct',  better:'higher', unit:'%',   ref:30, hint:'Доля джунов среди принятых за период.'},
+  {key:'region_hire',   block:'structure', name:'% найма в регионах',           short:'Регион найм',fmt:'pct',  better:'higher', unit:'%',   ref:40, hint:'Доля найма вне Москвы и Санкт-Петербурга (регионализация).'},
   // Блок 3 — Дисциплина и баланс
-  {key:'absentees',     block:'discipline',name:'Прогульщики',                   short:'Прогулы',   fmt:'pct',  better:'lower',  unit:'%',   threshold:{green:1,red:4},   hint:'Доля сотрудников с неоправданными отсутствиями за период.'},
-  {key:'unused_vac',    block:'discipline',name:'Неотгуленные отпуска',          short:'Отпуска',   fmt:'days', better:'lower',  unit:'дн',  threshold:{green:5,red:15},  hint:'Среднее число накопленных неотгуленных дней отпуска на сотрудника.'}
+  {key:'absentees',     block:'discipline',name:'Прогульщики',                   short:'Прогулы',   fmt:'pct',  better:'lower',  unit:'%',   ref:1,  hint:'Доля сотрудников с неоправданными отсутствиями за период.'},
+  {key:'unused_vac',    block:'discipline',name:'Неотгуленные отпуска',          short:'Отпуска',   fmt:'days', better:'lower',  unit:'дн',  ref:5,  hint:'Среднее число накопленных неотгуленных дней отпуска на сотрудника.'}
 ];
 const METRIC_BY_KEY=Object.fromEntries(METRICS.map(m=>[m.key,m]));
 function metricsOfBlock(blockKey){return METRICS.filter(m=>m.block===blockKey)}
+/* метрика, на которую в принципе можно поставить цель и которую можно окрасить */
+function targetable(key){return METRIC_BY_KEY[key].better!=='flat'}
+/* абсолютные величины с базой не сравниваются (212 человек против 2 968 — это масштаб, а не оценка) */
+function comparable(key){return METRIC_BY_KEY[key].fmt!=='int'&&METRIC_BY_KEY[key].better!=='flat'}
 
-/* ---------- Метрики «в разработке» и «хотим разработать» (страница 2 — каталог) ---------- */
+/* ---------- Метрики «в разработке» и «хотим разработать» (каталог) ---------- */
 const DEV_METRICS=[
   {name:'Эффективность работы с лоу-перформерами', note:'Доля закрытых PIP с положительным результатом. Привязана к КП.'},
   {name:'% укомплектованности штата',              note:'Факт численности к плановой (по ресурсной структуре).'},
@@ -68,6 +80,39 @@ const WANTED_METRICS=[
   {name:'Наличие задач в ревью по eligible',             note:'Доля eligible-сотрудников с заведённой задачей в ревью.'}
 ];
 
+/* ============================================================
+   ФИЛЬТРЫ ЧИСЛЕННОСТИ
+   ------------------------------------------------------------
+   Один и тот же набор разрезов работает в двух местах: как фильтр отчёта
+   на левой полке и как условие применения KPI в реестре целей. Поэтому
+   определения лежат в одном месте — иначе окно настройки KPI и фильтры
+   отчёта разъедутся, и цель по «HQ» перестанет находить свою численность.
+   ============================================================ */
+const PAINTS=[{key:'all',name:'Все покраски'},{key:'HQ',name:'HQ'},{key:'Line',name:'Line'},{key:'Support',name:'Support'}];
+const ITSEGS=[{key:'all',name:'IT и nonIT'},{key:'IT',name:'Только IT'},{key:'nonIT',name:'Только nonIT'}];
+const STREAMS=[{key:'all',name:'Все стримы'},{key:'Платформа',name:'Платформа'},{key:'Продукт',name:'Продукт'},
+  {key:'Данные',name:'Данные'},{key:'Операции',name:'Операции'},{key:'Сопровождение',name:'Сопровождение'}];
+const SPECS=[{key:'all',name:'Все специализации'},{key:'Разработка',name:'Разработка'},{key:'Аналитика',name:'Аналитика'},
+  {key:'Тестирование',name:'Тестирование'},{key:'Инфраструктура',name:'Инфраструктура'},{key:'Продукт',name:'Продукт'},{key:'Поддержка',name:'Поддержка'}];
+const STAFFTYPES=[{key:'all',name:'Штат и не штат'},{key:'staff',name:'Только штат'},{key:'nonstaff',name:'Только не штат'}];
+const HCTYPES=[{key:'all',name:'Вся численность'},{key:'core',name:'Основной состав'},{key:'part',name:'Совместители'},
+  {key:'project',name:'Проектные'},{key:'intern',name:'Стажёры'}];
+
+/* key    — поле состояния отчёта и поле условия в правиле KPI
+   attr   — атрибут листа, по которому идёт отбор
+   label  — подпись фильтра и группы в окне настройки KPI
+   chip   — как разрез называется в подписи базы сравнения */
+const FILTER_DEFS=[
+  {key:'paint',    attr:'paint', label:'Покраска',        list:PAINTS,     chip:v=>v},
+  {key:'itSeg',    attr:'it',    label:'IT / nonIT',      list:ITSEGS,     chip:v=>v},
+  {key:'stream',   attr:'stream',label:'Стрим',           list:STREAMS,    chip:v=>'стрим '+v},
+  {key:'spec',     attr:'spec',  label:'Специализация',   list:SPECS,      chip:v=>v.toLowerCase()},
+  {key:'staffType',attr:'staff', label:'Штат / не штат',  list:STAFFTYPES, chip:v=>v==='staff'?'штат':'не штат'},
+  {key:'hcType',   attr:'hcType',label:'Тип численности', list:HCTYPES,    chip:v=>({core:'основной состав',part:'совместители',project:'проектные',intern:'стажёры'})[v]}
+];
+const FILTER_BY_KEY=Object.fromEntries(FILTER_DEFS.map(f=>[f.key,f]));
+const EMPTY_FILTERS=Object.fromEntries(FILTER_DEFS.map(f=>[f.key,'all']));
+
 /* ---------- Бенчмарки (единое переключаемое сравнение) ---------- */
 const BENCHMARKS=[
   {key:'none',    name:'Без сравнения'},
@@ -76,7 +121,6 @@ const BENCHMARKS=[
   {key:'it',      name:'Все IT'},
   {key:'nonit',   name:'Все nonIT'}
 ];
-// «якоря» метрик на последний месяц для каждого бенчмарка
 const BENCH_ANCHOR={
   company:{retention_new:80.0,regret:5.2,nonregret:7.0,exit_reasons:84.0,headcount:48200,jun_team:22.0,jun_hire:30.0,region_hire:38.0,absentees:2.2,unused_vac:9.0},
   hq:     {retention_new:83.0,regret:4.3,nonregret:6.5,exit_reasons:88.0,headcount:21500,jun_team:18.0,jun_hire:26.0,region_hire:30.0,absentees:1.8,unused_vac:7.0},
@@ -88,9 +132,6 @@ const BENCH_ANCHOR={
    level 1  — компания (вершина, «Вся компания»),
    level 2  — блоки/направления,
    level 3..12 — департамент → управление → отдел → … → ячейка.
-   path — ключ клика/фильтра (как в Superset hierarchical crossfilter).
-   Дерево строится программно: ветки разной глубины, у каждого блока есть
-   «хребет», уходящий на полную глубину (12 уровней).
 */
 const BLOCK_DEFS=[
   {id:'01', name:'Технологические платформы', seg:'IT'},
@@ -102,47 +143,50 @@ const BLOCK_DEFS=[
   {id:'07', name:'Клиентский сервис',          seg:'nonIT'}
 ];
 const MAX_LEVEL=12;
-// управленческие тиры по уровню
 const LEVEL_ABBR={1:'Компания',2:'Блок',3:'Департамент',4:'Управление',5:'Отдел',6:'Центр',7:'Группа',8:'Подгруппа',9:'Команда',10:'Звено',11:'Подзвено',12:'Ячейка'};
 const LEVEL_SHORT={3:'Деп.',4:'Упр.',5:'Отд.',6:'Центр',7:'Гр.',8:'Подгр.',9:'Ком.',10:'Зв.',11:'Подзв.',12:'Яч.'};
 function levelLabel(level){return LEVEL_ABBR[level]||('ур. '+level)}
 const pad2=n=>String(n).padStart(2,'0');
 
-const NODES=[]; // {id,path,parent,level,name,sort,domainId,leaf,is_focus,is_hq,segment}
-const ROOT={id:'T',path:'T',parent:null,level:1,name:'ТБанк',sort:0,domainId:null,leaf:false,is_focus:false};
+const NODES=[];
+const ROOT={id:'T',path:'T',parent:null,level:1,name:'ТБанк',sort:0,domainId:null,leaf:false};
 NODES.push(ROOT);
 let sortCtr=1;
 
-// атрибуты листа: segment (IT|nonIT) и is_hq — детерминированно по path.
-// Блок nonIT — целиком nonIT; в остальных ~20% листьев nonIT (опс/админ).
+/* Атрибуты листа — детерминированно по path. Блок nonIT целиком nonIT;
+   в остальных ~20% листьев nonIT (опс/админ). */
 function leafAttrs(path,blockSeg){
-  const segment = blockSeg==='nonIT' ? 'nonIT' : (rng('seg'+path)()<0.20?'nonIT':'IT');
-  const is_hq = rng('hq'+path)()<0.55;
-  return {segment,is_hq};
+  const rp=rng('paint'+path)();
+  const paint = rp<0.42?'HQ':(rp<0.78?'Line':'Support');
+  const it = blockSeg==='nonIT' ? 'nonIT' : (rng('seg'+path)()<0.20?'nonIT':'IT');
+  const staff = rng('st'+path)()<0.86?'staff':'nonstaff';
+  const stream = STREAMS[1+Math.floor(rng('str'+path)()*(STREAMS.length-1))].key;
+  const spec = SPECS[1+Math.floor(rng('sp'+path)()*(SPECS.length-1))].key;
+  const hr=rng('hct'+path)();
+  const hcType = hr<0.72?'core':(hr<0.84?'part':(hr<0.94?'project':'intern'));
+  return {paint,it,staff,stream,spec,hcType};
 }
-// код узла ниже блока: включает номер блока для глобальной различимости (напр. «1.2.3» — блок 1, далее 2.3)
 function nodeCode(path){return path.split('/').slice(1).map(s=>String(parseInt(s,10))).join('.')}
 function genName(level,path){return level>=3 ? LEVEL_SHORT[level]+' '+nodeCode(path) : ''}
 
-// рекурсивная генерация поддерева под узлом-блоком (level 2).
-// onSpine — у каждого блока РОВНО ОДИН «хребет» (первый ребёнок хребта), уходящий на 12 уровней;
-// остальные ветки схлопываются в листья тем раньше, чем глубже уровень.
+/* onSpine — у каждого блока РОВНО ОДИН «хребет», уходящий на 12 уровней;
+   остальные ветки схлопываются в листья тем раньше, чем глубже уровень. */
 function genChildren(node,blockSeg,onSpine){
   if(node.level>=MAX_LEVEL)return;
   const r=rng('br'+node.path);
-  const nc = node.level===2 ? 2+Math.floor(r()*2)   // 2..3 департамента
-           : node.level===3 ? 2                       // 2 управления
-           : 1+Math.floor(r()*2);                     // 1..2 глубже
+  const nc = node.level===2 ? 2+Math.floor(r()*2)
+           : node.level===3 ? 2
+           : 1+Math.floor(r()*2);
   for(let i=0;i<nc;i++){
     const childLevel=node.level+1;
     const childPath=node.path+'/'+pad2(i+1);
-    const childOnSpine = onSpine && i===0;            // хребет продолжает только первый ребёнок
+    const childOnSpine = onSpine && i===0;
     let isLeaf;
-    if(childLevel>=MAX_LEVEL)   isLeaf=true;          // 12-й уровень всегда лист
-    else if(childOnSpine)       isLeaf=false;         // хребет уходит на глубину
+    if(childLevel>=MAX_LEVEL)   isLeaf=true;
+    else if(childOnSpine)       isLeaf=false;
     else { const lp = childLevel<=4 ? 0.40 : Math.min(0.94,(childLevel-3)*0.30); isLeaf=rng('leaf'+childPath)()<lp; }
     const child={id:childPath,path:childPath,parent:node.path,level:childLevel,
-      name:genName(childLevel,childPath),sort:sortCtr++,domainId:node.domainId,leaf:isLeaf,is_focus:false};
+      name:genName(childLevel,childPath),sort:sortCtr++,domainId:node.domainId,leaf:isLeaf};
     if(isLeaf)Object.assign(child,leafAttrs(childPath,blockSeg));
     NODES.push(child);
     if(!isLeaf)genChildren(child,blockSeg,childOnSpine);
@@ -150,54 +194,66 @@ function genChildren(node,blockSeg,onSpine){
 }
 BLOCK_DEFS.forEach(b=>{
   const bp='T/'+b.id;
-  const bn={id:b.id,path:bp,parent:'T',level:2,name:b.name,sort:sortCtr++,domainId:b.id,leaf:false,is_focus:false};
+  const bn={id:b.id,path:bp,parent:'T',level:2,name:b.name,sort:sortCtr++,domainId:b.id,leaf:false};
   NODES.push(bn);
   genChildren(bn,b.seg,true);
 });
 const NODE_BY_PATH=Object.fromEntries(NODES.map(n=>[n.path,n]));
-function childrenOf(path){return NODES.filter(n=>n.parent===path)}
+const _kids={};
+NODES.forEach(n=>{if(n.parent){(_kids[n.parent]=_kids[n.parent]||[]).push(n)}});
+function childrenOf(path){return (_kids[path]||[]).slice().sort((a,b)=>a.sort-b.sort)}
 function descendantsOf(path){return NODES.filter(n=>n.path===path||n.path.startsWith(path+'/'))}
-function leavesUnder(path){return descendantsOf(path).filter(n=>n.leaf)}
+const _leaves={};
+function leavesUnder(path){
+  if(!_leaves[path])_leaves[path]=descendantsOf(path).filter(n=>n.leaf);
+  return _leaves[path];
+}
+function ancestorsOf(path){
+  const seg=path.split('/');const out=[];
+  for(let i=1;i<=seg.length;i++){const q=seg.slice(0,i).join('/');if(NODE_BY_PATH[q])out.push(NODE_BY_PATH[q])}
+  return out;
+}
+function parentOf(path){const n=NODE_BY_PATH[path];return n&&n.parent?NODE_BY_PATH[n.parent]:null}
+/* цепочка от корня до узла в виде подписи «Блок › Деп. 1.1 › Упр. 1.1.2» */
+function pathLabel(path,fromLevel){
+  return ancestorsOf(path).filter(n=>n.level>=(fromLevel||2)).map(n=>n.name).join(' › ');
+}
+/* узлы уровня −depth от заданного; если детей нет — сам узел */
+function nodesBelow(path,depth){
+  let cur=[NODE_BY_PATH[path]].filter(Boolean);
+  for(let d=0;d<depth;d++){
+    const next=[];
+    cur.forEach(n=>{const k=childrenOf(n.path);next.push(...(k.length?k:[n]))});
+    cur=[...new Map(next.map(n=>[n.path,n])).values()];
+  }
+  return cur.sort((a,b)=>a.sort-b.sort);
+}
 
-/* ---------- Фокусные юниты ----------
-   Фокусный юнит = команда, на которой HRBP проставил KPI (забираем из внешнего
-   инструмента). Это атрибут самого юнита; видимость управляется зоной HRBP.
-   Часть фокусных вложены друг в друга — для демонстрации дедупа на OnePager
-   (метрики B уже входят в A → суммировать нельзя). */
-NODES.forEach(n=>{ if(n.level>=3) n.is_focus = rng('isfocus'+n.path)()<0.12; });
-// гарантированные вложенные цепочки: в каждом блоке по «хребту» помечаем уровни 3, 6, 9
-BLOCK_DEFS.forEach(b=>{
-  let p='T/'+b.id;
-  for(let lvl=3;lvl<=9;lvl++){ p=p+'/01'; if(lvl===3||lvl===6||lvl===9){const n=NODE_BY_PATH[p];if(n)n.is_focus=true;} }
-});
-
-/* ---------- Фильтр листьев по атрибутам HQ / segment ---------- */
-function leafPassesAttr(leafPath,hqFilter,segFilter){
-  const n=NODE_BY_PATH[leafPath];if(!n)return false;
-  if(hqFilter==='hq'&&!n.is_hq)return false;
-  if(hqFilter==='nonhq'&&n.is_hq)return false;
-  if(segFilter==='IT'&&n.segment!=='IT')return false;
-  if(segFilter==='nonIT'&&n.segment!=='nonIT')return false;
+/* ---------- Фильтр листьев по всем разрезам численности ---------- */
+function leafPasses(leafPath,st){
+  const n=NODE_BY_PATH[leafPath];
+  if(!n||!n.leaf)return false;
+  for(const f of FILTER_DEFS){
+    const want=st[f.key];
+    if(want&&want!=='all'&&n[f.attr]!==want)return false;
+  }
   return true;
 }
-/* узлы для верхнеуровневого фильтра «Команда»: корни зоны HRBP + их прямые дети (level −1). */
-function teamFilterNodes(hrbpId){
-  const h=HRBP_BY_ID[hrbpId];const seen=new Set();const out=[];
-  const add=n=>{if(n&&!seen.has(n.path)){seen.add(n.path);out.push(n);}};
-  h.scope.forEach(p=>{add(NODE_BY_PATH[p]);childrenOf(p).forEach(add);});
-  return out.sort((a,b)=>a.sort-b.sort);
+/* подпись активных разрезов: «HQ + IT + штат» */
+function filterChips(st){
+  const out=[];
+  FILTER_DEFS.forEach(f=>{const v=st[f.key];if(v&&v!=='all')out.push({k:f.key,label:f.chip(v)})});
+  return out;
+}
+function filterLabel(st){
+  const c=filterChips(st);
+  return c.length?c.map(x=>x.label).join(' + '):'вся численность';
 }
 
-/* ---------- HRBP-маппинг ----------
-   scope — path зоны ответственности (раскрывается в поддерево).
-   reportsTo — вышестоящий HRBP (оргструктура самих HRBP).
-   Видимость: каждый видит всё поддерево своей зоны (Senior с зоной = ROOT видит всё).
-   Структура спроектирована так, что у Анны (Senior, вся компания) в подчинении 13 HRBP —
-   она видит большую картину, у мелких Junior — гранулярная.
-*/
+/* ---------- HRBP-маппинг ---------- */
 const HRBP=[
   {id:'anna',   name:'Анна Сергеева', role:'Senior', reportsTo:null,     scope:['T'],
-   note:'Глава HRBP. Видит всю компанию и всех фокусных юнитов под зоной ответственности.'},
+   note:'Глава HRBP. Видит всю компанию и все юниты с выставленными целями под зоной ответственности.'},
   {id:'sergey', name:'Сергей Волков', role:'Senior', reportsTo:'anna',   scope:['T/01'],
    note:'Senior блока «Технологические платформы». В подчинении два Junior.'},
   {id:'marina', name:'Марина Зайцева',role:'Senior', reportsTo:'anna',   scope:['T/02'],
@@ -227,82 +283,167 @@ const HRBP=[
 ];
 const HRBP_BY_ID=Object.fromEntries(HRBP.map(h=>[h.id,h]));
 
-// все HRBP в подчинении (рекурсивно), без самого rootId
 function hrbpReportsTree(rootId){
   const out=[];const stack=HRBP.filter(h=>h.reportsTo===rootId).map(h=>h.id);
   while(stack.length){const id=stack.pop();out.push(id);HRBP.filter(x=>x.reportsTo===id).forEach(x=>stack.push(x.id));}
   return out;
 }
 function hrbpSubordinateCount(id){return hrbpReportsTree(id).length}
-
-// подпись зоны HRBP: корень → «Вся компания», иначе перечень имён
 function zoneLabel(hrbpId){
   const h=HRBP_BY_ID[hrbpId];
   if(h.scope.includes('T'))return'Вся компания';
   return h.scope.map(p=>(NODE_BY_PATH[p]||{}).name||p).join(', ');
 }
-// множество path-ов листьев в зоне видимости HRBP
+/* HRBP, отвечающий за узел: самая глубокая зона, накрывающая путь */
+function hrbpOfUnit(path){
+  let best=null,bestLen=-1;
+  HRBP.forEach(h=>h.scope.forEach(p=>{
+    if(path===p||path.startsWith(p+'/')){if(p.length>bestLen){bestLen=p.length;best=h}}
+  }));
+  return best;
+}
 function scopeLeaves(hrbpId){
   const h=HRBP_BY_ID[hrbpId];const set=new Set();
   h.scope.forEach(p=>leavesUnder(p).forEach(l=>set.add(l.path)));
   return [...set];
 }
-// блоки (level 2) в зоне видимости
-function scopeDomains(hrbpId){
-  const h=HRBP_BY_ID[hrbpId];const set=new Set();
-  h.scope.forEach(p=>{descendantsOf(p).filter(n=>n.level===2).forEach(d=>set.add(d.path))});
-  return [...set].map(p=>NODE_BY_PATH[p]).sort((a,b)=>a.sort-b.sort);
-}
-// узлы заданного уровня в зоне видимости
-function scopeNodesAtLevel(hrbpId,level){
-  const h=HRBP_BY_ID[hrbpId];const set=new Set();
-  h.scope.forEach(p=>descendantsOf(p).filter(n=>n.level===level).forEach(n=>set.add(n.path)));
-  return [...set].map(p=>NODE_BY_PATH[p]).sort((a,b)=>a.sort-b.sort);
-}
-// все узлы зоны (для каскадного фильтра по команде)
 function scopeAllNodes(hrbpId){
   const h=HRBP_BY_ID[hrbpId];const set=new Set();
   h.scope.forEach(p=>descendantsOf(p).forEach(n=>set.add(n.path)));
   return [...set].map(p=>NODE_BY_PATH[p]).sort((a,b)=>a.sort-b.sort);
 }
-
-/* ---------- Фокусные юниты в зоне HRBP + дедуп ---------- */
-// все узлы зоны (включая узлы scope), как объекты
 function nodesInZone(hrbpId){
   const h=HRBP_BY_ID[hrbpId];const m=new Map();
   h.scope.forEach(p=>descendantsOf(p).forEach(n=>m.set(n.path,n)));
   return [...m.values()];
 }
-// фокусные юниты в зоне, отсортированы по уровню затем по sort
-function focusNodesInZone(hrbpId){
-  return nodesInZone(hrbpId).filter(n=>n.is_focus).sort((a,b)=>a.level-b.level||a.sort-b.sort);
-}
-// «корневые фокусные» — у кого нет фокусного предка В ЭТОМ НАБОРЕ (для дедупа)
-function rootFocusNodes(nodes){
-  const S=new Set(nodes.map(n=>n.path));
-  return nodes.filter(n=>{
-    const seg=n.path.split('/');
-    for(let i=seg.length-1;i>0;i--){if(S.has(seg.slice(0,i).join('/')))return false}
-    return true;
-  });
-}
-// объединение листьев под корневыми фокусными (без задвоения численности).
-// restrictPath — пересечение с фильтром команды (фокусные внутри выбранного поддерева).
-function focusLeafUnion(hrbpId,restrictPath){
-  let foc=focusNodesInZone(hrbpId);
-  if(restrictPath)foc=foc.filter(n=>n.path===restrictPath||n.path.startsWith(restrictPath+'/'));
-  const roots=rootFocusNodes(foc);
-  const set=new Set();
-  roots.forEach(n=>leavesUnder(n.path).forEach(l=>set.add(l.path)));
-  return {leaves:[...set],roots};
+/* узлы верхнеуровневого фильтра «Юнит»: корни зоны HRBP + их прямые дети (−1) */
+function teamFilterNodes(hrbpId){
+  const h=HRBP_BY_ID[hrbpId];const seen=new Set();const out=[];
+  const add=n=>{if(n&&!seen.has(n.path)){seen.add(n.path);out.push(n);}};
+  h.scope.forEach(p=>{add(NODE_BY_PATH[p]);childrenOf(p).forEach(add);});
+  return out.sort((a,b)=>a.sort-b.sort);
 }
 
-/* ---------- Генерация рядов метрик по листьям ----------
-   Базовая численность на лист + помесячные значения метрик.
-   Базовые расчёты (агрегация, % за период) — в «Хеликоптере»; здесь имитируем результат.
-*/
-const LEAF_HC={};     // path -> [12]
-const LEAF_METRIC={}; // path -> {metricKey -> [12]}
+/* ============================================================
+   РЕЕСТР ЦЕЛЕЙ (KPI) И НАСЛЕДОВАНИЕ
+   ------------------------------------------------------------
+   Правило: {hrbpId, unit, metric, target, filters}
+     unit    — юнит, на который HRBP поставил цель
+     filters — к какой численности цель применяется: 'all' в поле значит
+               «к любой», конкретное значение — «только к этому разрезу»
+     target  — само целевое значение метрики
+
+   Наследование: цель действует на весь поддерево юнита. Если у потомка есть
+   своя цель по этой же метрике — начиная с него и вниз работает его цель.
+   Поиск идёт от узла ВВЕРХ до первого предка с подходящим правилом:
+   ближайшая цель побеждает.
+
+   Несколько целей на одном юните — норма: одна на всю численность, другая
+   на «HQ», третья на «не штат». Показать их одновременно нельзя (числа
+   в отчёте посчитаны по одной популяции), поэтому отчёт показывает ту,
+   что подходит под текущие фильтры, и подсказывает про остальные.
+   ============================================================ */
+let KPI_SEQ=1;
+const KPI_RULES=[];
+function addKpi(o){
+  const rule={id:'k'+(KPI_SEQ++),hrbpId:o.hrbpId||(hrbpOfUnit(o.unit)||{}).id||'anna',
+    unit:o.unit,metric:o.metric,target:+o.target,
+    filters:Object.assign({},EMPTY_FILTERS,o.filters||{}),note:o.note||''};
+  KPI_RULES.push(rule);
+  invalidateKpiCache();
+  return rule;
+}
+function removeKpi(id){
+  const i=KPI_RULES.findIndex(r=>r.id===id);
+  if(i>=0){KPI_RULES.splice(i,1);invalidateKpiCache();return true}
+  return false;
+}
+/* «специфичность» правила: сколько разрезов в нём зафиксировано.
+   На одном юните более узкое правило (HQ + штат) побеждает более широкое. */
+function ruleSpecificity(r){return FILTER_DEFS.reduce((s,f)=>s+(r.filters[f.key]!=='all'?1:0),0)}
+/* правило применимо, только если каждый его разрез выбран в фильтрах отчёта:
+   цель «по HQ» нельзя мерить числом, посчитанным по всем покраскам */
+function ruleMatches(r,st){
+  return FILTER_DEFS.every(f=>r.filters[f.key]==='all'||r.filters[f.key]===(st?st[f.key]:'all'));
+}
+function ownKpis(unitPath,metricKey){
+  return KPI_RULES.filter(r=>r.unit===unitPath&&(!metricKey||r.metric===metricKey));
+}
+function hasOwnKpi(unitPath){return KPI_RULES.some(r=>r.unit===unitPath)}
+/* число целей на юните, которые сейчас НЕ показываются: их закрывают фильтры */
+function hiddenKpiCount(unitPath,st,metricKey){
+  return ownKpis(unitPath,metricKey).filter(r=>!ruleMatches(r,st)).length;
+}
+
+let KPI_CACHE={};
+function invalidateKpiCache(){KPI_CACHE={}}
+/* Ядро наследования. Возвращает:
+     {rule, owner, inherited}  — цель и юнит, на котором она стоит
+     null                      — цели нет ни на юните, ни выше */
+function resolveKpi(unitPath,metricKey,st){
+  if(!unitPath||!targetable(metricKey))return null;
+  const ck=unitPath+'|'+metricKey+'|'+FILTER_DEFS.map(f=>st?st[f.key]:'all').join(',');
+  if(ck in KPI_CACHE)return KPI_CACHE[ck];
+  let res=null;
+  const seg=unitPath.split('/');
+  for(let i=seg.length;i>0;i--){
+    const p=seg.slice(0,i).join('/');
+    const cand=KPI_RULES.filter(r=>r.unit===p&&r.metric===metricKey&&ruleMatches(r,st));
+    if(cand.length){
+      cand.sort((a,b)=>ruleSpecificity(b)-ruleSpecificity(a));
+      res={rule:cand[0],owner:NODE_BY_PATH[p],inherited:p!==unitPath};
+      break;
+    }
+  }
+  KPI_CACHE[ck]=res;
+  return res;
+}
+/* есть ли у юнита хоть одна цель (своя или унаследованная) по видимым метрикам */
+function anyKpiFor(unitPath,metricKeys,st){
+  return metricKeys.some(k=>resolveKpi(unitPath,k,st));
+}
+
+/* ---------- Стартовый набор целей ----------
+   Собран так, чтобы на прототипе было видно всё поведение сразу:
+   цель на блоке уходит вниз по всей ветке, цель глубже её перебивает,
+   а на паре юнитов стоит по несколько целей с разными разрезами. */
+(function seedKpi(){
+  BLOCK_DEFS.forEach((b,bi)=>{
+    const bp='T/'+b.id;
+    // 1 · цель блока: действует на всю ветку вниз
+    addKpi({unit:bp,metric:'regret',target:+(3.6+bi*0.2).toFixed(1),
+      note:'Цель блока. Наследуется на всю ветку.'});
+    addKpi({unit:bp,metric:'retention_new',target:82+bi,
+      note:'Цель блока по закрепляемости.'});
+    // 2 · перебивающая цель на пятом уровне хребта
+    const spine5=bp+'/01/01/01';
+    if(NODE_BY_PATH[spine5])addKpi({unit:spine5,metric:'regret',target:+(2.6+bi*0.15).toFixed(1),
+      note:'Своя цель отдела — перебивает цель блока начиная с этого уровня.'});
+    // 3 · цель на департаменте по другой метрике
+    const dep=bp+'/01';
+    if(NODE_BY_PATH[dep])addKpi({unit:dep,metric:'exit_reasons',target:88+((bi%3)*2),
+      note:'Цель департамента по качеству данных оттока.'});
+    // 4 · несколько целей на одном юните: общая уже есть, добавляем узкие
+    if(NODE_BY_PATH[dep]&&bi<3){
+      addKpi({unit:dep,metric:'regret',target:+(2.9+bi*0.1).toFixed(1),filters:{paint:'HQ'},
+        note:'Отдельная цель по HQ-численности департамента.'});
+      addKpi({unit:dep,metric:'regret',target:+(4.8+bi*0.1).toFixed(1),filters:{staffType:'nonstaff'},
+        note:'Отдельная цель по не-штатной численности.'});
+    }
+    // 5 · дисциплина — на управлении второй ветки
+    const upr=bp+'/02';
+    if(NODE_BY_PATH[upr])addKpi({unit:upr,metric:'unused_vac',target:6+bi,
+      note:'Цель по неотгуленным отпускам.'});
+  });
+  // 6 · целевые значения по регионализации найма — на уровне компании
+  addKpi({unit:'T',hrbpId:'anna',metric:'region_hire',target:40,note:'Компанейская цель по регионализации найма.'});
+  addKpi({unit:'T',hrbpId:'anna',metric:'absentees',target:1.5,note:'Компанейская цель по прогулам.'});
+})();
+
+/* ---------- Генерация рядов метрик по листьям ---------- */
+const LEAF_HC={};
+const LEAF_METRIC={};
 function trendNoise(r,base,amp,drift){
   const out=[];let v=base+(r()-0.5)*amp;
   for(let i=0;i<N;i++){v=v+drift*((i/(N-1))-0.5)*2*amp*0.15+(r()-0.5)*amp*0.5;out.push(v)}
@@ -316,7 +457,7 @@ NODES.filter(n=>n.leaf).forEach(leaf=>{
   LEAF_HC[leaf.path]=hc;
   const M={};
   const rr=k=>rng(k+leaf.path);
-  const isIT = leaf.segment==='IT';
+  const isIT = leaf.it==='IT';
   M.headcount     = hc.slice();
   M.retention_new = trendNoise(rr('rn'),70+r()*22, 8,1).map(v=>Math.min(98,Math.max(48,+v.toFixed(1))));
   M.regret        = trendNoise(rr('rg'),2.2+r()*6, 3,1).map(v=>Math.max(0.4,+v.toFixed(1)));
@@ -330,9 +471,8 @@ NODES.filter(n=>n.leaf).forEach(leaf=>{
   LEAF_METRIC[leaf.path]=M;
 });
 
-/* ---------- Агрегация метрики по узлу (rollup значения) ----------
-   headcount — сумма; проценты/дни — взвешенное среднее по численности.
-*/
+/* ---------- Агрегация ----------
+   headcount — сумма; проценты/дни — взвешенное среднее по численности. */
 function aggMetric(path,metricKey){
   const leaves=leavesUnder(path);
   if(leaves.length===0)return new Array(N).fill(0);
@@ -355,8 +495,7 @@ function metricSeries(path,metricKey){
   return AGG_CACHE[k];
 }
 function headcountAt(path,idx){return metricSeries(path,'headcount')[idx==null?LAST:idx]}
-
-// агрегация метрики по ПРОИЗВОЛЬНОМУ набору листьев (для фокусного объединения и фильтров)
+/* агрегация по ПРОИЗВОЛЬНОМУ набору листьев (фильтры, объединение фокусных) */
 function aggMetricLeaves(leafPaths,metricKey){
   if(!leafPaths||leafPaths.length===0)return new Array(N).fill(0);
   const out=new Array(N).fill(0);
@@ -371,6 +510,7 @@ function aggMetricLeaves(leafPaths,metricKey){
   }
   return out;
 }
+function lastVal(leafPaths,metricKey){return aggMetricLeaves(leafPaths,metricKey)[LAST]}
 
 /* ---------- Бенчмарк-ряды ---------- */
 const BENCH_SERIES={};
@@ -392,136 +532,106 @@ function benchSeries(benchKey,metricKey){return benchKey==='none'?null:BENCH_SER
 function benchValue(benchKey,metricKey,idx){const s=benchSeries(benchKey,metricKey);return s?s[idx==null?LAST:idx]:null}
 
 /* ============================================================
-   СВЕТОФОР (треш-холды)
+   ОЦЕНКА
    ------------------------------------------------------------
-   Реальные цели задаёт Senior HRBP во внешнем инструменте — per команда×метрика.
-   В прототипе моделируем это:
-     • leafThreshold(path,metric) — цель конкретной команды (с лёгким разбросом
-       вокруг эталона; у части команд цель НЕ задана → null).
-     • stateFor(metric,value,thr) — состояние относительно цели: good/warn/bad/neutral.
-   На верхних уровнях (OnePager / домен / ИТОГО) пороги НЕЛЬЗЯ усреднять — у команд
-   разные KPI. Поэтому агрегируем СОСТОЯНИЕ, а не порог: aggregateState().
+   Светофор ровно из двух сигналов: зелёный и красный. Всё, что попадает
+   в мёртвую зону ±5%, серое — присматриваться там не к чему.
    ============================================================ */
-const LEAF_THR_CACHE={};
-function leafThreshold(path,metricKey){
+const DEAD_ZONE=0.05;
+/* состояние относительно ЦЕЛИ */
+function stateForKpi(metricKey,value,target){
   const m=METRIC_BY_KEY[metricKey];
-  if(!m.threshold)return null;                 // метрика по природе без порога
-  const k=path+'|'+metricKey;
-  if(k in LEAF_THR_CACHE)return LEAF_THR_CACHE[k];
-  const r=rng('thr'+path+metricKey);
-  let res;
-  if(r()<0.15){res=null;}                       // SrHRBP ещё не задал цель этой команде
-  else{const f=0.9+r()*0.2;                     // индивидуальная цель ±10% от эталона
-    res={green:+(m.threshold.green*f).toFixed(1),red:+(m.threshold.red*f).toFixed(1)};}
-  LEAF_THR_CACHE[k]=res;return res;
+  if(target==null||m.better==='flat')return'neutral';
+  if(m.better==='higher'){
+    if(value>=target)return'good';
+    return value>=target*(1-DEAD_ZONE)?'warn':'bad';
+  }
+  if(value<=target)return'good';
+  return value<=target*(1+DEAD_ZONE)?'warn':'bad';
 }
-function stateFor(metricKey,value,thr){
-  const m=METRIC_BY_KEY[metricKey];
-  thr=thr||m.threshold;
-  if(!thr)return'neutral';
-  const {green,red}=thr;
-  if(m.better==='lower'){if(value<=green)return'good';if(value>=red)return'bad';return'warn';}
-  if(m.better==='higher'){if(value>=green)return'good';if(value<=red)return'bad';return'warn';}
-  return'neutral';
-}
-// состояние относительно ДЕФОЛТНОЙ цели метрики (для эталонных подсветок)
-function thresholdState(metricKey,value){return stateFor(metricKey,value,null)}
-
-/* Агрегация СОСТОЯНИЯ по набору листьев (верхний уровень с разными KPI).
-   Правило: доля «вне порога» считается взвешенно по численности.
-     bad   — доля плохих по людям ≥ 25%
-     warn  — есть хоть один плохой, ИЛИ доля «внимание» ≥ 40%
-     good  — все остальные команды с заданной целью в норме
-     neutral — ни у одной команды цель не задана (или метрика без порога)
-*/
-function aggregateState(leafPaths,metricKey,idx){
-  idx=idx==null?LAST:idx;
-  const m=METRIC_BY_KEY[metricKey];
-  if(!m.threshold)return{state:'neutral',nBad:0,nWarn:0,nGood:0,nTotal:0,nNoTarget:leafPaths.length,shareBad:0,shareWarn:0};
-  let nBad=0,nWarn=0,nGood=0,nTotal=0,nNoTarget=0,hcBad=0,hcWarn=0,hcTotal=0;
-  leafPaths.forEach(p=>{
-    const thr=leafThreshold(p,metricKey);
-    const hc=metricSeries(p,'headcount')[idx];
-    if(!thr){nNoTarget++;return;}
-    const v=metricSeries(p,metricKey)[idx];
-    const st=stateFor(metricKey,v,thr);
-    nTotal++;hcTotal+=hc;
-    if(st==='bad'){nBad++;hcBad+=hc;}
-    else if(st==='warn'){nWarn++;hcWarn+=hc;}
-    else{nGood++;}
-  });
-  if(nTotal===0)return{state:'neutral',nBad:0,nWarn:0,nGood:0,nTotal:0,nNoTarget,shareBad:0,shareWarn:0};
-  const shareBad=hcBad/hcTotal,shareWarn=hcWarn/hcTotal;
-  let state;
-  if(shareBad>=0.25)state='bad';
-  else if(shareBad>0||shareWarn>=0.40)state='warn';
-  else state='good';
-  return{state,nBad,nWarn,nGood,nTotal,nNoTarget,shareBad,shareWarn};
-}
-
-/* ============================================================
-   ФОКУСНЫЕ МЕТРИКИ КОМАНДЫ + НАПРАВЛЕННОЕ СРАВНЕНИЕ
-   ------------------------------------------------------------
-   teamFocus(path) — набор фокусных метрик КОНКРЕТНОЙ команды с целевыми
-     значениями (KPI). Их задаёт Senior HRBP во внешнем инструменте на
-     уровне команды (не HRBP). У части команд фокус не задан → {} (тогда
-     сравниваем с выбранным бенчмарком). KPI = {green,red} как у порога.
-   compareState(metric,value,base) — направленное сравнение значения с одним
-     бейзлайном (бенчмарком): good = лучше, bad = хуже, neutral = в пределах
-     паритетной полосы CMP_EPS или для flat-метрик.
-   ============================================================ */
-const CMP_EPS={pct:0.3,days:0.2,int:0};   // паритетная полоса: меньше — считаем «вровень»
+/* направленное сравнение с базой (бенчмарком) */
 function compareState(metricKey,value,base){
   const m=METRIC_BY_KEY[metricKey];
   if(base==null||m.better==='flat')return'neutral';
-  const eps=CMP_EPS[m.fmt]||0;
   const d=value-base;
-  if(Math.abs(d)<=eps)return'neutral';
+  if(Math.abs(d)<=Math.abs(base)*DEAD_ZONE)return'neutral';
   const better=(m.better==='higher'&&d>0)||(m.better==='lower'&&d<0);
   return better?'good':'bad';
 }
-const FOCUS_CACHE={};
-function teamFocus(path){
-  if(!path)return{};
-  if(path in FOCUS_CACHE)return FOCUS_CACHE[path];
-  const r=rng('focus'+path);
-  const cand=METRICS.filter(m=>m.threshold);   // фокусной может стать только метрика с целью
-  const out={};
-  if(r()>=0.15){                               // ~85% команд имеют выставленные фокусные KPI
-    const arr=cand.map(m=>({m,o:r()})).sort((a,b)=>a.o-b.o);
-    const k=2+Math.floor(r()*2);               // 2–3 фокусные метрики
-    arr.slice(0,k).forEach(({m})=>{
-      const f=0.9+r()*0.2;                      // индивидуальная цель ±10% от эталона
-      out[m.key]={green:+(m.threshold.green*f).toFixed(1),red:+(m.threshold.red*f).toFixed(1)};
-    });
+/* Единая развилка ориентира — одна на весь отчёт (карточка, ячейка, график).
+   Есть цель — сравниваемся ТОЛЬКО с ней, база рядом не показывается. */
+function baselineFor(unitPath,metricKey,value,st,benchKey){
+  const k=resolveKpi(unitPath,metricKey,st);
+  if(k){
+    return {kind:'kpi',target:k.rule.target,rule:k.rule,owner:k.owner,inherited:k.inherited,
+      state:stateForKpi(metricKey,value,k.rule.target)};
   }
-  FOCUS_CACHE[path]=out;return out;
+  if(benchKey&&benchKey!=='none'&&comparable(metricKey)){
+    const bv=benchValue(benchKey,metricKey);
+    if(bv!=null)return {kind:'bench',base:bv,state:compareState(metricKey,value,bv)};
+  }
+  return {kind:'none',state:'neutral'};
 }
 
-/* ---------- Форматтеры (ru-локаль) ---------- */
-function fmtInt(v){return Math.round(v).toString().replace(/\B(?=(\d{3})+(?!\d))/g,' ')}
-function fmtNum1(v){return (Math.round(v*10)/10).toString().replace('.',',')}
+/* ---------- Форматтеры (ru-локаль) ----------
+   Тонкий пробел в разрядах, запятая в дробной части, типографский минус.
+   Минус ставит именно форматтер: иначе соседняя ячейка, зовущая его напрямую,
+   осталась бы с дефисом. */
+const THIN=' ', MINUS='−';
+function fmtInt(v){
+  const neg=v<0;
+  const s=Math.round(Math.abs(v)).toString().replace(/\B(?=(\d{3})+(?!\d))/g,THIN);
+  return (neg?MINUS:'')+s;
+}
+/* Один знак после запятой всегда: «5%» рядом с «4,8%» в одном столбце
+   читается как другая точность, а не как то же самое число. */
+function fmtNum1(v){
+  const neg=v<0;
+  return (neg?MINUS:'')+Math.abs(v).toFixed(1).replace('.',',');
+}
 function fmtPct(v){return fmtNum1(v)+'%'}
-function fmtVal(metricKey,v){const m=METRIC_BY_KEY[metricKey];if(m.fmt==='int')return fmtInt(v);if(m.fmt==='days')return fmtNum1(v)+' дн';return fmtPct(v)}
+function fmtDays(v){return (v<0?MINUS:'')+Math.abs(v).toFixed(0)+THIN+'дн'}
+function fmtVal(metricKey,v){
+  const m=METRIC_BY_KEY[metricKey];
+  if(m.fmt==='int')return fmtInt(v);
+  if(m.fmt==='days')return fmtDays(v);
+  return fmtPct(v);
+}
+/* Изменение: направление кодирует ЗНАК, а не стрелка. Ноль — без знака. */
 function fmtDelta(metricKey,v){
-  const m=METRIC_BY_KEY[metricKey];const s=v>0?'+':(v<0?'−':'');const a=Math.abs(v);
-  const body=m.fmt==='int'?fmtInt(a):fmtNum1(a);
-  const suf=m.fmt==='int'?'':(m.fmt==='days'?' дн':' п.п.');
-  return s+body+suf;
+  const m=METRIC_BY_KEY[metricKey];
+  const a=Math.abs(v);
+  const body=m.fmt==='int'?fmtInt(a):(m.fmt==='days'?a.toFixed(0):a.toFixed(1).replace('.',','));
+  const suf=m.fmt==='int'?'':(m.fmt==='days'?THIN+'дн':THIN+'п.п.');
+  if(v===0)return body+suf;
+  return (v>0?'+':MINUS)+body+suf;
+}
+/* класс пилюли изменения: знак говорит о направлении, класс — об оценке */
+function deltaClass(metricKey,v){
+  const m=METRIC_BY_KEY[metricKey];
+  if(v===0)return'flat';
+  if(m.better==='flat')return'neu';
+  const good=(m.better==='lower'&&v<0)||(m.better==='higher'&&v>0);
+  return good?'up':'down';
 }
 
-/* ---------- Дельты YoY / MoM (приближённо: первый vs последний / предпоследний) ---------- */
+/* ---------- Дельты MoM / YoY ---------- */
 function deltas(series){
   const last=series[LAST],prev=series[LAST-1],first=series[0];
   return {mom:+(last-prev).toFixed(1), yoy:+(last-first).toFixed(1)};
 }
 
-window.HRBPDATA={MONTHS,N,LAST,BLOCKS,METRICS,METRIC_BY_KEY,metricsOfBlock,DEV_METRICS,WANTED_METRICS,
-  BENCHMARKS,NODES,NODE_BY_PATH,ROOT,BLOCK_DEFS,MAX_LEVEL,LEVEL_ABBR,levelLabel,
-  HRBP,HRBP_BY_ID,hrbpReportsTree,hrbpSubordinateCount,
-  childrenOf,descendantsOf,leavesUnder,scopeLeaves,scopeDomains,scopeNodesAtLevel,scopeAllNodes,
-  leafPassesAttr,teamFilterNodes,zoneLabel,
-  nodesInZone,focusNodesInZone,rootFocusNodes,focusLeafUnion,
-  metricSeries,headcountAt,aggMetricLeaves,benchSeries,benchValue,
-  leafThreshold,stateFor,thresholdState,aggregateState,compareState,teamFocus,CMP_EPS,
-  fmtInt,fmtNum1,fmtPct,fmtVal,fmtDelta,deltas};
+window.HRBPDATA={MONTHS,N,LAST,PERIOD_LABEL,PREV_LABEL,YEAR_LABEL,
+  BLOCKS,BLOCK_BY_KEY,METRICS,METRIC_BY_KEY,metricsOfBlock,targetable,comparable,
+  DEV_METRICS,WANTED_METRICS,BENCHMARKS,
+  PAINTS,ITSEGS,STREAMS,SPECS,STAFFTYPES,HCTYPES,FILTER_DEFS,FILTER_BY_KEY,EMPTY_FILTERS,
+  NODES,NODE_BY_PATH,ROOT,BLOCK_DEFS,MAX_LEVEL,LEVEL_ABBR,levelLabel,
+  HRBP,HRBP_BY_ID,hrbpReportsTree,hrbpSubordinateCount,hrbpOfUnit,
+  childrenOf,descendantsOf,leavesUnder,ancestorsOf,parentOf,pathLabel,nodesBelow,
+  scopeLeaves,scopeAllNodes,nodesInZone,teamFilterNodes,zoneLabel,
+  leafPasses,filterChips,filterLabel,
+  KPI_RULES,addKpi,removeKpi,ownKpis,hasOwnKpi,hiddenKpiCount,ruleMatches,ruleSpecificity,
+  resolveKpi,anyKpiFor,
+  metricSeries,headcountAt,aggMetricLeaves,lastVal,benchSeries,benchValue,
+  stateForKpi,compareState,baselineFor,DEAD_ZONE,
+  fmtInt,fmtNum1,fmtPct,fmtDays,fmtVal,fmtDelta,deltaClass,deltas,THIN,MINUS};
