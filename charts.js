@@ -30,6 +30,7 @@ const C_GRID='#eef0f4';  // сетка значений: видна, но не �
 const SERIES_PALETTE=['#5f86c2','#97dece','#ac87c5','#cdbf97','#85cdfd','#9fae6a','#c98aa6','#686d76'];
 const VAL_SZ=11;
 const HEAD_H=22;   // полоса заголовка и легенды: график под неё не заезжает
+const AXIS_MARGIN=13;  // отступ подписей шкалы от полотна
 
 const D=window.HRBPDATA;
 
@@ -60,7 +61,7 @@ function axisSkin(metricKey,step,extra){
     axisLine:{show:false},axisTick:{show:false},
     /* margin отодвигает подписи шкалы от полотна: январская точка стоит
        вплотную к оси, и её подпись иначе смыкается с подписью коридора. */
-    axisLabel:{fontFamily:FONT,color:C_AXIS,fontSize:VAL_SZ,margin:13,formatter:axisFmt(metricKey)},
+    axisLabel:{fontFamily:FONT,color:C_AXIS,fontSize:VAL_SZ,margin:AXIS_MARGIN,formatter:axisFmt(metricKey)},
     splitLine:{lineStyle:{color:C_GRID,width:1}}},extra);
 }
 /* Шкала для СТОЛБИКОВ — всегда от нуля: у столбика значение закодировано
@@ -81,10 +82,22 @@ function axisFmt(metricKey){
     return m.fmt==='days'?s+D.THIN+'дн':s+'%';
   };
 }
-/* Возвращает МАССИВ осей: основная (низ и верх коридора) и, если цель попала
-   внутрь коридора, вторая — невидимая, ради единственной синей подписи на
-   уровне цели. Своих делений у ECharts на произвольном значении нет, поэтому
-   шаг второй оси подобран так, чтобы её первое деление легло ровно на цель. */
+/* Ширина подписи шкалы на глаз, по кеглю 11.
+   Нужна, чтобы поле слева задавать ЧИСЛОМ, а не отдавать его на откуп
+   containLabel: тот считает поле по факту осей, и график с целью (у него
+   вторая ось ради синей подписи) получал поле на сорок пикселей шире
+   соседнего. Полотна рядом обязаны быть одной ширины — иначе одинаковые
+   месяцы стоят на разных вертикалях, и два графика не сравнить. */
+function labelWidth(s){
+  let w=0;
+  for(const c of String(s))w+=(c===','||c==='.')?3.4:(c===' '||c===D.THIN)?3:(c==='%')?6.5:6.3;
+  return w;
+}
+/* Возвращает {axes, gutter}: оси (основная плюс, если цель попала внутрь
+   коридора, вторая — невидимая, ради единственной синей подписи на уровне
+   цели) и ширину поля под их подписи. Своих делений у ECharts на произвольном
+   значении нет, поэтому шаг второй оси подобран так, чтобы её первое деление
+   легло ровно на цель. */
 function valueAxis(metricKey,values,kpi){
   const v=values.filter(x=>x!=null&&isFinite(x));
   let lo=Math.min(...v), hi=Math.max(...v);
@@ -98,14 +111,15 @@ function valueAxis(metricKey,values,kpi){
   let max=Math.ceil((hi+pad)/step)*step;
   if(D.isShare(metricKey)&&max>100)max=100; // доля выше 100% не бывает
   const main=axisSkin(metricKey,max-min,{min,max});
-  if(kpi==null||kpi<=min||kpi>=max)return [main];
-  const gap=kpi-min;
-  if((max-min)/gap>40)return [main];        // цель у самого низа: делений станут сотни
   const fmt=axisFmt(metricKey);
-  return [main,{type:'value',min,max,interval:gap,position:'left',offset:0,
-    axisLine:{show:false},axisTick:{show:false},splitLine:{show:false},
-    axisLabel:{fontFamily:FONT,fontSize:VAL_SZ,color:C_KPI,fontWeight:700,margin:13,
-      formatter:x=>Math.abs(x-kpi)<1e-9?fmt(x):''}}];
+  const gut=t=>Math.ceil(Math.max(labelWidth(fmt(min)),labelWidth(fmt(max)),t)+AXIS_MARGIN+2);
+  const drawKpi=kpi!=null&&kpi>min&&kpi<max&&(max-min)/(kpi-min)<=40;
+  if(!drawKpi)return {axes:[main],gutter:gut(0)};
+  return {gutter:gut(labelWidth(fmt(kpi))),
+    axes:[main,{type:'value',min,max,interval:kpi-min,position:'left',offset:0,
+      axisLine:{show:false},axisTick:{show:false},splitLine:{show:false},
+      axisLabel:{fontFamily:FONT,fontSize:VAL_SZ,color:C_KPI,fontWeight:700,margin:AXIS_MARGIN,
+        formatter:x=>Math.abs(x-kpi)<1e-9?fmt(x):''}}]};
 }
 /* Ось периодов — месяцев или недель. Засечки под каждым делением: без них
    подписи висят под сплошной чертой, и точка на линии не привязана глазом
@@ -131,6 +145,13 @@ function nowMark(idx){
     label:{show:false},emphasis:{disabled:true},animation:false,
     lineStyle:{type:'solid',width:1,color:C_NOW,opacity:1},
     data:[{xAxis:idx}]};
+}
+/* Наведение на легенду поднимает свою линию и гасит соседние. Выключать серию
+   кликом — действие, а разглядеть её — просто вопрос, и на вопрос интерфейс
+   должен отвечать без последствий. */
+function hoverFocus(){
+  return {emphasis:{focus:'series',lineStyle:{width:3.2}},
+    blur:{lineStyle:{opacity:.18},itemStyle:{opacity:.18},label:{opacity:.18}}};
 }
 function valueLabel(metricKey){
   return {show:true,position:'top',distance:7,
@@ -197,25 +218,14 @@ function tooltipRows(metricKey,opts){
 /* Точки текущего периода.
    Крайние подписи прижимаются к полотну и налезают на шкалу: у первой точки
    подпись уходит влево от оси, у последней — за правый край. Сдвигаем внутрь
-   ровно эти две, остальные стоят по центру над точкой.
-   sparse — режим для длинных рядов: двенадцать подписей подряд слипаются в
-   строку цифр, из которой ничего не читается. Оставляем те четыре, ради
-   которых на график и смотрят: начало, конец, пик и провал. Остальные
-   значения никуда не делись — они в подсказке. */
-function pointData(arr,sparse,flipFirst){
+   ровно эти две, остальные стоят по центру над точкой. */
+function pointData(arr,flipFirst){
   const live=[];
   arr.forEach((v,i)=>{if(v!=null)live.push({v,i})});
   if(!live.length)return arr;
   const first=live[0].i, last=live[live.length-1].i;
-  let keep=null;
-  if(sparse){
-    let mn=live[0], mx=live[0];
-    live.forEach(x=>{if(x.v<mn.v)mn=x;if(x.v>mx.v)mx=x});
-    keep=[first,last,mn.i,mx.i];
-  }
   return arr.map((v,i)=>{
     if(v==null)return v;
-    if(keep&&keep.indexOf(i)<0)return {value:v,label:{show:false}};
     /* Первая точка встала вровень с целью — её подпись уходит под точку:
        сдвига вправо тут мало, синяя подпись цели стоит на той же высоте. */
     if(i===first)return {value:v,label:flipFirst?{offset:[13,0],position:'bottom'}:{offset:[13,0]}};
@@ -229,7 +239,7 @@ function pointData(arr,sparse,flipFirst){
    периода с подписями, бледная — предыдущего, и общий для обоих ориентир.
    Разное у них только календарь по оси X, поэтому и код у них общий: иначе
    два графика об одной метрике начнут расходиться в мелочах.
-   cfg:  {labels, curName, prevName, cur, prev, boldIdx, markIdx, sparse, head, sub}
+   cfg:  {labels, curName, prevName, cur, prev, boldIdx, markIdx, head, sub}
    opts: {kpi, bench, benchLabel, title}
    Цель и база взаимоисключающи: есть утверждённая цель — сравниваемся только
    с ней, второй ориентир рядом заставлял бы выбирать, по какому судить. */
@@ -242,7 +252,8 @@ function comparisonOption(metricKey,cfg,opts){
   if(opts.kpi!=null)scaleVals.push(opts.kpi);
   else if(opts.bench)opts.bench.filter(v=>v!=null).forEach(v=>scaleVals.push(v));
   const kpiLine=opts.kpi!=null?opts.kpi:null;
-  const yAxes=valueAxis(metricKey,scaleVals,kpiLine);
+  const y=valueAxis(metricKey,scaleVals,kpiLine);
+  const yAxes=y.axes;
   /* Подпись первой точки и синяя подпись цели встают на одной высоте — разводим.
      Сравниваем не сами значения, а высоту ПОДПИСИ: она висит над точкой, и
      точка ниже цели на полтора пункта даёт подпись ровно на уровне цели. */
@@ -254,32 +265,42 @@ function comparisonOption(metricKey,cfg,opts){
   /* Прошлый период — та же форма записи, что и текущий: линия с точками.
      Разделяют их вес и цвет, а не тип графика. */
   const data=[
-    {name:cfg.prevName,type:'line',smooth:false,symbol:'circle',symbolSize:4,
+    Object.assign(hoverFocus(),{name:cfg.prevName,type:'line',smooth:false,
+      symbol:'circle',symbolSize:4,
       lineStyle:{width:2,color:C_PREV},itemStyle:{color:C_PREV},
-      data:cfg.prev,z:2,label:{show:false},markLine:nowMark(cfg.markIdx)},
-    {name:cfg.curName,type:'line',smooth:false,symbol:'circle',symbolSize:5,
+      data:cfg.prev,z:2,label:{show:false},markLine:nowMark(cfg.markIdx)}),
+    Object.assign(hoverFocus(),{name:cfg.curName,type:'line',smooth:false,
+      symbol:'circle',symbolSize:5,
       lineStyle:{width:2.6,color:C_CUR},itemStyle:{color:C_CUR},
-      data:pointData(cfg.cur,cfg.sparse,flipFirst),z:5,connectNulls:false,
-      label:valueLabel(metricKey)}
+      data:pointData(cfg.cur,flipFirst),z:5,connectNulls:false,
+      label:valueLabel(metricKey),
+      /* Подписаны все точки. Там, где они начинают наезжать друг на друга,
+         ECharts разводит их по вертикали — значение остаётся у каждой точки,
+         а не исчезает у половины ряда. */
+      labelLayout:{moveOverlap:'shiftY',hideOverlap:false}})
   ];
   let stateOf=null;
   if(opts.kpi!=null){
     legend.push('Цель');
-    data.push({name:'Цель',type:'line',symbol:'none',data:cfg.labels.map(()=>opts.kpi),z:3,
-      lineStyle:{width:1.6,type:'dashed',color:C_KPI},itemStyle:{color:C_KPI},label:{show:false}});
+    data.push(Object.assign(hoverFocus(),{name:'Цель',type:'line',symbol:'none',
+      data:cfg.labels.map(()=>opts.kpi),z:3,
+      lineStyle:{width:1.6,type:'dashed',color:C_KPI},itemStyle:{color:C_KPI},label:{show:false}}));
     stateOf=(i,v)=>D.stateForKpi(metricKey,v,opts.kpi);
   }else if(opts.bench){
     const b=opts.bench;
     const nm='База · '+(opts.benchLabel||'вся компания');
     legend.push(nm);
-    data.push({name:nm,type:'line',symbol:'none',data:b,z:3,
-      lineStyle:{width:1.6,type:'dashed',color:C_BENCH},itemStyle:{color:C_BENCH},label:{show:false}});
+    data.push(Object.assign(hoverFocus(),{name:nm,type:'line',symbol:'none',data:b,z:3,
+      lineStyle:{width:1.6,type:'dashed',color:C_BENCH},itemStyle:{color:C_BENCH},label:{show:false}}));
     stateOf=(i,v)=>b[i]==null?null:D.compareState(metricKey,v,b[i]);
   }
   return Object.assign(head(opts.title,legend),{
-    /* Поля по краям — не про красоту: подпись значения шире точки, над которой
-       стоит, и у крайних точек она уходит на шкалу. Запас держит их порознь. */
-    grid:{left:30,right:26,top:HEAD_H+14,bottom:24,containLabel:true},
+    /* Поле слева считаем сами (см. labelWidth): containLabel растил его на
+       графиках с целью, и соседние полотна расходились по ширине.
+       Сверху запас, чтобы верхняя линия сетки не липла к заголовку; снизу
+       ровно столько, сколько нужно подписям месяцев — раньше под ними
+       оставалась пустая полоса в их же высоту. */
+    grid:{left:y.gutter,right:26,top:HEAD_H+24,bottom:26,containLabel:false},
     tooltip:Object.assign(tooltipBase(),{formatter:tooltipRows(metricKey,
       {primary:cfg.curName,head:cfg.head,sub:cfg.sub,state:stateOf})}),
     xAxis:catAxis(cfg.labels,cfg.boldIdx),
@@ -317,7 +338,7 @@ function wowOption(metricKey,weeks,opts){
     /* Вертикальной отметки здесь нет: в окне двенадцати недель все двенадцать
        уже закрыты, будущего на полотне нет — отмечать нечего. Последняя
        неделя названа жирным, и этого хватает. */
-    boldIdx:cur.length-1, markIdx:null, sparse:true,
+    boldIdx:cur.length-1, markIdx:null,
     head:i=>'Неделя '+D.weekRangeLabel(i,'cur'),
     sub:(name,i)=>name==='предыдущие'?D.weekRangeLabel(i,'prev'):''
   },Object.assign({},opts,{bench}));

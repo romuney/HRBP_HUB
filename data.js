@@ -105,16 +105,24 @@ function monthValueAt(series,date){
 }
 /* Недельный ряд из месячного: тренд берём из месяцев, недельную рябь —
    из детерминированного шума, соразмерного собственному размаху метрики.
-   seed держит ряд стабильным между перерисовками. */
+   seed держит ряд стабильным между перерисовками.
+
+   Рябь гаснет к концу окна и на последней неделе равна нулю. Это не
+   косметика: недельный график — зум того же тренда, и последняя точка на нём
+   обязана совпасть с последней точкой месячного графика. Разошлись бы на
+   десятую — и два полотна рядом показывали бы «текущее значение метрики»
+   двумя разными числами. */
 function weeklyOf(series,seed,metricKey){
   const win=series.slice(WIN_FROM,LAST+1);
   const spread=Math.max(...win)-Math.min(...win);
   const amp=(spread||Math.abs(series[LAST])*0.06)*0.45;
   const r=rng('wk|'+seed);
   const isInt=METRIC_BY_KEY[metricKey].fmt==='int';
-  return WEEKS.map(w=>{
+  const last=WEEKS.length-1;
+  return WEEKS.map((w,i)=>{
     const mid=new Date((w.s.getTime()+w.e.getTime())/2);
-    const v=Math.max(0,monthValueAt(series,mid)+(r()-0.5)*amp);
+    const fade=Math.min(1,(last-i)/2);        // 0 на последней, 0,5 на предпоследней
+    const v=Math.max(0,monthValueAt(series,mid)+(r()-0.5)*amp*fade);
     return isInt?Math.round(v):+v.toFixed(1);
   });
 }

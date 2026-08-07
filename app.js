@@ -84,6 +84,21 @@ function selMetrics(){return D.METRICS.filter(m=>state.metricSel.has(m.key))}
 function baselineOf(metricKey,val,unitPath){
   return D.baselineFor(unitPath||activeUnit(),metricKey,val,state);
 }
+/* Данные для подсказки спарклайна: месяц, ориентир и его вид.
+   Ориентир берём тот же, что и у строки таблицы, — иначе столбик красится по
+   одному правилу, а объясняется другим. */
+function sparkMeta(metricKey,bl){
+  /* Месяц в подсказке — целиком, как и на графиках: сокращение экономит пять
+     букв там, где место есть. */
+  const cap=s=>s[0].toUpperCase()+s.slice(1);
+  const months=D.windowMonths().map(mo=>({label:cap(D.MONTH_FULL[mo.m]),y:mo.y}));
+  if(bl.kind==='kpi')
+    return {metricKey,months,refKind:'kpi',refs:months.map(()=>bl.target)};
+  if(bl.kind==='bench')
+    return {metricKey,months,refKind:'bench',refLabel:benchName(),
+      refs:D.windowOf(D.benchmarkSeries(state,metricKey))};
+  return {metricKey,months,refs:months.map(()=>null)};
+}
 /* Цели юнита, закрытые текущими разрезами. Возвращаем сами правила, а не
    счётчик: подсказка должна назвать разрез и значение, иначе «примените
    фильтры» не говорит, какие именно. */
@@ -333,6 +348,10 @@ function renderOnePager(){
       row1:inhCount?'<span class="kpi-tag inh">Фокус через родителя</span>':'<span class="k-sub">—</span>',
       row2:'<span class="k-sub">'+(inhFrom||'наследовать не от кого')+'</span>'})
   ]);
+  /* Легенда светофора стоит НАД таблицами, а не под ними: цвет встречается
+     в первой же строке — в ячейке ориентира, в пилюлях изменения и в столбиках
+     спарклайна, — и объяснение должно попасться раньше, чем сам цвет. */
+  html+=U.trafficLegend();
 
   /* таблицы блоков */
   let anyRow=false;
@@ -365,7 +384,8 @@ function renderOnePager(){
         '<td class="vs">'+cmpCell(m,val,bl)+'</td>'+
         '<td>'+U.momChip(m.key,d.mom)+'</td>'+
         '<td>'+U.yoyChip(m.key,d.yoy)+'</td>'+
-        '<td class="sparkcell">'+U.spark(D.windowOf(s),D.statesOver(activeUnit(),m.key,D.windowOf(s),state))+'</td></tr>';
+        '<td class="sparkcell">'+U.spark(D.windowOf(s),
+            D.statesOver(activeUnit(),m.key,D.windowOf(s),state),sparkMeta(m.key,bl))+'</td></tr>';
       if(state.openMetric===m.key){
         /* Два полотна рядом: слева обзор — год к году, справа зум — последние
            двенадцать недель. Одно широкое полотно на всю таблицу растягивало
@@ -373,10 +393,8 @@ function renderOnePager(){
            на разные вопросы: «где мы против прошлого года» и «что произошло
            за последние три месяца». */
         rows+='<tr class="detail-row"><td colspan="6"><div class="detail-split">'+
-          '<div class="dsplit"><div class="detail-chart" id="dc-y-'+m.key+'"></div>'+
-            '<div class="dsplit-note">двенадцать месяцев · '+D.YEAR_CUR+' против '+D.YEAR_PREV+'</div></div>'+
-          '<div class="dsplit zoom"><div class="detail-chart" id="dc-w-'+m.key+'"></div>'+
-            '<div class="dsplit-note">зум · '+esc(D.WEEK_PERIOD_LABEL)+'</div></div>'+
+          '<div class="dsplit"><div class="detail-chart" id="dc-y-'+m.key+'"></div></div>'+
+          '<div class="dsplit"><div class="detail-chart" id="dc-w-'+m.key+'"></div></div>'+
           '</div></td></tr>';
       }
     });

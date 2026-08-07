@@ -166,11 +166,25 @@ function empty(title,text){
 }
 function note(html){return '<div class="note-inline">'+html+'</div>'}
 function tblNote(html){return '<div class="tbl-note">'+html+'</div>'}
+/* Легенда светофора. Одна на весь отчёт: цвет означает одно и то же в ячейке
+   таблицы, в пилюле, в столбике спарклайна и в подсказке графика — значит и
+   объяснять его надо один раз и одинаково.
+   Про серый сказано отдельно и с числами: «серое» без объяснения читается как
+   «данных нет», хотя это «отклонение есть, но оно не значимо». */
 function trafficLegend(){
+  const dz='Отклонение до 5% от ориентира не считается значимым — ни в плюс, ни в минус. '+
+    'Для цели 4,0% это коридор 3,8–4,2%, для 80% — 76–84%.';
   return '<div class="legend">'+
-    '<span class="sw"><span class="dot" style="background:var(--green-bg)"></span> лучше цели или базы</span>'+
-    '<span class="sw"><span class="dot" style="background:var(--red-bg)"></span> хуже цели или базы</span>'+
-    '<span class="sw"><span class="dot" style="background:#f3f4f6"></span> в пределах ±5% или без оценки</span>'+
+    '<span class="legend-h">Цвет значения</span>'+
+    '<span class="sw"'+tip({title:'Зелёный',text:'Метрика лучше ориентира больше чем на 5%.',
+      note:'Ориентир — цель, если она есть, иначе база сравнения.'})+
+      '><span class="dot" style="background:var(--green-bg)"></span> лучше ориентира</span>'+
+    '<span class="sw"'+tip({title:'Красный',text:'Метрика хуже ориентира больше чем на 5%.',
+      note:'«Лучше» у каждой метрики своё: у текучести — меньше, у закрепляемости — больше.'})+
+      '><span class="dot" style="background:var(--red-bg)"></span> хуже ориентира</span>'+
+    '<span class="sw"'+tip({title:'Серый — мёртвая зона ±5%',text:dz,
+      note:'Серым красится и метрика без ориентира: у «больше не значит лучше» цвета быть не может.'})+
+      '><span class="dot" style="background:#f3f4f6"></span> в пределах ±5% или без ориентира</span>'+
     '</div>';
 }
 
@@ -184,16 +198,36 @@ function cell(state,text,sub,tipObj){
    Тренд в строке таблицы. Ось от нуля, и цвет несёт КАЖДЫЙ бар, а не только
    последний: месяц, в котором команда вышла за цель, должен быть виден в
    строке, иначе спарклайн показывает форму, но молчит про оценку. */
-function spark(series,states){
+/* meta (необязательна) навешивает подсказку на каждый столбик: месяц, факт,
+   ориентир и отклонение. Без неё спарклайн показывает форму и цвет, но на
+   вопрос «а сколько именно и насколько мимо» не отвечает — а цвет без числа
+   и есть главный повод спросить.
+   meta: {metricKey, months:[{label,y}], refs:[…], refKind:'kpi'|'bench', refLabel} */
+function spark(series,states,meta){
   const w=200,h=40,n=series.length,pad=2;
   const mx=Math.max(...series,0)||1;
   const bw=(w-pad*2)/n;
+  const STATE_TXT={good:'лучше ориентира',bad:'хуже ориентира',
+    warn:'в пределах ±5%',neutral:'в пределах ±5% или без оценки'};
   let bars='';
   series.forEach((v,i)=>{
     const bh=Math.max(2,(v/mx)*(h-4));
     const x=pad+i*bw, y=h-bh;
+    let t='';
+    if(meta){
+      const mo=meta.months&&meta.months[i];
+      const ref=meta.refs?meta.refs[i]:null;
+      const rows=[{label:'факт',value:D.fmtVal(meta.metricKey,v)}];
+      if(ref!=null){
+        rows.push({label:meta.refKind==='kpi'?'цель':(meta.refLabel||'база'),
+          value:D.fmtVal(meta.metricKey,ref),dash:true,color:'#9aa0ac'});
+        rows.push({label:'отклонение',value:D.fmtDelta(meta.metricKey,+(v-ref).toFixed(1))});
+      }
+      t=tip({title:mo?(mo.label+' '+mo.y):'',rows:rows,
+        note:ref==null?'Ориентира у метрики нет — цвет не ставится.':STATE_TXT[states[i]||'neutral']});
+    }
     bars+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+Math.max(1,bw-2).toFixed(1)+
-      '" height="'+bh.toFixed(1)+'" rx="1.5" class="sb '+(states[i]||'neutral')+'"/>';
+      '" height="'+bh.toFixed(1)+'" rx="1.5" class="sb '+(states[i]||'neutral')+'"'+t+'/>';
   });
   /* базовая линия нуля: без неё бары висят в воздухе и не читаются как один ряд */
   bars+='<rect x="0" y="'+(h-1)+'" width="'+w+'" height="1" class="sb-base"/>';

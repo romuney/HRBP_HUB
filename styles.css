@@ -370,8 +370,14 @@ button{font-family:inherit}
 .tbl-note{margin-top:var(--s4);font-size:var(--fs-note);color:var(--muted);font-weight:600;line-height:1.45}
 .legend{display:flex;gap:var(--s8);flex-wrap:wrap;align-items:center;margin:0 0 var(--s7);
   font-size:12px;color:var(--ink2)}
-.legend .sw{display:inline-flex;align-items:center;gap:var(--s3);font-weight:600}
-.legend .dot{width:11px;height:11px;border-radius:var(--r1);display:inline-block}
+.legend .legend-h{font-size:var(--fs-cap);text-transform:uppercase;letter-spacing:.5px;
+  color:var(--muted2);font-weight:800}
+.legend .sw{display:inline-flex;align-items:center;gap:var(--s3);font-weight:600;cursor:help}
+.legend .sw:hover{color:var(--ink)}
+/* Обводка нужна серому образцу: он почти совпадает с фоном страницы и без
+   контура читается как пустое место, а не как третий сигнал светофора. */
+.legend .dot{width:11px;height:11px;border-radius:var(--r1);display:inline-block;
+  box-shadow:inset 0 0 0 1px rgba(31,31,31,.10)}
 .empty{background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:38px var(--s10);
   text-align:center;color:var(--muted);line-height:1.5}
 .empty b{display:block;color:var(--ink);font-size:15px;margin-bottom:var(--s3)}
@@ -421,17 +427,21 @@ button{font-family:inherit}
    расплющило. Раскладка «обзор + зум» решает это по существу: два полотна
    вместо одного широкого, и каждое отвечает на свой вопрос. */
 .detail-chart{height:290px;width:100%}
-.detail-split{display:grid;grid-template-columns:1fr 1fr;gap:var(--s10)}
-/* Карточки, а не две половины одного полотна: между ними воздух и граница,
-   иначе две оси X читаются как одна разорванная. */
-.dsplit{background:var(--card);border:1px solid var(--line);border-radius:var(--r4);
-  padding:var(--s7) var(--s7) var(--s5)}
-.dsplit-note{font-size:var(--fs-note);color:var(--muted2);font-weight:600;
-  padding-top:var(--s3);border-top:1px dashed var(--line2);margin-top:var(--s2)}
-/* Зум помечен акцентной кромкой слева: это не второй график, это тот же
-   график крупнее, и глазу нужно за секунду понять, где обзор, а где деталь. */
-.dsplit.zoom{border-left:3px solid var(--blue-bg)}
-@media (max-width:1180px){.detail-split{grid-template-columns:1fr}}
+/* Два полотна в раскрытой строке. Рамок и подложек у них нет намеренно:
+   строка таблицы уже лежит внутри панели, и ещё две карточки внутри неё
+   давали три вложенных прямоугольника на один график. Делит их волосяная
+   линия и воздух, а называют — собственные заголовки графиков. */
+/* Отступы у половин зеркальные, а не одна щель сбоку: иначе полотна выходят
+   разной ширины, и один и тот же месяц стоит на них на разной вертикали. */
+.detail-split{display:grid;grid-template-columns:1fr 1fr;gap:0;padding-top:var(--s5)}
+.detail-split .dsplit:first-child{padding-right:var(--s9)}
+.detail-split .dsplit+.dsplit{padding-left:var(--s9);border-left:1px solid var(--line)}
+@media (max-width:1180px){
+  .detail-split{grid-template-columns:1fr}
+  .detail-split .dsplit:first-child{padding-right:0;padding-bottom:var(--s7)}
+  .detail-split .dsplit+.dsplit{border-left:0;padding-left:0;
+    border-top:1px solid var(--line);padding-top:var(--s7)}
+}
 .detail-row td{padding:0 var(--s7) var(--s8);background:var(--hover)}
 .dyn-block{padding:0 var(--s2)}
 .dyn-chart{height:230px;width:100%}
