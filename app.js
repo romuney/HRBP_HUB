@@ -435,14 +435,9 @@ function bindRowToggle(sel,attr,fn){
 
 /* ================= ВКЛАДКА: КОМАНДЫ ================= */
 /* строки сводной таблицы: юниты −1 от активного, раскрытые — со своими детьми (−1 от строки) */
-/* Родительская цепочка строки внутри текущего корня: без неё вложенная
-   строка висит без контекста — видно «Отдел авторизации», но не видно,
-   чей он. Корень отчёта в цепочку не входит: он уже назван в крошках. */
-function parentTrail(path,root){
-  return D.ancestorsOf(path)
-    .filter(n=>n.path!==path&&n.path.length>root.length)
-    .map(n=>n.name).join(' › ');
-}
+/* Родительской цепочки в строке нет намеренно: дочерняя строка всегда идёт
+   сразу под своей родительской, и цепочка повторяла имя строки выше. Место
+   в дереве показывают отступ с уголком, а полный путь — чип «Юнит» в шапке. */
 function pivotRows(root){
   const rows=[];
   D.nodesBelow(root,1).forEach(n=>{
@@ -547,13 +542,16 @@ function renderTeams(){
           {title:'Детализация',text:'Юниты уровнем ниже внутри «'+r.n.name+'».'})
         :U.caretSpacer)+
       '<span class="row-body">'+
-        (parentTrail(r.n.path,root)?'<span class="unit-trail">'+esc(parentTrail(r.n.path,root))+' ›</span>':'')+
         esc(r.n.name)+
         (shownOwn?' <span class="kpi-tag own"'+U.tip({title:'Фокус юнита',
             text:'Цели установлены на этом юните и уходят вниз по всей его ветке.',
             rows:[{label:'целей в фокусе',value:String(shownOwn)}]})+'>★ Фокус</span>':'')+
         (hiddenOwn.length?' '+U.multiFocusHint(hiddenOwn,true):'')+
-        '<span class="unit-sub">'+D.levelLabel(r.n.level)+' · '+D.fmtInt(aggLeaves(lp,'headcount')[D.LAST])+' чел</span>'+
+        /* Только численность. Уровень («Группа», «Отдел») повторял первое слово
+           самого названия — «Группа поддержки · Группа · 396 чел», — и вместо
+           подсказки получалось эхо. Где юнит стоит в дереве, теперь показывают
+           отступ строки и путь в шапке отчёта. */
+        '<span class="unit-sub">'+D.fmtInt(aggLeaves(lp,'headcount')[D.LAST])+' чел</span>'+
       '</span></span></td>'+
       mets.map(m=>unitCell(r.n,m,lp,state.selTeam===r.n.path)).join('')+'</tr>';
   });

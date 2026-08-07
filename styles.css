@@ -260,11 +260,22 @@ button{font-family:inherit}
 .ptable td.cur{background:#f5f8ff;font-weight:800;color:var(--ink)}
 .ptable tr.urow,.ptable tr.mrow{cursor:pointer}
 .ptable tr.urow:hover,.ptable tr.mrow:hover{background:var(--hover)}
-.ptable tr.urow.sel{background:#f5f8ff;box-shadow:inset 3px 0 0 var(--act)}
+.ptable tr.urow.sel{background:#f5f8ff}
+/* Синяя метка выделения живёт на ПЕРВОЙ ЯЧЕЙКЕ, а не на строке. На строке
+   она пропадала у вложенных: их фон задан на ячейках и закрашивал тень
+   строки, и выбор дочернего юнита выглядел как «ничего не выбрано». */
+.ptable tr.urow.sel td:first-child{box-shadow:inset 3px 0 0 var(--act)}
 .ptable tr.lvl2 td{background:#fcfcfd}
-/* Фон вложенной строки задан на ячейках, поэтому выделение тоже приходится
-   ставить на них: фон строки под ним не виден. */
 .ptable tr.lvl2.sel td{background:#f5f8ff}
+/* Вложенность видна отступом, а не только фоном: без сдвига дочерний юнит
+   стоит на одной вертикали с родительским, и дерево читается как список.
+   Уголок слева — та же связь, что в файловых деревьях: «я внутри строки,
+   которая выше». */
+.ptable tr.lvl2 td.txt .row-label{padding-left:26px;position:relative}
+.ptable tr.lvl2 td.txt .row-label::before{content:'';position:absolute;
+  left:11px;top:3px;width:9px;height:9px;
+  border-left:1px solid var(--line);border-bottom:1px solid var(--line);
+  border-bottom-left-radius:3px}
 .ptable.dense th{padding:var(--s4) var(--s3);font-size:var(--fs-cap)}
 .ptable.dense td{padding:7px var(--s3)}
 /* Крайние колонки не липнут к краям панели: без этого имя метрики слева
@@ -287,8 +298,6 @@ button{font-family:inherit}
 .ptable tr.total.top td{position:sticky;top:33px;z-index:2;border-top:0;
   border-bottom:2px solid var(--line);background:var(--hover);font-weight:800;color:var(--ink)}
 .unit-sub{display:block;font-size:var(--fs-cap);color:var(--muted);font-weight:600;margin-top:1px}
-.unit-trail{display:block;font-size:var(--fs-cap);color:var(--muted2);font-weight:600;
-  margin-bottom:1px;white-space:normal}
 .muted-row{color:var(--muted);font-weight:600}
 
 /* Каретка раскрытия — своя колонка, не приклеена к тексту. */
