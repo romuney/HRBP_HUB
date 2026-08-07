@@ -440,18 +440,36 @@ button{font-family:inherit}
    строка таблицы уже лежит внутри панели, и ещё две карточки внутри неё
    давали три вложенных прямоугольника на один график. Делит их волосяная
    линия и воздух, а называют — собственные заголовки графиков. */
-/* Отступы у половин зеркальные, а не одна щель сбоку: иначе полотна выходят
-   разной ширины, и один и тот же месяц стоит на них на разной вертикали. */
-.detail-split{display:grid;grid-template-columns:1fr 1fr;gap:0;padding-top:var(--s5)}
+/* Отступ ОДИН на все четыре стороны. Линия по центру делит строку на два
+   контейнера, и полотно стоит в своём контейнере ровно посередине: столько же
+   воздуха до линии, сколько до внешнего края. Пока снаружи было шесть
+   пикселей, а от линии тридцать восемь, оба графика зрительно сползали к
+   середине, и раскладка читалась как случайная.
+   Все четыре расстояния берутся из одной переменной и задаются здесь: у
+   ячейки строки горизонтальные поля обнулены, чтобы одно и то же расстояние
+   не складывалось из двух правил в разных местах файла. */
+.detail-split{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:0;
+  padding:var(--s5) var(--chart-split) 0}
 .detail-split .dsplit:first-child{padding-right:var(--chart-split)}
-.detail-split .dsplit+.dsplit{padding-left:var(--chart-split);border-left:1px solid var(--line)}
+.detail-split .dsplit+.dsplit{padding-left:var(--chart-split)}
+/* Разделитель — отдельная линия по центру, а не рамка у правой половины.
+   Рамка входит в ширину своей колонки и делает правое полотно на пиксель
+   уже левого: один и тот же месяц встаёт на двух графиках на разной
+   вертикали — ровно то, ради чего эти полотна и поставлены рядом. */
+.detail-split::before{content:'';position:absolute;left:50%;top:var(--s5);bottom:0;
+  width:1px;background:var(--line)}
 @media (max-width:1180px){
   .detail-split{grid-template-columns:1fr}
+  .detail-split::before{display:none}
   .detail-split .dsplit:first-child{padding-right:0;padding-bottom:var(--s7)}
-  .detail-split .dsplit+.dsplit{border-left:0;padding-left:0;
+  .detail-split .dsplit+.dsplit{padding-left:0;
     border-top:1px solid var(--line);padding-top:var(--s7)}
 }
-.detail-row td{padding:0 var(--s7) var(--s8);background:var(--hover)}
+/* Селектор тяжёлый намеренно: более общие .ptable.dense td и
+   .ptable.dense td:last-child перебивают правило на класс строки, и в ячейке
+   получалось шесть пикселей слева и четырнадцать справа — при том, что в
+   самом правиле строки стояло одно число на обе стороны. */
+.ptable.dense tr.detail-row td{padding:0 0 var(--s8);background:var(--hover)}
 .dyn-block{padding:0 var(--s2)}
 .dyn-chart{height:230px;width:100%}
 .tf-chart{height:400px;width:100%}
