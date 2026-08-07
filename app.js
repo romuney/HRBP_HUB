@@ -203,12 +203,34 @@ function renderShelf(){
   document.getElementById('mfNone').onclick=()=>{state.metricSel.clear();rerender()};
 }
 
+/* Путь юнита в шапке отчёта.
+   Вложенность «ТБанк › Технологические платформы › Мобильная разработка»
+   стоит там же, где назван сам юнит: отдельной строкой над таблицей она
+   отвечала на вопрос «где я» с опозданием — и только на одной вкладке.
+   Двенадцать уровней в чип не влезают, поэтому середина сворачивается,
+   а полный путь остаётся в подсказке. */
+function unitChipHTML(){
+  const chain=D.ancestorsOf(activeUnit());
+  const node=chain[chain.length-1];
+  const full=chain.map(n=>n.name).join(' › ');
+  const shown=chain.length>4?[chain[0],null,chain[chain.length-2],node]:chain;
+  const trail=shown.slice(0,-1).map(n=>
+    '<span class="u-step">'+(n?esc(n.name):'…')+'</span>').join('<i class="u-sep">›</i>');
+  return '<span class="chip bench unit-chip"'+U.tip({title:'Юнит отчёта',
+      text:'Выбирается фильтрами «Юнит зоны» и «Все юниты». От него считается наследование целей.',
+      rows:[{label:'уровень',value:node?D.levelLabel(node.level):'зона HRBP'},
+            {label:'юнитов в популяции',value:String(effectiveLeaves().length)}],
+      note:chain.length>4?full:''})+
+    '>Юнит: '+(trail?trail+'<i class="u-sep">›</i>':'')+
+    '<b>'+esc(node?node.name:populationLabel())+'</b></span>';
+}
+
 /* ---- шапка отчёта: чипы активных разрезов и база сравнения ---- */
 function renderChips(){
   const chips=D.filterChips(state).map(c=>
     '<span class="chip">'+esc(D.FILTER_BY_KEY[c.k].label)+': '+esc(c.label)+
     '<button class="x" data-unchip="'+c.k+'" aria-label="Снять фильтр">×</button></span>').join('');
-  const unit='<span class="chip bench">Юнит: <b>'+esc(populationLabel())+'</b></span>';
+  const unit=unitChipHTML();
   const bench='<span class="chip bench"'+U.tip({title:'База сравнения',
     text:'Собирается из разрезов численности, а не из выбранного юнита. Снимите разрез — база расширится.',
     rows:[{label:'юнитов в базе',value:String(D.benchmarkLeaves(state).length)}]})+
@@ -530,9 +552,9 @@ function renderTeams(){
   }
   tbl+='</tbody></table>';
 
-  const crumbs=D.ancestorsOf(root).map((n,i,a)=>
-    i===a.length-1?'<b>'+esc(n.name)+'</b>':esc(n.name)).join('<span class="crumb-sep">›</span>');
-  html+=U.trafficLegend()+'<div class="crumbs">'+crumbs+'</div><div class="split">'+
+  /* Путь юнита живёт в шапке отчёта (чип «Юнит»), а не отдельной строкой
+     здесь: одно место на все вкладки, и оно всегда на виду. */
+  html+=U.trafficLegend()+'<div class="split">'+
     U.panel({cls:'split-l',title:'Юниты',
       sub:'клик по строке меняет графики справа и раскрывает ориентиры под значениями',
       body:tbl,bodyCls:'tbl-wrap'});

@@ -8,40 +8,105 @@
    со скользящим окном было бы не с чем.
 
    Правила дизайн-системы, которые здесь обязательны:
-     • ось значений ВСЕГДА от нуля;
-     • ось Y не рисуем — значения подписаны у точек;
      • подписи одного кегля и одного цвета, с белым halo;
-     • заголовок слева, легенда справа — не накладываются.
+     • заголовок слева, легенда справа — не накладываются;
+     • обе линии — линии: заливка под одной из них делала бы её другим
+       типом графика, и глаз сравнивал бы площадь с линией;
+     • у столбиков шкала ВСЕГДА от нуля — длина столбика и есть значение;
+     • у линий шкала подбирается по данным, и тогда ось Y обязательна
+       (см. valueAxis — там же написано, почему это не двойной стандарт).
    ============================================================ */
 (function(){
 const FONT='Inter, Helvetica, Arial, sans-serif';
 const C_LABEL='#2b2b2b', C_AXIS='#8a909c', C_AXIS_LINE='#9ba4b5';
 const C_CUR='#3a3f4a', C_PREV='#c7c8cc', C_BENCH='#9aa0ac', C_KPI='#2b6cff';
+const C_NOW='#b0b7c4';   // «вы здесь»: отметка текущего месяца
+const C_GRID='#eef0f4';  // сетка значений: видна, но не спорит с линиями
 const SERIES_PALETTE=['#5f86c2','#97dece','#ac87c5','#cdbf97','#85cdfd','#9fae6a','#c98aa6','#686d76'];
 const VAL_SZ=11;
 const HEAD_H=22;   // полоса заголовка и легенды: график под неё не заезжает
 
 const D=window.HRBPDATA;
 
-/* Верх шкалы — «круглое» число не ниже максимума. Низ всегда ноль:
-   урезанная ось превращает колебание в полпроцента в обвал. */
-/* Доля от численности всегда меряется на 0–100%: у неё есть естественный
-   потолок, и «пустое место» под линией — это и есть сама доля, если её
-   закрасить. Для мелких процентов (текучесть, прогулы) потолок в 100%
-   раздавил бы график, там работает «круглая» шкала. */
-function shareAxis(){return {type:'value',min:0,max:100,show:false,splitLine:{show:false}}}
-function zeroAxis(maxVal){
-  const nice=[1,1.2,1.5,2,2.5,3,4,5,6,8,10];
-  const mx=Math.max(maxVal,1e-6);
-  const pow=Math.pow(10,Math.floor(Math.log10(mx)));
-  let top=pow*10;
-  for(const n of nice){if(pow*n>=mx){top=pow*n;break}}
-  return {type:'value',min:0,max:top,show:false,splitLine:{show:false}};
+/* ---- Шкала значений для ЛИНИЙ ----
+   Почему здесь нет обязательного нуля, хотя у столбиков он обязателен.
+   У столбика значение — длина, и срез низа искажает саму длину. У линии
+   значение — положение точки, а читают в ней НАКЛОН. Закрепляемость 76–80%
+   на шкале 0–100 — прямая под потолком: три четверти полотна пустуют, а вся
+   история метрики жмётся в верхнюю пятнадцатую. Это не осторожность, это
+   потеря сигнала.
+   Плата за подобранную шкалу ровно одна: диапазон обязан быть виден. Поэтому
+   вместе со срезом появляется ось Y — четыре круглых деления и бледная сетка.
+   Ось не дублирует подписи у точек: точки говорят «сколько», ось — «в каком
+   коридоре мы это читаем».
+   Ноль всё равно возвращается в кадр сам, когда данные подошли к нему ближе
+   собственного размаха: у прогулов и текучести расстояние до нуля — это и
+   есть смысл метрики. */
+function niceStep(raw){
+  const pow=Math.pow(10,Math.floor(Math.log10(Math.max(raw,1e-9))));
+  const n=raw/pow;
+  return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*pow;
 }
-function monthAxis(labels){
+/* Общая одежда шкалы значений: бледная сетка, подписи делений, никакой
+   вертикальной черты — линию оси заменяет сама сетка. */
+function axisSkin(metricKey,step,extra){
+  return Object.assign({type:'value',interval:step,
+    axisLine:{show:false},axisTick:{show:false},
+    axisLabel:{fontFamily:FONT,color:C_AXIS,fontSize:VAL_SZ,formatter:axisFmt(metricKey)},
+    splitLine:{lineStyle:{color:C_GRID,width:1}}},extra);
+}
+/* Шкала для СТОЛБИКОВ — всегда от нуля: у столбика значение закодировано
+   длиной, и срезанный низ врёт прямо пропорционально срезу. */
+function zeroAxis(metricKey,maxVal){
+  const mx=Math.max(maxVal,1e-6);
+  const step=niceStep(mx/4);
+  return axisSkin(metricKey,step,{min:0,max:Math.ceil(mx/step)*step});
+}
+/* Подпись деления. Дробная часть — только у тех делений, где она есть:
+   «5,0%» рядом с «7,5%» обещает точность, которой на сетке нет, а округление
+   7,5 до «8» ставит подпись, не совпадающую с линией. */
+function axisFmt(metricKey){
+  const m=D.METRIC_BY_KEY[metricKey];
+  return v=>{
+    if(m.fmt==='int')return D.fmtInt(v);
+    const s=Math.abs(v%1)<1e-9?String(Math.round(v)):v.toFixed(1).replace('.',',');
+    return m.fmt==='days'?s+D.THIN+'дн':s+'%';
+  };
+}
+function valueAxis(metricKey,values){
+  const v=values.filter(x=>x!=null&&isFinite(x));
+  let lo=Math.min(...v), hi=Math.max(...v);
+  if(!isFinite(lo)||!isFinite(hi)){lo=0;hi=1}
+  let span=hi-lo;
+  if(!(span>0))span=Math.max(Math.abs(hi)*0.15,1);
+  const pad=span*0.15;
+  const zeroBased=lo<=span;                 // ноль ближе размаха — держим его
+  const step=niceStep(((hi+pad)-(zeroBased?0:lo-pad))/3);
+  let min=zeroBased?0:Math.max(0,Math.floor((lo-pad)/step)*step);
+  let max=Math.ceil((hi+pad)/step)*step;
+  if(D.isShare(metricKey)&&max>100)max=100; // доля выше 100% не бывает
+  return axisSkin(metricKey,step,{min,max});
+}
+/* Ось месяцев. Засечки под каждым месяцем: без них подписи висят под сплошной
+   чертой, и точка на линии не привязана глазом к своему месяцу.
+   nowIdx — последний закрытый месяц: он подписан жирным и тёмным, чтобы
+   «где мы сейчас» читалось без пересчёта месяцев от начала года. */
+function monthAxis(labels,nowIdx){
   return {type:'category',data:labels,boundaryGap:false,
-    axisLine:{lineStyle:{color:C_AXIS_LINE}},axisTick:{show:false},
-    axisLabel:{fontFamily:FONT,color:C_AXIS,fontSize:VAL_SZ,interval:0}};
+    axisLine:{lineStyle:{color:C_AXIS_LINE}},
+    axisTick:{show:true,alignWithLabel:true,length:4,lineStyle:{color:C_AXIS_LINE}},
+    axisLabel:{fontFamily:FONT,color:C_AXIS,fontSize:VAL_SZ,interval:0,
+      formatter:(v,i)=>i===nowIdx?'{now|'+v+'}':v,
+      rich:{now:{fontFamily:FONT,fontSize:VAL_SZ,fontWeight:800,color:C_LABEL}}}};
+}
+/* Вертикальная пунктирная отметка текущего месяца со стрелкой у оси.
+   Живёт на фоновой серии: линия текущего года должна проходить поверх неё. */
+function nowMark(idx){
+  if(idx==null||idx<0)return undefined;
+  return {silent:true,symbol:['arrow','none'],symbolSize:7,
+    label:{show:false},emphasis:{disabled:true},animation:false,
+    lineStyle:{type:'dashed',width:1.2,color:C_NOW,opacity:1},
+    data:[{xAxis:idx}]};
 }
 function valueLabel(metricKey){
   return {show:true,position:'top',distance:7,
@@ -89,54 +154,59 @@ function tooltipRows(metricKey){
 function yoyOption(metricKey,series,opts){
   opts=opts||{};
   const prev=D.prevYearOf(series), cur=D.curYearOf(series);
-  const share=D.isShare(metricKey);
   const labels=D.MONTH_ABBR;
   const legend=[String(D.YEAR_CUR),String(D.YEAR_PREV)];
-  let mx=Math.max(...prev,...cur.filter(v=>v!=null));
+  /* Шкалу считаем по ВСЕМУ, что нарисовано, включая ориентир: цель, ушедшая
+     за край полотна, — это «мы не дотягиваем» без единого свидетельства. */
+  const scaleVals=prev.concat(cur.filter(v=>v!=null));
 
+  /* Прошлый год — та же форма записи, что и текущий: линия с точками.
+     Разделяют их вес и цвет, а не тип графика. Точки нужны и по делу:
+     без них не видно, что бледная кривая — это те же двенадцать замеров. */
   const data=[
-    {name:String(D.YEAR_PREV),type:'line',smooth:false,symbol:'none',
+    {name:String(D.YEAR_PREV),type:'line',smooth:false,symbol:'circle',symbolSize:4,
       lineStyle:{width:2,color:C_PREV},itemStyle:{color:C_PREV},
-      data:prev,z:2,label:{show:false}},
+      data:prev,z:2,label:{show:false},markLine:nowMark(D.CUR_LEN-1)},
     {name:String(D.YEAR_CUR),type:'line',smooth:false,symbol:'circle',symbolSize:5,
       lineStyle:{width:2.6,color:C_CUR},itemStyle:{color:C_CUR},
-      /* Заливка гаснет книзу: сплошная плита от линии до нуля весит больше,
-         чем сама линия, и спорит с ней за внимание. Градиент показывает
-         «сколько набрано» и не превращается в отдельный объект. */
-      areaStyle:share?{color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[
-        {offset:0,color:'rgba(58,63,74,.13)'},{offset:1,color:'rgba(58,63,74,0)'}]}}:undefined,
       data:cur,z:5,connectNulls:false,label:valueLabel(metricKey)}
   ];
   if(opts.kpi!=null){
-    mx=Math.max(mx,opts.kpi);
+    scaleVals.push(opts.kpi);
     legend.push('Цель');
     data.push({name:'Цель',type:'line',symbol:'none',data:labels.map(()=>opts.kpi),z:3,
       lineStyle:{width:1.6,type:'dashed',color:C_KPI},itemStyle:{color:C_KPI},label:{show:false}});
   }else if(opts.bench){
     const b=D.curYearOf(opts.bench);
-    mx=Math.max(mx,...b.filter(v=>v!=null));
+    b.filter(v=>v!=null).forEach(v=>scaleVals.push(v));
     const nm='База · '+(opts.benchLabel||'вся компания');
     legend.push(nm);
     data.push({name:nm,type:'line',symbol:'none',data:b,z:3,
       lineStyle:{width:1.6,type:'dashed',color:C_BENCH},itemStyle:{color:C_BENCH},label:{show:false}});
   }
   return Object.assign(head(opts.title,legend),{
-    grid:{left:10,right:14,top:HEAD_H+10,bottom:22,containLabel:true},
+    /* Поля по краям — не про красоту: подпись значения шире точки, над которой
+       стоит, и у январской точки она уходит влево, на подписи шкалы. Запас
+       по краям держит их порознь. */
+    grid:{left:30,right:26,top:HEAD_H+14,bottom:24,containLabel:true},
     tooltip:Object.assign(tooltipBase(),{formatter:tooltipRows(metricKey)}),
-    xAxis:monthAxis(labels),
-    yAxis:share?shareAxis():zeroAxis(mx),
+    xAxis:monthAxis(labels,D.CUR_LEN-1),
+    yAxis:valueAxis(metricKey,scaleVals),
     series:data,animationDuration:600,animationEasing:'cubicOut'
   });
 }
 
-/* ---- Группированные бары: одна серия на значение разреза, по месяцам окна ---- */
+/* ---- Группированные бары: одна серия на значение разреза, по месяцам окна ----
+   Группы остаются на своих местах — полотну добавлены поля слева и справа:
+   крайние группы упирались в рамку и читались как обрезанные. */
 function groupedBarOption(seriesDefs,monthsLabels,metricKey,title){
   const mx=Math.max(...seriesDefs.map(s=>Math.max(...s.data)));
   return Object.assign(head(title,seriesDefs.map(s=>s.name)),{
-    grid:{left:10,right:14,top:HEAD_H+10,bottom:22,containLabel:true},
+    grid:{left:34,right:34,top:HEAD_H+14,bottom:24,containLabel:true},
     tooltip:Object.assign(tooltipBase(),{axisPointer:{type:'shadow'},formatter:tooltipRows(metricKey)}),
-    xAxis:Object.assign(monthAxis(monthsLabels),{boundaryGap:true}),
-    yAxis:zeroAxis(mx),
+    /* последний месяц окна — текущий: подписан жирным так же, как на линиях */
+    xAxis:Object.assign(monthAxis(monthsLabels,monthsLabels.length-1),{boundaryGap:true}),
+    yAxis:zeroAxis(metricKey,mx),
     series:seriesDefs.map((s,i)=>({name:s.name,type:'bar',barMaxWidth:16,barGap:'12%',
       itemStyle:{color:SERIES_PALETTE[i%SERIES_PALETTE.length],borderRadius:[3,3,0,0]},
       legendHoverLink:false,emphasis:{itemStyle:{opacity:1}},blur:{itemStyle:{opacity:1}},
