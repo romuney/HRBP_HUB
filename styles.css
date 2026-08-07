@@ -50,6 +50,11 @@
   /* ---------- Геометрия ---------- */
   --head-h:51px;
   --chart-gap:26px;
+  /* Воздух до разделителя между двумя полотнами раскрытой строки. Шире любой
+     ступени шкалы намеренно: полотно графика само по себе плотное, и на
+     двадцати пикселях подпись «дек.» левого графика вставала почти вплотную
+     к «85%» правого — два разных графика читались как один. */
+  --chart-split:38px;
 
   /* Добавленные токены прототипа: шапка из двух полос (имя + вкладки)
      и ширина полки фильтров. */
@@ -330,9 +335,10 @@ button{font-family:inherit}
   vertical-align:middle;margin-right:5px}
 
 /* ============ Пилюли и метки ============ */
+/* В пилюле только само отклонение. База сравнения написана в шапке колонки —
+   повторять её в каждой строке значит писать одно и то же по десять раз. */
 .delta{display:inline-flex;align-items:center;gap:var(--s2);font-size:var(--fs-note);font-weight:700;
   padding:3px 7px;border-radius:var(--r2);white-space:nowrap;cursor:help;font-variant-numeric:tabular-nums}
-.delta .d-vs{font-weight:600;font-size:var(--fs-cap);opacity:.72}
 .delta.up{background:var(--green-bg);color:var(--green-tx)}
 .delta.down{background:var(--red-bg);color:var(--red-tx)}
 .delta.flat,.delta.neu{background:#f0f1f3}
@@ -370,6 +376,9 @@ button{font-family:inherit}
 .tbl-note{margin-top:var(--s4);font-size:var(--fs-note);color:var(--muted);font-weight:600;line-height:1.45}
 .legend{display:flex;gap:var(--s8);flex-wrap:wrap;align-items:center;margin:0 0 var(--s7);
   font-size:12px;color:var(--ink2)}
+/* Легенда над OnePager прижата вправо: цвет в этой таблице живёт в правых
+   колонках, и объяснение стоит на их вертикали, а не над названиями метрик. */
+.legend.right{justify-content:flex-end;text-align:right}
 .legend .legend-h{font-size:var(--fs-cap);text-transform:uppercase;letter-spacing:.5px;
   color:var(--muted2);font-weight:800}
 .legend .sw{display:inline-flex;align-items:center;gap:var(--s3);font-weight:600;cursor:help}
@@ -434,8 +443,8 @@ button{font-family:inherit}
 /* Отступы у половин зеркальные, а не одна щель сбоку: иначе полотна выходят
    разной ширины, и один и тот же месяц стоит на них на разной вертикали. */
 .detail-split{display:grid;grid-template-columns:1fr 1fr;gap:0;padding-top:var(--s5)}
-.detail-split .dsplit:first-child{padding-right:var(--s9)}
-.detail-split .dsplit+.dsplit{padding-left:var(--s9);border-left:1px solid var(--line)}
+.detail-split .dsplit:first-child{padding-right:var(--chart-split)}
+.detail-split .dsplit+.dsplit{padding-left:var(--chart-split);border-left:1px solid var(--line)}
 @media (max-width:1180px){
   .detail-split{grid-template-columns:1fr}
   .detail-split .dsplit:first-child{padding-right:0;padding-bottom:var(--s7)}

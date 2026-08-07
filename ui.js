@@ -64,15 +64,19 @@ function tip(o){return ' data-tip="'+esc(tipHtml(o))+'"'}
 })();
 
 /* ---------- Пилюля изменения ----------
-   Направление — знаком, оценка — классом, база сравнения — внутри пилюли. */
-function deltaChip(metricKey,dv,vsShort,tipText){
+   Направление — знаком, оценка — классом. Базы сравнения внутри пилюли нет:
+   она названа в шапке колонки — «Изменение · к маю 2026», «Год к году ·
+   к июню 2025», — и повторять её в каждой ячейке значит писать одно и то же
+   столько раз, сколько в таблице строк. Шапка отвечает на «к чему» один раз
+   и точнее: там стоит и год, а в пилюлю он не влезал. */
+function deltaChip(metricKey,dv,tipText){
   const cls=D.deltaClass(metricKey,dv);
   return '<span class="delta '+cls+'"'+tip({title:'Изменение',text:tipText||'',
       rows:[{label:'значение',value:D.fmtDelta(metricKey,dv)}]})+'>'+
-    D.fmtDelta(metricKey,dv)+(vsShort?'<span class="d-vs">'+esc(vsShort)+'</span>':'')+'</span>';
+    D.fmtDelta(metricKey,dv)+'</span>';
 }
-function momChip(metricKey,dv){return deltaChip(metricKey,dv,'к '+D.PREV_LABEL.split(' ')[0],'Сравнение с предыдущим месяцем ('+D.PREV_LABEL+').')}
-function yoyChip(metricKey,dv){return deltaChip(metricKey,dv,'год к году','Сравнение с тем же месяцем прошлого года ('+D.YEAR_LABEL+').')}
+function momChip(metricKey,dv){return deltaChip(metricKey,dv,'Сравнение с предыдущим месяцем ('+D.PREV_LABEL+').')}
+function yoyChip(metricKey,dv){return deltaChip(metricKey,dv,'Сравнение с тем же месяцем прошлого года ('+D.YEAR_LABEL+').')}
 
 /* метрика, которую с базой сравнивать бессмысленно, помечается словами,
    а не прочерком: прочерк читается как «данных нет» */
@@ -170,11 +174,15 @@ function tblNote(html){return '<div class="tbl-note">'+html+'</div>'}
    таблицы, в пилюле, в столбике спарклайна и в подсказке графика — значит и
    объяснять его надо один раз и одинаково.
    Про серый сказано отдельно и с числами: «серое» без объяснения читается как
-   «данных нет», хотя это «отклонение есть, но оно не значимо». */
-function trafficLegend(){
+   «данных нет», хотя это «отклонение есть, но оно не значимо».
+   align='right' прижимает легенду к правому краю. Это не украшение: цвет
+   живёт в правых колонках таблицы — ориентир, изменение, год к году,
+   спарклайн, — а легенда слева стояла над колонкой «Метрика», где никакого
+   цвета нет, и не читалась как объяснение к ним. */
+function trafficLegend(align){
   const dz='Отклонение до 5% от ориентира не считается значимым — ни в плюс, ни в минус. '+
     'Для цели 4,0% это коридор 3,8–4,2%, для 80% — 76–84%.';
-  return '<div class="legend">'+
+  return '<div class="legend'+(align==='right'?' right':'')+'">'+
     '<span class="legend-h">Цвет значения</span>'+
     '<span class="sw"'+tip({title:'Зелёный',text:'Метрика лучше ориентира больше чем на 5%.',
       note:'Ориентир — цель, если она есть, иначе база сравнения.'})+

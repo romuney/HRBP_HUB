@@ -350,8 +350,10 @@ function renderOnePager(){
   ]);
   /* Легенда светофора стоит НАД таблицами, а не под ними: цвет встречается
      в первой же строке — в ячейке ориентира, в пилюлях изменения и в столбиках
-     спарклайна, — и объяснение должно попасться раньше, чем сам цвет. */
-  html+=U.trafficLegend();
+     спарклайна, — и объяснение должно попасться раньше, чем сам цвет.
+     И справа, на той же вертикали, что эти колонки: слева она висела над
+     названиями метрик и объясняла цвет, которого там нет. */
+  html+=U.trafficLegend('right');
 
   /* таблицы блоков */
   let anyRow=false;
@@ -703,13 +705,13 @@ function renderTransformer(){
     t+='<tr class="total top"><td class="txt"><span class="row-label"><span class="caret-spacer"></span>'+
       '<span class="row-body">ИТОГО</span></span></td>'+
       total.map((v,i)=>'<td class="'+(i===total.length-1?'cur':'')+'">'+D.fmtVal(tf.metric,v)+'</td>').join('')+
-      '<td class="vs">'+U.deltaChip(tf.metric,dyt,'за год','Изменение с начала окна ('+D.YEAR_LABEL+').')+'</td></tr>';
+      '<td class="vs">'+U.deltaChip(tf.metric,dyt,'Изменение с начала окна ('+D.YEAR_LABEL+').')+'</td></tr>';
     series.forEach(s=>{
       const dy=+(s.data[s.data.length-1]-s.data[0]).toFixed(1);
       t+='<tr><td class="txt"><span class="row-label"><span class="caret-spacer"></span>'+
         '<span class="row-body">'+esc(s.name)+'</span></span></td>'+
         s.data.map((v,i)=>'<td class="'+(i===s.data.length-1?'cur':'')+'">'+D.fmtVal(tf.metric,v)+'</td>').join('')+
-        '<td class="vs">'+U.deltaChip(tf.metric,dy,'за год','Изменение с начала окна ('+D.YEAR_LABEL+').')+'</td></tr>';
+        '<td class="vs">'+U.deltaChip(tf.metric,dy,'Изменение с начала окна ('+D.YEAR_LABEL+').')+'</td></tr>';
     });
     t+='</tbody></table>';
     html+=U.panel({title:m.name+' · сводная по разрезу «'+tf.cut+'»',sub:'последний месяц выделен',

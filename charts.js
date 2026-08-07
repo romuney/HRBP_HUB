@@ -25,12 +25,21 @@
 const FONT='Inter, Helvetica, Arial, sans-serif';
 const C_LABEL='#2b2b2b', C_AXIS='#8a909c', C_AXIS_LINE='#9ba4b5';
 const C_CUR='#3a3f4a', C_PREV='#c7c8cc', C_BENCH='#9aa0ac', C_KPI='#2b6cff';
+/* Цвета наведения: бледные линии по наведению темнеют, а не толстеют.
+   У тёмной линии и у цели своего «яркого» варианта нет — они и так на полную. */
+const C_PREV_HI='#a4a7af', C_BENCH_HI='#737a88';
 const C_NOW='#b0b7c4';   // «вы здесь»: отметка текущего месяца
 const C_GRID='#eef0f4';  // сетка значений: видна, но не спорит с линиями
 const SERIES_PALETTE=['#5f86c2','#97dece','#ac87c5','#cdbf97','#85cdfd','#9fae6a','#c98aa6','#686d76'];
 const VAL_SZ=11;
 const HEAD_H=22;   // полоса заголовка и легенды: график под неё не заезжает
 const AXIS_MARGIN=13;  // отступ подписей шкалы от полотна
+/* Поля полотна до рамки графика. Справа — воздух за последней точкой, слева —
+   ровно такой же воздух ПЕРЕД подписями оси Y. Без него подпись шкалы стоит
+   вплотную к краю блока, а у широкой («1 234») просто срезается: рамка блока
+   ничего не обрезает мягко, она обрывает текст. Поле слева считается числом
+   (см. labelWidth), поэтому запас надо закладывать руками. */
+const PLOT_PAD=26;
 
 const D=window.HRBPDATA;
 
@@ -87,11 +96,13 @@ function axisFmt(metricKey){
    containLabel: тот считает поле по факту осей, и график с целью (у него
    вторая ось ради синей подписи) получал поле на сорок пикселей шире
    соседнего. Полотна рядом обязаны быть одной ширины — иначе одинаковые
-   месяцы стоят на разных вертикалях, и два графика не сравнить. */
-function labelWidth(s){
+   месяцы стоят на разных вертикалях, и два графика не сравнить.
+   bold — про подпись цели: она набрана жирным и шире обычной, а срезанная
+   подпись цели хуже любой другой: цель как раз то, ради чего смотрят шкалу. */
+function labelWidth(s,bold){
   let w=0;
   for(const c of String(s))w+=(c===','||c==='.')?3.4:(c===' '||c===D.THIN)?3:(c==='%')?6.5:6.3;
-  return w;
+  return bold?w*1.08:w;
 }
 /* Возвращает {axes, gutter}: оси (основная плюс, если цель попала внутрь
    коридора, вторая — невидимая, ради единственной синей подписи на уровне
@@ -112,10 +123,13 @@ function valueAxis(metricKey,values,kpi){
   if(D.isShare(metricKey)&&max>100)max=100; // доля выше 100% не бывает
   const main=axisSkin(metricKey,max-min,{min,max});
   const fmt=axisFmt(metricKey);
-  const gut=t=>Math.ceil(Math.max(labelWidth(fmt(min)),labelWidth(fmt(max)),t)+AXIS_MARGIN+2);
+  /* Поле слева = воздух до края блока + сама подпись + её отступ от полотна.
+     Все три слагаемых обязательны: без первого подпись упирается в рамку,
+     без третьего — в линию сетки. */
+  const gut=t=>Math.ceil(PLOT_PAD+Math.max(labelWidth(fmt(min)),labelWidth(fmt(max)),t)+AXIS_MARGIN);
   const drawKpi=kpi!=null&&kpi>min&&kpi<max&&(max-min)/(kpi-min)<=40;
   if(!drawKpi)return {axes:[main],gutter:gut(0)};
-  return {gutter:gut(labelWidth(fmt(kpi))),
+  return {gutter:gut(labelWidth(fmt(kpi),true)),
     axes:[main,{type:'value',min,max,interval:kpi-min,position:'left',offset:0,
       axisLine:{show:false},axisTick:{show:false},splitLine:{show:false},
       axisLabel:{fontFamily:FONT,fontSize:VAL_SZ,color:C_KPI,fontWeight:700,margin:AXIS_MARGIN,
@@ -146,12 +160,22 @@ function nowMark(idx){
     lineStyle:{type:'solid',width:1,color:C_NOW,opacity:1},
     data:[{xAxis:idx}]};
 }
-/* Наведение на легенду поднимает свою линию и гасит соседние. Выключать серию
-   кликом — действие, а разглядеть её — просто вопрос, и на вопрос интерфейс
-   должен отвечать без последствий. */
-function hoverFocus(){
-  return {emphasis:{focus:'series',lineStyle:{width:3.2}},
-    blur:{lineStyle:{opacity:.18},itemStyle:{opacity:.18},label:{opacity:.18}}};
+/* Наведение на линию или на её имя в легенде: соседние линии гаснут почти до
+   фона, а сама линия остаётся во весь цвет — и бледная становится темнее.
+   Выключать серию кликом — действие, а разглядеть её — просто вопрос, и на
+   вопрос интерфейс должен отвечать без последствий.
+   Толщину линии наведение НЕ трогает, и это принципиально. Пунктир задан
+   штрихами относительно ширины: стоит ширине вырасти, как штрихи
+   пересчитываются и линия на глазах перерисовывается — вместо подсветки
+   получается дёрганье. Выделяет здесь контраст, а не размер, поэтому у
+   emphasis ширина ровно та же, что у самой линии, а symbol не масштабируется.
+   width — ширина этой линии, hi — её «яркий» цвет (у тёмных линий его нет). */
+function hoverFocus(width,hi){
+  const ls={width:width,opacity:1};
+  if(hi)ls.color=hi;
+  return {emphasis:{focus:'series',scale:false,
+      lineStyle:ls,itemStyle:hi?{color:hi,opacity:1}:{opacity:1}},
+    blur:{lineStyle:{opacity:.12},itemStyle:{opacity:.12},label:{opacity:.1}}};
 }
 function valueLabel(metricKey){
   return {show:true,position:'top',distance:7,
@@ -265,11 +289,11 @@ function comparisonOption(metricKey,cfg,opts){
   /* Прошлый период — та же форма записи, что и текущий: линия с точками.
      Разделяют их вес и цвет, а не тип графика. */
   const data=[
-    Object.assign(hoverFocus(),{name:cfg.prevName,type:'line',smooth:false,
+    Object.assign(hoverFocus(2,C_PREV_HI),{name:cfg.prevName,type:'line',smooth:false,
       symbol:'circle',symbolSize:4,
       lineStyle:{width:2,color:C_PREV},itemStyle:{color:C_PREV},
       data:cfg.prev,z:2,label:{show:false},markLine:nowMark(cfg.markIdx)}),
-    Object.assign(hoverFocus(),{name:cfg.curName,type:'line',smooth:false,
+    Object.assign(hoverFocus(2.6),{name:cfg.curName,type:'line',smooth:false,
       symbol:'circle',symbolSize:5,
       lineStyle:{width:2.6,color:C_CUR},itemStyle:{color:C_CUR},
       data:pointData(cfg.cur,flipFirst),z:5,connectNulls:false,
@@ -282,7 +306,7 @@ function comparisonOption(metricKey,cfg,opts){
   let stateOf=null;
   if(opts.kpi!=null){
     legend.push('Цель');
-    data.push(Object.assign(hoverFocus(),{name:'Цель',type:'line',symbol:'none',
+    data.push(Object.assign(hoverFocus(1.6),{name:'Цель',type:'line',symbol:'none',
       data:cfg.labels.map(()=>opts.kpi),z:3,
       lineStyle:{width:1.6,type:'dashed',color:C_KPI},itemStyle:{color:C_KPI},label:{show:false}}));
     stateOf=(i,v)=>D.stateForKpi(metricKey,v,opts.kpi);
@@ -290,7 +314,7 @@ function comparisonOption(metricKey,cfg,opts){
     const b=opts.bench;
     const nm='База · '+(opts.benchLabel||'вся компания');
     legend.push(nm);
-    data.push(Object.assign(hoverFocus(),{name:nm,type:'line',symbol:'none',data:b,z:3,
+    data.push(Object.assign(hoverFocus(1.6,C_BENCH_HI),{name:nm,type:'line',symbol:'none',data:b,z:3,
       lineStyle:{width:1.6,type:'dashed',color:C_BENCH},itemStyle:{color:C_BENCH},label:{show:false}}));
     stateOf=(i,v)=>b[i]==null?null:D.compareState(metricKey,v,b[i]);
   }
@@ -300,7 +324,7 @@ function comparisonOption(metricKey,cfg,opts){
        Сверху запас, чтобы верхняя линия сетки не липла к заголовку; снизу
        ровно столько, сколько нужно подписям месяцев — раньше под ними
        оставалась пустая полоса в их же высоту. */
-    grid:{left:y.gutter,right:26,top:HEAD_H+24,bottom:26,containLabel:false},
+    grid:{left:y.gutter,right:PLOT_PAD,top:HEAD_H+24,bottom:26,containLabel:false},
     tooltip:Object.assign(tooltipBase(),{formatter:tooltipRows(metricKey,
       {primary:cfg.curName,head:cfg.head,sub:cfg.sub,state:stateOf})}),
     xAxis:catAxis(cfg.labels,cfg.boldIdx),
