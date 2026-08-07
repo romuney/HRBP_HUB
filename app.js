@@ -428,10 +428,9 @@ function renderOnePager(){
     const bl=baselineOf(k,s[D.LAST]);
     const kpi=bl.kind==='kpi'?bl.target:null;
     const bench=bl.kind==='bench'?D.benchmarkSeries(state,k):null;
-    const seed=activeUnit()+'|'+k;
     mkChart('dc-y-'+k,CH.yoyOption(k,s,{kpi,bench,benchLabel:benchName(),title:'Год к году'}));
-    mkChart('dc-w-'+k,CH.wowOption(k,D.weeklyOf(s,seed,k),{kpi,
-      bench:bench?D.weeklyOf(bench,'bench|'+benchName()+'|'+k,k):null,
+    mkChart('dc-w-'+k,CH.wowOption(k,D.weeklyOf(s,k),{kpi,
+      bench:bench?D.weeklyOf(bench,k):null,
       benchLabel:benchName(),title:'12 недель к предыдущим 12'}));
   }
   bindRowToggle('.mrow','metric',k=>{state.openMetric=state.openMetric===k?null:k;rerender()});
@@ -611,8 +610,8 @@ function renderTeams(){
       const bench=bl.kind==='bench'?D.benchmarkSeries(state,m.key):null;
       const o={kpi,bench,benchLabel:benchName(),title:m.name};
       mkChart('dyn-'+m.key, state.dynMode==='wow'
-        ? CH.wowOption(m.key,D.weeklyOf(s,sel.path+'|'+m.key,m.key),
-            Object.assign({},o,{bench:bench?D.weeklyOf(bench,'bench|'+benchName()+'|'+m.key,m.key):null}))
+        ? CH.wowOption(m.key,D.weeklyOf(s,m.key),
+            Object.assign({},o,{bench:bench?D.weeklyOf(bench,m.key):null}))
         : CH.yoyOption(m.key,s,o));
     });
   }

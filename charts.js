@@ -317,17 +317,26 @@ function comparisonOption(metricKey,cfg,opts){
       labelLayout:{moveOverlap:'shiftY',hideOverlap:false}})
   ];
   let stateOf=null;
+  /* Ориентир рисуется ПОВЕРХ линии текущего периода, а не под ней.
+     Ровно там, где ориентир важнее всего, эти две линии совпадают: когда юнит
+     отчёта и есть вся база сравнения, значения равны до десятой, и ориентир,
+     лежащий ниже по слоям, полностью скрывался под тёмной линией. Легенда
+     обещала базу, на полотне базы не было — и «мы точно на базе» читалось как
+     «базу забыли нарисовать».
+     Наверху лежать может только пунктир: сквозь его промежутки видно линию
+     под ним, поэтому оба ряда остаются на виду и в случае совпадения. */
+  const Z_REF=6;
   if(opts.kpi!=null){
     legend.push('Цель');
     data.push(Object.assign(hoverFocus(W_REF),{name:'Цель',type:'line',symbol:'none',
-      data:cfg.labels.map(()=>opts.kpi),z:3,
+      data:cfg.labels.map(()=>opts.kpi),z:Z_REF,
       lineStyle:{width:W_REF,type:'dashed',color:C_KPI},itemStyle:{color:C_KPI},label:{show:false}}));
     stateOf=(i,v)=>D.stateForKpi(metricKey,v,opts.kpi);
   }else if(opts.bench){
     const b=opts.bench;
     const nm='База · '+(opts.benchLabel||'вся компания');
     legend.push(nm);
-    data.push(Object.assign(hoverFocus(W_REF,C_BENCH_HI),{name:nm,type:'line',symbol:'none',data:b,z:3,
+    data.push(Object.assign(hoverFocus(W_REF,C_BENCH_HI),{name:nm,type:'line',symbol:'none',data:b,z:Z_REF,
       lineStyle:{width:W_REF,type:'dashed',color:C_BENCH},itemStyle:{color:C_BENCH},label:{show:false}}));
     stateOf=(i,v)=>b[i]==null?null:D.compareState(metricKey,v,b[i]);
   }
