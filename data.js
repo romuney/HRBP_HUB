@@ -20,6 +20,13 @@ function rng(seed){return mulberry32(hashStr(seed))}
    Индексы 0..11 — 2025-й, 12..17 — 2026-й.
 */
 const MONTH_ABBR=['янв.','февр.','март','апр.','май','июнь','июль','авг.','сент.','окт.','нояб.','дек.'];
+/* Полные названия — для подсказок: в них месяц называется целиком, сокращение
+   там экономит пять букв ценой чтения. */
+const MONTH_FULL=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+/* Родительный падеж — для дат: «6 апреля», «4 мая». Именительный из
+   MONTH_ABBR в дате даёт «4 май», и это заметно. */
+const MONTH_GEN=['января','февраля','марта','апреля','мая','июня','июля','августа','сентября','октября','ноября','декабря'];
+const MONTH_GEN_ABBR=['янв.','февр.','мар.','апр.','мая','июня','июля','авг.','сент.','окт.','нояб.','дек.'];
 const YEAR_PREV=2025, YEAR_CUR=2026;
 const CUR_LEN=6;                      // сколько месяцев текущего года уже закрыто
 const MONTHS=(function(){
@@ -45,6 +52,100 @@ function curYearOf(series){
 }
 function windowOf(series){return series.slice(WIN_FROM,LAST+1)}
 function windowMonths(){return MONTHS.slice(WIN_FROM,LAST+1)}
+
+/* ============================================================
+   НЕДЕЛЬНЫЙ ГРАНУЛ
+   ------------------------------------------------------------
+   Двадцать четыре недели: последние двенадцать и предыдущие двенадцать —
+   тот же приём сравнения «период к периоду», что и год к году, только зум.
+   Месяц отвечает на вопрос «какой это год», неделя — «что происходит прямо
+   сейчас»: в помесячной линии июньский всплеск виден одной точкой, а в
+   недельной — тремя, и сразу ясно, случилось это в начале месяца или в конце.
+
+   Неделя — пн–вс, последняя закрыта: недостроенная неделя в ряду выглядит
+   как обвал метрики, хотя это просто ещё не набранные дни.
+
+   В прототипе недельный ряд разворачивается из месячного (см. weeklyOf):
+   так зум не спорит с обзором — цифры на двух графиках об одном и том же.
+   В Proteus недельный гранул приходит из ClickHouse отдельным датасетом.
+   ============================================================ */
+const WEEK_WIN=12;                    // недель в окне
+const DAY_MS=86400000;
+/* последняя закрытая неделя — та, чьё воскресенье не позже конца периода */
+const WEEKS=(function(){
+  const lastDay=new Date(Date.UTC(YEAR_CUR,CUR_LEN,0));
+  const back=lastDay.getUTCDay();     // 0 = воскресенье
+  const endSun=new Date(lastDay.getTime()-back*DAY_MS);
+  const out=[];
+  for(let i=WEEK_WIN*2-1;i>=0;i--){
+    const e=new Date(endSun.getTime()-i*7*DAY_MS);
+    out.push({s:new Date(e.getTime()-6*DAY_MS),e});
+  }
+  return out;
+})();
+function curWeeksOf(w){return w.slice(WEEK_WIN)}
+function prevWeeksOf(w){return w.slice(0,WEEK_WIN)}
+/* индекс месяца в ряду по календарной дате; вне окна — ближайший край */
+function seriesIdxOf(y,m){
+  if(y<YEAR_PREV)return 0;
+  if(y===YEAR_PREV)return m;
+  if(y===YEAR_CUR)return CUR_START+Math.min(m,CUR_LEN-1);
+  return LAST;
+}
+/* Месячное значение отнесено к середине месяца, между серединами — линейно.
+   Иначе неделя на стыке месяцев прыгала бы ступенькой, которой в метрике нет. */
+function monthValueAt(series,date){
+  const y=date.getUTCFullYear(), m=date.getUTCMonth();
+  const dim=new Date(Date.UTC(y,m+1,0)).getUTCDate();
+  const t=(date.getUTCDate()-1)/dim-0.5;             // −0.5 … +0.5
+  const i=seriesIdxOf(y,m);
+  let j=t<0?i-1:i+1;
+  if(j<0||j>LAST)j=i;
+  return series[i]+(series[j]-series[i])*Math.abs(t);
+}
+/* Недельный ряд из месячного: тренд берём из месяцев, недельную рябь —
+   из детерминированного шума, соразмерного собственному размаху метрики.
+   seed держит ряд стабильным между перерисовками. */
+function weeklyOf(series,seed,metricKey){
+  const win=series.slice(WIN_FROM,LAST+1);
+  const spread=Math.max(...win)-Math.min(...win);
+  const amp=(spread||Math.abs(series[LAST])*0.06)*0.45;
+  const r=rng('wk|'+seed);
+  const isInt=METRIC_BY_KEY[metricKey].fmt==='int';
+  return WEEKS.map(w=>{
+    const mid=new Date((w.s.getTime()+w.e.getTime())/2);
+    const v=Math.max(0,monthValueAt(series,mid)+(r()-0.5)*amp);
+    return isInt?Math.round(v):+v.toFixed(1);
+  });
+}
+/* ---- Подписи недель ----
+   Ось несёт дату начала недели, а название месяца — только там, где месяц
+   сменился. Двенадцать одинаковых «нед. 1…12» не говорят, когда это было;
+   двенадцать полных дат превращают ось в простыню. Дата плюс месяц на стыке —
+   ровно столько, чтобы понять «где мы» и не читать лишнего. */
+function weekAxisLabels(){
+  let prevM=-1;
+  return curWeeksOf(WEEKS).map(w=>{
+    const d=w.s.getUTCDate(), m=w.s.getUTCMonth();
+    const s=(m!==prevM)?(d+' '+MONTH_GEN_ABBR[m]):String(d);
+    prevM=m;
+    return s;
+  });
+}
+/* «6–12 апреля» или «30 марта – 5 апреля» */
+function weekRangeLabel(idx,which){
+  const w=WEEKS[(which==='prev'?0:WEEK_WIN)+idx];
+  if(!w)return '';
+  const d1=w.s.getUTCDate(), m1=w.s.getUTCMonth();
+  const d2=w.e.getUTCDate(), m2=w.e.getUTCMonth();
+  return m1===m2 ? d1+'–'+d2+' '+MONTH_GEN[m1]
+                 : d1+' '+MONTH_GEN[m1]+' – '+d2+' '+MONTH_GEN[m2];
+}
+const WEEK_PERIOD_LABEL=(function(){
+  const a=WEEKS[WEEK_WIN], b=WEEKS[WEEK_WIN*2-1];
+  return a.s.getUTCDate()+' '+MONTH_GEN[a.s.getUTCMonth()]+' – '+
+         b.e.getUTCDate()+' '+MONTH_GEN[b.e.getUTCMonth()];
+})();
 
 /* ---------- Логические блоки метрик (синхронизированы с OnePager) ---------- */
 const BLOCKS=[
@@ -724,8 +825,11 @@ function deltas(series){
           yoy:+(last-series[LAST-12]).toFixed(1)};   // тот же месяц прошлого года
 }
 
-window.HRBPDATA={MONTHS,MONTH_ABBR,N,LAST,CUR_START,CUR_LEN,WIN_FROM,YEAR_PREV,YEAR_CUR,
+window.HRBPDATA={MONTHS,MONTH_ABBR,MONTH_FULL,MONTH_GEN,MONTH_GEN_ABBR,
+  N,LAST,CUR_START,CUR_LEN,WIN_FROM,YEAR_PREV,YEAR_CUR,
   prevYearOf,curYearOf,windowOf,windowMonths,PERIOD_LABEL,PREV_LABEL,YEAR_LABEL,
+  WEEKS,WEEK_WIN,WEEK_PERIOD_LABEL,weeklyOf,curWeeksOf,prevWeeksOf,
+  weekAxisLabels,weekRangeLabel,
   BLOCKS,BLOCK_BY_KEY,METRICS,METRIC_BY_KEY,metricsOfBlock,targetable,comparable,isShare,
   DEV_METRICS,WANTED_METRICS,
   PAINTS,ITSEGS,STREAMS,SPECS,STAFFTYPES,HCTYPES,FILTER_DEFS,FILTER_BY_KEY,EMPTY_FILTERS,

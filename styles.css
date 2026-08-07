@@ -398,15 +398,31 @@ button{font-family:inherit}
 .spark .sb.bad{fill:#ef8c8c}
 .spark .sb.warn,.spark .sb.neutral{fill:#c7c8cc}
 .sparkcell{text-align:center}
+/* Спарклайн не должен упираться в края ячейки: столбик, прижатый к границе
+   колонки, читается как обрезанный. По десять пикселей воздуха с каждой
+   стороны сверх обычного паддинга ячейки. */
 .ptable td.sparkcell{padding:var(--s4) var(--s7) var(--s4) var(--s5)}
+.ptable td.sparkcell .spark{padding:0 10px}
 .ptable th.sparkcell{text-align:center;padding-right:var(--s7)}
 
 /* ============ Графики ============ */
 /* Пропорции полотна — половина читаемости линии. На всю ширину таблицы
    график растягивается в 5:1, и любой наклон ложится почти горизонтально:
    метрика выглядит «ровной» не потому, что не меняется, а потому, что её
-   расплющило. Ограничиваем ширину — наклоны возвращаются. */
-.detail-chart{height:300px;width:100%;max-width:1000px}
+   расплющило. Раскладка «обзор + зум» решает это по существу: два полотна
+   вместо одного широкого, и каждое отвечает на свой вопрос. */
+.detail-chart{height:290px;width:100%}
+.detail-split{display:grid;grid-template-columns:1fr 1fr;gap:var(--s10)}
+/* Карточки, а не две половины одного полотна: между ними воздух и граница,
+   иначе две оси X читаются как одна разорванная. */
+.dsplit{background:var(--card);border:1px solid var(--line);border-radius:var(--r4);
+  padding:var(--s7) var(--s7) var(--s5)}
+.dsplit-note{font-size:var(--fs-note);color:var(--muted2);font-weight:600;
+  padding-top:var(--s3);border-top:1px dashed var(--line2);margin-top:var(--s2)}
+/* Зум помечен акцентной кромкой слева: это не второй график, это тот же
+   график крупнее, и глазу нужно за секунду понять, где обзор, а где деталь. */
+.dsplit.zoom{border-left:3px solid var(--blue-bg)}
+@media (max-width:1180px){.detail-split{grid-template-columns:1fr}}
 .detail-row td{padding:0 var(--s7) var(--s8);background:var(--hover)}
 .dyn-block{padding:0 var(--s2)}
 .dyn-chart{height:230px;width:100%}
