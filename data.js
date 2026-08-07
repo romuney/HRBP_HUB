@@ -501,6 +501,39 @@ function trendNoise(r,base,amp,drift){
   for(let i=0;i<N;i++){v=v+drift*((i/(N-1))-0.5)*2*amp*0.15+(r()-0.5)*amp*0.5;out.push(v)}
   return out;
 }
+/* ---------- Общая волна метрики ----------
+   Шум в каждом листе независим, поэтому на агрегате из сотен листьев он
+   гасится, и год превращается в прямую. Прямая линия у факта — признак
+   выдумки: у метрики всегда есть сезон (лето и январь по отпускам, декабрь
+   по уходам) и общие для всей компании события — реорг, пересмотр, волна
+   найма. Волна одна на метрику и складывается со всеми листьями сразу,
+   поэтому доживает до любого уровня агрегации. */
+const COMMON_AMP={
+  retention_new:4.2, regret:0.9,  nonregret:1.0, exit_reasons:5.0,
+  jun_team:1.5,      jun_hire:3.0, region_hire:3.4,
+  absentees:0.4,     unused_vac:1.3
+};
+const COMMON_WAVE=(function(){
+  const out={};
+  Object.keys(COMMON_AMP).forEach(k=>{
+    const r=rng('wave·'+k), amp=COMMON_AMP[k], ph=r()*Math.PI*2;
+    let shock=0; const arr=[];
+    for(let i=0;i<N;i++){
+      /* затухающий шок: событие сдвигает метрику и отпускает её за пару
+         месяцев — так это и выглядит в жизни, а не как одиночный выброс */
+      shock=shock*0.55+(r()-0.5)*1.9;
+      arr.push(amp*(0.6*Math.sin(ph+i*Math.PI/6)+0.8*shock));
+    }
+    out[k]=arr;
+  });
+  return out;
+})();
+/* ряд листа = собственный тренд + общая волна, затем границы метрики */
+function leafSeries(metricKey,r,base,amp,drift,lo,hi){
+  const w=COMMON_WAVE[metricKey];
+  return trendNoise(r,base,amp,drift).map((v,i)=>
+    +Math.min(hi,Math.max(lo,v+w[i])).toFixed(1));
+}
 NODES.filter(n=>n.leaf).forEach(leaf=>{
   const r=rng('hc'+leaf.path);
   const base=18+Math.floor(r()*120);
@@ -510,16 +543,17 @@ NODES.filter(n=>n.leaf).forEach(leaf=>{
   const M={};
   const rr=k=>rng(k+leaf.path);
   const isIT = leaf.it==='IT';
+  const INF=Infinity;
   M.headcount     = hc.slice();
-  M.retention_new = trendNoise(rr('rn'),70+r()*22, 8,1).map(v=>Math.min(98,Math.max(48,+v.toFixed(1))));
-  M.regret        = trendNoise(rr('rg'),2.2+r()*6, 3,1).map(v=>Math.max(0.4,+v.toFixed(1)));
-  M.nonregret     = trendNoise(rr('nr'),4+r()*6,   3,0).map(v=>Math.max(1.0,+v.toFixed(1)));
-  M.exit_reasons  = trendNoise(rr('er'),68+r()*28, 7,1).map(v=>Math.min(99,Math.max(45,+v.toFixed(1))));
-  M.jun_team      = trendNoise(rr('jt'),(isIT?22:15)+(r()-0.5)*16, 4,0).map(v=>Math.min(48,Math.max(6,+v.toFixed(1))));
-  M.jun_hire      = trendNoise(rr('jh'),(isIT?30:22)+(r()-0.5)*20, 6,0).map(v=>Math.min(60,Math.max(8,+v.toFixed(1))));
-  M.region_hire   = trendNoise(rr('rh'),32+r()*30, 6,1).map(v=>Math.min(85,Math.max(8,+v.toFixed(1))));
-  M.absentees     = trendNoise(rr('ab'),0.8+r()*4, 1.6,0).map(v=>Math.max(0.0,+v.toFixed(1)));
-  M.unused_vac    = trendNoise(rr('uv'),4+r()*12,  4,1).map(v=>Math.max(0.5,+v.toFixed(1)));
+  M.retention_new = leafSeries('retention_new',rr('rn'),70+r()*22, 8,  1, 48, 98);
+  M.regret        = leafSeries('regret',       rr('rg'),2.2+r()*6, 3,  1, 0.4, INF);
+  M.nonregret     = leafSeries('nonregret',    rr('nr'),4+r()*6,   3,  0, 1.0, INF);
+  M.exit_reasons  = leafSeries('exit_reasons', rr('er'),68+r()*28, 7,  1, 45, 99);
+  M.jun_team      = leafSeries('jun_team',     rr('jt'),(isIT?22:15)+(r()-0.5)*16, 4,0, 6, 48);
+  M.jun_hire      = leafSeries('jun_hire',     rr('jh'),(isIT?30:22)+(r()-0.5)*20, 6,0, 8, 60);
+  M.region_hire   = leafSeries('region_hire',  rr('rh'),32+r()*30, 6,  1, 8,  85);
+  M.absentees     = leafSeries('absentees',    rr('ab'),0.8+r()*4, 1.6,0, 0,  INF);
+  M.unused_vac    = leafSeries('unused_vac',   rr('uv'),4+r()*12,  4,  1, 0.5,INF);
   LEAF_METRIC[leaf.path]=M;
 });
 
