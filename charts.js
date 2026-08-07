@@ -23,11 +23,21 @@
    ============================================================ */
 (function(){
 const FONT='Inter, Helvetica, Arial, sans-serif';
-const C_LABEL='#2b2b2b', C_AXIS='#8a909c', C_AXIS_LINE='#9ba4b5';
-const C_CUR='#3a3f4a', C_PREV='#c7c8cc', C_BENCH='#9aa0ac', C_KPI='#2b6cff';
+/* Чёрного на полотне нет нигде. Самый тёмный тон здесь — тёмно-серый с синей
+   подмесью: чистый чёрный на белом даёт максимальный контраст, какой вообще
+   бывает, и на графике, где такого текста двенадцать подписей плюс линия, он
+   бьёт по глазам и перетягивает внимание с формы линии на сами чернила.
+   C_LABEL — подписи значений и жирная отметка текущего периода на оси. */
+const C_LABEL='#3f4654', C_AXIS='#8a909c', C_AXIS_LINE='#9ba4b5';
+const C_CUR='#4f5766', C_PREV='#c7c8cc', C_BENCH='#9aa0ac', C_KPI='#2b6cff';
 /* Цвета наведения: бледные линии по наведению темнеют, а не толстеют.
    У тёмной линии и у цели своего «яркого» варианта нет — они и так на полную. */
 const C_PREV_HI='#a4a7af', C_BENCH_HI='#737a88';
+/* Толщины линий. Заданы константами, потому что нужны в двух местах сразу —
+   в самой линии и в её состоянии при наведении, где ширина обязана совпасть
+   до сотой (см. hoverFocus). Разъедься эти два числа — и линия по наведению
+   снова начнёт дёргаться. */
+const W_CUR=2.3, W_PREV=1.8, W_REF=1.6;
 const C_NOW='#b0b7c4';   // «вы здесь»: отметка текущего месяца
 const C_GRID='#eef0f4';  // сетка значений: видна, но не спорит с линиями
 const SERIES_PALETTE=['#5f86c2','#97dece','#ac87c5','#cdbf97','#85cdfd','#9fae6a','#c98aa6','#686d76'];
@@ -138,8 +148,11 @@ function valueAxis(metricKey,values,kpi){
 /* Ось периодов — месяцев или недель. Засечки под каждым делением: без них
    подписи висят под сплошной чертой, и точка на линии не привязана глазом
    к своему месяцу.
-   nowIdx — последний закрытый период: он подписан жирным и тёмным, чтобы
-   «где мы сейчас» читалось без пересчёта делений от начала года. */
+   nowIdx — последний закрытый период: он подписан жирным и самым тёмным тоном
+   полотна, чтобы «где мы сейчас» читалось без пересчёта делений от начала
+   года. Именно жирным и тёмно-серым, а не чёрным: одной подписи хватает
+   насыщенности, чтобы выделиться среди серых соседей, а чёрный на белом
+   выбивается из всей страницы разом. */
 function catAxis(labels,nowIdx){
   return {type:'category',data:labels,boundaryGap:false,
     axisLine:{lineStyle:{color:C_AXIS_LINE}},
@@ -289,13 +302,13 @@ function comparisonOption(metricKey,cfg,opts){
   /* Прошлый период — та же форма записи, что и текущий: линия с точками.
      Разделяют их вес и цвет, а не тип графика. */
   const data=[
-    Object.assign(hoverFocus(2,C_PREV_HI),{name:cfg.prevName,type:'line',smooth:false,
+    Object.assign(hoverFocus(W_PREV,C_PREV_HI),{name:cfg.prevName,type:'line',smooth:false,
       symbol:'circle',symbolSize:4,
-      lineStyle:{width:2,color:C_PREV},itemStyle:{color:C_PREV},
+      lineStyle:{width:W_PREV,color:C_PREV},itemStyle:{color:C_PREV},
       data:cfg.prev,z:2,label:{show:false},markLine:nowMark(cfg.markIdx)}),
-    Object.assign(hoverFocus(2.6),{name:cfg.curName,type:'line',smooth:false,
+    Object.assign(hoverFocus(W_CUR),{name:cfg.curName,type:'line',smooth:false,
       symbol:'circle',symbolSize:5,
-      lineStyle:{width:2.6,color:C_CUR},itemStyle:{color:C_CUR},
+      lineStyle:{width:W_CUR,color:C_CUR},itemStyle:{color:C_CUR},
       data:pointData(cfg.cur,flipFirst),z:5,connectNulls:false,
       label:valueLabel(metricKey),
       /* Подписаны все точки. Там, где они начинают наезжать друг на друга,
@@ -306,16 +319,16 @@ function comparisonOption(metricKey,cfg,opts){
   let stateOf=null;
   if(opts.kpi!=null){
     legend.push('Цель');
-    data.push(Object.assign(hoverFocus(1.6),{name:'Цель',type:'line',symbol:'none',
+    data.push(Object.assign(hoverFocus(W_REF),{name:'Цель',type:'line',symbol:'none',
       data:cfg.labels.map(()=>opts.kpi),z:3,
-      lineStyle:{width:1.6,type:'dashed',color:C_KPI},itemStyle:{color:C_KPI},label:{show:false}}));
+      lineStyle:{width:W_REF,type:'dashed',color:C_KPI},itemStyle:{color:C_KPI},label:{show:false}}));
     stateOf=(i,v)=>D.stateForKpi(metricKey,v,opts.kpi);
   }else if(opts.bench){
     const b=opts.bench;
     const nm='База · '+(opts.benchLabel||'вся компания');
     legend.push(nm);
-    data.push(Object.assign(hoverFocus(1.6,C_BENCH_HI),{name:nm,type:'line',symbol:'none',data:b,z:3,
-      lineStyle:{width:1.6,type:'dashed',color:C_BENCH},itemStyle:{color:C_BENCH},label:{show:false}}));
+    data.push(Object.assign(hoverFocus(W_REF,C_BENCH_HI),{name:nm,type:'line',symbol:'none',data:b,z:3,
+      lineStyle:{width:W_REF,type:'dashed',color:C_BENCH},itemStyle:{color:C_BENCH},label:{show:false}}));
     stateOf=(i,v)=>b[i]==null?null:D.compareState(metricKey,v,b[i]);
   }
   return Object.assign(head(opts.title,legend),{
