@@ -19,6 +19,7 @@ const state={
   metricSel:new Set(D.METRICS.map(m=>m.key)),  // метрики для отображения
   metricOpen:false,
   blockTab:'retention',
+  dynMode:'yoy',               // масштаб графиков «Динамики»: yoy | wow
   selTeam:null,
   openMetric:null,
   tf:{mode:'dyn', cut:'IT / nonIT', metric:'regret'},
@@ -366,7 +367,17 @@ function renderOnePager(){
         '<td>'+U.yoyChip(m.key,d.yoy)+'</td>'+
         '<td class="sparkcell">'+U.spark(D.windowOf(s),D.statesOver(activeUnit(),m.key,D.windowOf(s),state))+'</td></tr>';
       if(state.openMetric===m.key){
-        rows+='<tr class="detail-row"><td colspan="6"><div class="detail-chart" id="dc-'+m.key+'"></div></td></tr>';
+        /* Два полотна рядом: слева обзор — год к году, справа зум — последние
+           двенадцать недель. Одно широкое полотно на всю таблицу растягивало
+           метрику в 5:1 и плющило наклон; два узких дают и наклон, и ответ
+           на разные вопросы: «где мы против прошлого года» и «что произошло
+           за последние три месяца». */
+        rows+='<tr class="detail-row"><td colspan="6"><div class="detail-split">'+
+          '<div class="dsplit"><div class="detail-chart" id="dc-y-'+m.key+'"></div>'+
+            '<div class="dsplit-note">двенадцать месяцев · '+D.YEAR_CUR+' против '+D.YEAR_PREV+'</div></div>'+
+          '<div class="dsplit zoom"><div class="detail-chart" id="dc-w-'+m.key+'"></div>'+
+            '<div class="dsplit-note">зум · '+esc(D.WEEK_PERIOD_LABEL)+'</div></div>'+
+          '</div></td></tr>';
       }
     });
 
@@ -395,11 +406,13 @@ function renderOnePager(){
     const k=state.openMetric;
     const s=scopeSeries(k);
     const bl=baselineOf(k,s[D.LAST]);
-    mkChart('dc-'+k,CH.yoyOption(k,s,{
-      kpi:bl.kind==='kpi'?bl.target:null,
-      bench:bl.kind==='bench'?D.benchmarkSeries(state,k):null,
-      benchLabel:benchName(),
-      title:D.METRIC_BY_KEY[k].name+' — год к году'}));
+    const kpi=bl.kind==='kpi'?bl.target:null;
+    const bench=bl.kind==='bench'?D.benchmarkSeries(state,k):null;
+    const seed=activeUnit()+'|'+k;
+    mkChart('dc-y-'+k,CH.yoyOption(k,s,{kpi,bench,benchLabel:benchName(),title:'Год к году'}));
+    mkChart('dc-w-'+k,CH.wowOption(k,D.weeklyOf(s,seed,k),{kpi,
+      bench:bench?D.weeklyOf(bench,'bench|'+benchName()+'|'+k,k):null,
+      benchLabel:benchName(),title:'12 недель к предыдущим 12'}));
   }
   bindRowToggle('.mrow','metric',k=>{state.openMetric=state.openMetric===k?null:k;rerender()});
   /* каретка делает то же, что клик по строке, но не даёт событию всплыть:
@@ -561,7 +574,12 @@ function renderTeams(){
 
   let right='';
   mets.forEach(m=>{right+='<div class="dyn-block"><div class="dyn-chart" id="dyn-'+m.key+'"></div></div>'});
-  html+=U.panel({cls:'split-r',title:'Динамика',sub:sel?sel.name:'—',body:right});
+  /* Полотно здесь узкое, два графика рядом в него не встанут — поэтому вместо
+     раскладки «обзор + зум» переключатель на весь блок: масштаб меняется
+     сразу у всех метрик, иначе соседние графики оказались бы в разных
+     календарях и сравнивать их стало бы нельзя. */
+  html+=U.panel({cls:'split-r',title:'Динамика',sub:sel?sel.name:'—',body:right,
+    tabs:U.subTabs([['yoy','Год'],['wow','12 недель']],state.dynMode,'dyn')});
   html+='</div>'+U.tblNote('Данные прототипа сгенерированы детерминированно и не являются фактическими показателями. '+
     'Цели наследуются вниз по дереву: значение юнита сравнивается с ближайшей целью на нём самом или выше по ветке.');
 
@@ -571,13 +589,16 @@ function renderTeams(){
     mets.forEach(m=>{
       const s=D.metricSeries(sel.path,m.key);
       const bl=D.baselineFor(sel.path,m.key,s[D.LAST],state);
-      mkChart('dyn-'+m.key,CH.yoyOption(m.key,s,{
-        kpi:bl.kind==='kpi'?bl.target:null,
-        bench:bl.kind==='bench'?D.benchmarkSeries(state,m.key):null,
-        benchLabel:benchName(),
-        title:m.name}));
+      const kpi=bl.kind==='kpi'?bl.target:null;
+      const bench=bl.kind==='bench'?D.benchmarkSeries(state,m.key):null;
+      const o={kpi,bench,benchLabel:benchName(),title:m.name};
+      mkChart('dyn-'+m.key, state.dynMode==='wow'
+        ? CH.wowOption(m.key,D.weeklyOf(s,sel.path+'|'+m.key,m.key),
+            Object.assign({},o,{bench:bench?D.weeklyOf(bench,'bench|'+benchName()+'|'+m.key,m.key):null}))
+        : CH.yoyOption(m.key,s,o));
     });
   }
+  document.querySelectorAll('[data-dyn]').forEach(b=>b.onclick=()=>{state.dynMode=b.getAttribute('data-dyn');rerender()});
   document.querySelectorAll('[data-block]').forEach(b=>b.onclick=()=>{state.blockTab=b.getAttribute('data-block');state.selTeam=null;rerender()});
   document.querySelectorAll('[data-exp]').forEach(b=>b.onclick=e=>{
     e.stopPropagation();const p=b.getAttribute('data-exp');
