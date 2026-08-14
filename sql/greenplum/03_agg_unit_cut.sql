@@ -133,7 +133,13 @@ select r.grain, r.period_start, p.slot_idx, r.unit_id,
        v.value_den::numeric(18,2) as value_den
 from hrbp_mart.agg_unit_cut_rolled r
 cross join lateral (values
-    ('headcount',     r.hc,                    null),
+    /* У абсолютной метрики делить не на что, но знаменатель всё равно
+       заполняется: дальше он работает МАСКОЙ ПРИСУТСТВИЯ — ноль в слоте
+       значит «данных нет», и фронт рисует там разрыв. Единица здесь
+       после свёртки по дереву превращается в счётчик строк-источников;
+       делением он не участвует (is_ratio = 0), важно только, что он
+       больше нуля там, где данные есть. */
+    ('headcount',     r.hc,                    1),
     ('retention_new', r.prob_passed_short,     r.prob_due_short),
     ('regret',        r.exits_regret_long,     r.hc_avg_long),
     ('nonregret',     r.exits_nonregret_long,  r.hc_avg_long),
