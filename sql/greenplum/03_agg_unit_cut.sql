@@ -142,24 +142,10 @@ cross join lateral (values
 where v.value_num is not null
 distributed by (unit_id);
 
-/* ---------- 4 · лаги в ту же строку ----------
-   Δ мес и Δ год в One-Pager считаются из этих колонок без self-join
-   и без time-comparison: числитель и знаменатель прошлого периода
-   так же аддитивны, как текущего, поэтому дельта остаётся верной
-   при любом наборе фильтров и на любом уровне дерева.
-*/
-drop table if exists hrbp_mart.agg_unit_cut_metric_lag;
-create table hrbp_mart.agg_unit_cut_metric_lag as
-select m.*,
-       lag(value_num, 1) over w as num_prev_p,
-       lag(value_den, 1) over w as den_prev_p,
-       /* смещение «год назад» разное у гранулов, а константу в lag() лучше
-          не делать выражением — берём оба и выбираем нужное */
-       case when grain = 'month' then lag(value_num, 12) over w
-                                 else lag(value_num, 52) over w end as num_prev_y,
-       case when grain = 'month' then lag(value_den, 12) over w
-                                 else lag(value_den, 52) over w end as den_prev_y
-from hrbp_mart.agg_unit_cut_metric m
-window w as (partition by grain, unit_id, paint, it_segment, stream, spec, staff_type, hc_type, metric_id
-             order by period_start)
-distributed by (unit_id);
+/* ---------- О лагах ----------
+   Колонок «предыдущий период» здесь нет намеренно. Они понадобились бы,
+   считай Δ мес и Δ год сам SQL для чарта с одним периодом. Но отрисовка
+   у нас своя, и фронт всё равно получает ряд из 12–18 периодов ради
+   спарклайна и полотен: дельта — это разница соседних точек ряда.
+   Четыре лишние колонки и ещё один оконный проход по всему кубу
+   не окупаются. */

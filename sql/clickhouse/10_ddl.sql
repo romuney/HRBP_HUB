@@ -51,11 +51,7 @@ create table if not exists hrbp.hub_fact
     out_scale               Float32,
 
     value_num               Float64,
-    value_den               Nullable(Float64),
-    num_prev_p              Nullable(Float64),
-    den_prev_p              Nullable(Float64),
-    num_prev_y              Nullable(Float64),
-    den_prev_y              Nullable(Float64)
+    value_den               Nullable(Float64)
 )
 engine = MergeTree
 partition by (grain, toYear(period_start))
@@ -117,6 +113,26 @@ create table if not exists hrbp.kpi_effective
 )
 engine = MergeTree
 order by (unit_id, metric_id, f_paint, f_it_segment, f_stream, f_spec, f_staff_type, f_hc_type);
+
+/* ---------- Справочник метрик ----------
+   В hub_fact паспорт метрики денормализован, но веткам «база» и «цель»
+   в serving-вьюхе он нужен отдельно: там строки приходят не из факта. */
+create table if not exists hrbp.dim_metric
+(
+    metric_id     LowCardinality(String),
+    metric_name   String,
+    metric_short  String,
+    metric_block  LowCardinality(String),
+    metric_better LowCardinality(String),
+    metric_fmt    LowCardinality(String),
+    metric_unit   LowCardinality(String),
+    is_ratio      UInt8,
+    out_scale     Float32,
+    company_ref   Nullable(Float64),
+    sort_order    UInt8
+)
+engine = MergeTree
+order by (metric_id);
 
 /* ---------- Справочники для выпадающих списков ---------- */
 create table if not exists hrbp.dim_unit

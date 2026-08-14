@@ -14,6 +14,11 @@
    детализация в макете не доходит, а экономия заметная (на структуре
    прототипа — в 1,65 раза).
 
+   Узел −1 и строка ИТОГО отдельными строками НЕ материализуются: их
+   получает фронт свёрткой узлов −2 (num/den аддитивны, строк десятки).
+   Материализация всех трёх уровней стоила бы 789 пар вместо 336 —
+   2,3× объёма ради сложения полусотни чисел в браузере.
+
    ИНВАРИАНТ: в любом запросе к витрине зафиксирован ровно один
    scope_unit_id. Внутри одного scope каждый лист встречается один раз,
    поэтому суммы честные; без фиксации scope строки задвоятся по предкам.
@@ -77,12 +82,8 @@ select a.grain,
        m.is_ratio, m.out_scale,
        /* измерения */
        sum(a.value_num)  as value_num,
-       sum(a.value_den)  as value_den,
-       sum(a.num_prev_p) as num_prev_p,
-       sum(a.den_prev_p) as den_prev_p,
-       sum(a.num_prev_y) as num_prev_y,
-       sum(a.den_prev_y) as den_prev_y
-from hrbp_mart.agg_unit_cut_metric_lag a
+       sum(a.value_den)  as value_den
+from hrbp_mart.agg_unit_cut_metric a
 join hrbp_mart.dim_unit_closure c
   on  c.unit_id = a.unit_id
  and c.unit_is_leaf
