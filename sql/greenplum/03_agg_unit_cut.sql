@@ -13,6 +13,11 @@
      1) свернуть сотрудников в счётчики;
      2) уплотнить ряд календарём и посчитать скользящие окна;
      3) развернуть счётчики в длинный формат «метрика → числитель, знаменатель».
+
+   Периоды здесь ещё живут строками: скользящие окна (12 мес / 52 нед)
+   считаются по истории, которая длиннее окна отчёта. В массивы ряд
+   сворачивается позже, в 04, — и только та его часть, что попадает
+   в фиксированное окно (см. 00_dim_period.sql).
    ============================================================ */
 
 /* ---------- 1 · счётчики ---------- */
@@ -121,7 +126,7 @@ distributed by (unit_id);
 */
 drop table if exists hrbp_mart.agg_unit_cut_metric;
 create table hrbp_mart.agg_unit_cut_metric as
-select r.grain, r.period_start, r.unit_id,
+select r.grain, r.period_start, p.slot_idx, r.unit_id,
        r.paint, r.it_segment, r.stream, r.spec, r.staff_type, r.hc_type,
        v.metric_id,
        v.value_num::numeric(18,2) as value_num,
@@ -139,6 +144,10 @@ cross join lateral (values
     ('absentees',     r.absentees,             r.hc),
     ('unused_vac',    r.vac_days,              r.hc)
   ) as v(metric_id, value_num, value_den)
+/* окно отчёта фиксировано: за его пределами ряд нужен был только для
+   скользящих окон, дальше он не едет */
+join hrbp_mart.dim_period p
+  on p.grain = r.grain and p.period_start = r.period_start
 where v.value_num is not null
 distributed by (unit_id);
 

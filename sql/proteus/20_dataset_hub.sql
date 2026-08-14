@@ -5,10 +5,17 @@
    поэтому датасет не подстраивается под чарт — он отдаёт контракт,
    а разбирает его фронт.
 
+   ВРЕМЯ СВЁРНУТО В МАССИВЫ. Окно фиксировано, пользователь период не
+   выбирает, поэтому период — не измерение, а позиция в ряду:
+     num_m / den_m  — 24 месячных слота (0–11 прошлый год, 12–23 текущий)
+     num_w / den_w  — 24 недельных слота (0–11 предыдущие, 12–23 последние)
+   Строка отдаёт сразу оба гранула, и переключатель «месяц / неделя»
+   становится делом фронта, а не запроса.
+
    ТРИ ВЕТКИ, ОДИН НАБОР КОЛОНОК
-     row_kind = 'fact'    факт по юнитам: узел −1, узел −2, метрика, период
+     row_kind = 'fact'    факт по юнитам: узел −1, узел −2, метрика
      row_kind = 'bench'   база сравнения: вся компания под теми же разрезами
-     row_kind = 'target'  действующая цель: юнит + метрика (периода нет)
+     row_kind = 'target'  действующая цель, тоже рядом из 24 слотов
 
    Строками, а не колонками — потому что цель нужна каждому уровню таблицы
    (юнит отчёта, −1, −2). Джойн потребовал бы трёх колонок, которые нельзя
@@ -19,9 +26,8 @@
    все цели в одну сумму. У строк факта эта колонка пустая, поэтому
    добавление её в группировку ничего не дробит.
 
-   ВРЕМЕННОЙ ФИЛЬТР НА ДАШБОРДЕ НЕ СТАВИТСЯ (Time range = «No filter»):
-   окно задаёт сама витрина, а у строк цели периода нет — фильтр по
-   диапазону дат их просто выкинул бы.
+   АГРЕГАЦИЯ — ПОЭЛЕМЕНТНАЯ: sumForEach(num_m). Работает потому же,
+   почему работает вся модель: числитель и знаменатель аддитивны.
 
    ЗАЧЕМ JINJA
      1) ЦЕЛЬ применяется по правилу «разрез правила = 'all' ИЛИ = выбранному».
@@ -49,8 +55,6 @@
 /* ---------- 1 · факт ---------- */
 select
     'fact'                      as row_kind,
-    f.grain,
-    f.period_start,
 
     f.scope_unit_id, f.scope_unit_name, f.scope_unit_level,
     f.child_unit_id, f.child_unit_name,
@@ -73,8 +77,7 @@ select
     f.metric_better, f.metric_fmt, f.metric_unit,
     f.is_ratio, f.out_scale,
 
-    f.value_num,
-    f.value_den,
+    f.num_m, f.den_m, f.num_w, f.den_w,
 
     /* поля целей — пустые в этой ветке, контракт колонок общий */
     ''                          as target_unit_id,
@@ -91,8 +94,6 @@ union all
    а популяция у них своя, компанейская. */
 select
     'bench'                     as row_kind,
-    b.grain,
-    b.period_start,
 
     '{{ scope }}'               as scope_unit_id,
     ''                          as scope_unit_name,
@@ -112,8 +113,7 @@ select
     m.metric_better, m.metric_fmt, m.metric_unit,
     b.is_ratio, b.out_scale,
 
-    b.bench_num                 as value_num,
-    b.bench_den                 as value_den,
+    b.num_m, b.den_m, b.num_w, b.den_w,
 
     ''                          as target_unit_id,
     ''                          as target_owner_name,
@@ -133,14 +133,12 @@ union all
    порядке: сначала выигрывает БЛИЖАЙШИЙ предок, и только внутри него —
    более узкое правило. Это ровно алгоритм resolveKpi() из макета.
 
-   Цели отдаём для всех юнитов, попадающих в текущий отчёт: сам юнит,
-   его дети и внуки. Разрезы у строки цели ставим выбранные — чтобы
-   нативные фильтры полки её не отсекли.
+   Цель едет рядом той же формы, что факт: target_m в числителе, маска
+   действия в знаменателе. Где цели ещё не было, маска ноль — и линия
+   цели не тянется в прошлое, которого у неё не было.
 */
 select
     'target'                    as row_kind,
-    'month'                     as grain,
-    toDate(null)                as period_start,
 
     '{{ scope }}'               as scope_unit_id,
     ''                          as scope_unit_name,
@@ -166,8 +164,10 @@ select
     toUInt8(0)                  as is_ratio,     -- цель уже в единицах метрики
     toFloat32(1)                as out_scale,
 
-    k.target                    as value_num,
-    toFloat64(1)                as value_den,
+    k.target_m                  as num_m,
+    k.tmask_m                   as den_m,
+    k.target_w                  as num_w,
+    k.tmask_w                   as den_w,
 
     k.unit_id                   as target_unit_id,
     k.target_owner_name,
@@ -176,7 +176,10 @@ select
 from (
     select unit_id,
            metric_id,
-           argMax(target,          (owner_level, specificity)) as target,
+           argMax(target_m,        (owner_level, specificity)) as target_m,
+           argMax(tmask_m,         (owner_level, specificity)) as tmask_m,
+           argMax(target_w,        (owner_level, specificity)) as target_w,
+           argMax(tmask_w,         (owner_level, specificity)) as tmask_w,
            argMax(owner_unit_name, (owner_level, specificity)) as target_owner_name,
            argMax(is_inherited,    (owner_level, specificity)) as target_inherited,
            max(is_own)                                         as target_is_own
@@ -202,3 +205,18 @@ from (
     group by unit_id, metric_id
 ) k
 join hrbp.dim_metric m on m.metric_id = k.metric_id
+
+/* ============================================================
+   МЕТРИКИ ДАТАСЕТА (задаются в Proteus один раз)
+   ------------------------------------------------------------
+     Ряд, месяцы:   sumForEach(num_m)   и   sumForEach(den_m)
+     Ряд, недели:   sumForEach(num_w)   и   sumForEach(den_w)
+
+   Всё. Ни отклонений, ни светофора, ни дельт: их считает фронт кодом,
+   который уже написан в data.js и ui.js.
+
+   Если сборка Proteus не отдаёт массивы в чарт-дату — оборачиваем
+   в строку и парсим на фронте:
+     arrayStringConcat(sumForEach(num_m), ',')
+   Проверить это стоит до того, как будет собран весь дашборд.
+   ============================================================ */

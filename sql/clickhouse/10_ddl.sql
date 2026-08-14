@@ -1,28 +1,36 @@
 /* ============================================================
    HRBP HUB · ClickHouse · схема приёмника
    ------------------------------------------------------------
-   Четыре таблицы: факт, база сравнения, цели, справочник юнитов
-   (последний — для выпадающих списков фильтров в Proteus).
+   Пять таблиц: факт, база сравнения, цели, справочник юнитов и календарь
+   слотов. Все — небольшие: время свёрнуто в массивы, поэтому строк
+   примерно в 40 раз меньше, чем было бы при грануле «строка на период».
 
    Почти все текстовые колонки — LowCardinality: у разрезов десятки
    значений, у метрик десять, у юнитов тысячи. Это словарное кодирование,
    и оно же ускоряет GROUP BY. Ориентир: до ~10 000 уникальных значений
    LowCardinality выигрывает, дальше — обычный String.
+
+   МАССИВЫ
+     num_m / den_m — 24 месячных слота: 0–11 прошлый календарный год,
+                     12–23 текущий, хвост ещё не закрыт;
+     num_w / den_w — 24 недельных слота: 0–11 предыдущие двенадцать
+                     недель, 12–23 последние двенадцать закрытых.
+   Длина фиксирована и является частью контракта: массивы позиционные,
+   и сдвиг на элемент молча переставит весь ряд.
+
+   den работает ещё и маской: 0 значит «в этом слоте значения нет».
+   Агрегация массивов — поэлементная: sumForEach().
    ============================================================ */
 
 create database if not exists hrbp;
 
 /* ---------- Факт ----------
-   Ключ сортировки повторяет форму запроса дашборда: юнит и метрика всегда
-   зафиксированы, дальше идёт диапазон дат, и только потом разрезы.
-   Первым — grain, чтобы месячные и недельные ряды не перемешивались
-   в одних гранулах.
+   Ключ сортировки повторяет форму запроса: юнит фиксирован всегда,
+   метрика почти всегда, дальше идут разрезы.
+   Партиционирование не нужно — таблица целиком перекладывается обменом.
 */
 create table if not exists hrbp.hub_fact
 (
-    grain                   LowCardinality(String),
-    period_start            Date,
-
     scope_unit_id           LowCardinality(String),
     scope_unit_name         LowCardinality(String),
     scope_unit_level        UInt8,
@@ -50,13 +58,17 @@ create table if not exists hrbp.hub_fact
     is_ratio                UInt8,
     out_scale               Float32,
 
-    value_num               Float64,
-    value_den               Nullable(Float64)
+    num_m                   Array(Float32) CODEC(ZSTD(3)),
+    den_m                   Array(Float32) CODEC(ZSTD(3)),
+    num_w                   Array(Float32) CODEC(ZSTD(3)),
+    den_w                   Array(Float32) CODEC(ZSTD(3)),
+
+    /* форма массива — инвариант, а не пожелание */
+    constraint arr_len check length(num_m) = 24 and length(den_m) = 24
+                         and length(num_w) = 24 and length(den_w) = 24
 )
 engine = MergeTree
-partition by (grain, toYear(period_start))
-order by (grain, scope_unit_id, metric_id, period_start,
-          child_unit_id, grandchild_unit_id,
+order by (scope_unit_id, metric_id, child_unit_id, grandchild_unit_id,
           paint, it_segment, stream, spec, staff_type, hc_type)
 settings index_granularity = 8192;
 
@@ -64,12 +76,9 @@ settings index_granularity = 8192;
    Вся компания под теми же разрезами. Отдельная таблица, потому что
    база не должна реагировать на фильтр юнита: в hub_fact строки уже
    ограничены юнитом, вычесть это ограничение из них нельзя.
-   Размер — порядка сотен тысяч строк, джойн бесплатный.
 */
 create table if not exists hrbp.hub_bench
 (
-    grain        LowCardinality(String),
-    period_start Date,
     paint        LowCardinality(String),
     it_segment   LowCardinality(String),
     stream       LowCardinality(String),
@@ -79,17 +88,22 @@ create table if not exists hrbp.hub_bench
     metric_id    LowCardinality(String),
     is_ratio     UInt8,
     out_scale    Float32,
-    bench_num    Float64,
-    bench_den    Nullable(Float64)
+    num_m        Array(Float32),
+    den_m        Array(Float32),
+    num_w        Array(Float32),
+    den_w        Array(Float32)
 )
 engine = MergeTree
-partition by (grain, toYear(period_start))
-order by (grain, metric_id, period_start, paint, it_segment, stream, spec, staff_type, hc_type);
+order by (metric_id, paint, it_segment, stream, spec, staff_type, hc_type);
 
 /* ---------- Цели с разрешённым наследованием ----------
    На каждый узел дерева — правила, действующие на него: своё или
-   ближайшее сверху, по одному на каждый набор разрезов.
-   Выбор между наборами делает запрос, потому что он зависит от полки.
+   ближайшее сверху, по одному на каждый набор разрезов. Выбор между
+   наборами делает запрос, потому что он зависит от полки.
+
+   Цель приезжает рядом той же формы, что и факт: target_m / tmask_m.
+   Маска нулевая там, где цели ещё не было, — линия цели не тянется
+   в прошлое, которого у неё не было.
 */
 create table if not exists hrbp.kpi_effective
 (
@@ -109,7 +123,11 @@ create table if not exists hrbp.kpi_effective
     owner_level      UInt8,
     is_inherited     UInt8,
     is_own           UInt8,
-    specificity      UInt8
+    specificity      UInt8,
+    target_m         Array(Float32),
+    tmask_m          Array(Float32),
+    target_w         Array(Float32),
+    tmask_w          Array(Float32)
 )
 engine = MergeTree
 order by (unit_id, metric_id, f_paint, f_it_segment, f_stream, f_spec, f_staff_type, f_hc_type);
@@ -133,6 +151,23 @@ create table if not exists hrbp.dim_metric
 )
 engine = MergeTree
 order by (metric_id);
+
+/* ---------- Календарь слотов ----------
+   48 строк, которые фронт грузит один раз: подписи осей, границы недель
+   и понимание, какой слот последний закрытый. Без него позиция в массиве
+   ничего не значит.
+*/
+create table if not exists hrbp.dim_period
+(
+    grain        LowCardinality(String),
+    slot_idx     UInt8,
+    period_start Date,
+    period_end   Date,
+    is_closed    UInt8,
+    period_year  Nullable(UInt16)
+)
+engine = MergeTree
+order by (grain, slot_idx);
 
 /* ---------- Справочники для выпадающих списков ---------- */
 create table if not exists hrbp.dim_unit

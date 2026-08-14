@@ -42,6 +42,8 @@ with candidates as (
          r.target,
          r.rule_id,
          r.hrbp_id,
+         r.valid_from,
+         coalesce(r.valid_to, date '9999-12-31')     as valid_to_eff,
          r.unit_id                                   as owner_unit_id,
          o.unit_name                                 as owner_unit_name,
          o.unit_level                                as owner_level,
@@ -68,12 +70,61 @@ select unit_id, metric_id,
        f_paint, f_it_segment, f_stream, f_spec, f_staff_type, f_hc_type,
        target, rule_id, hrbp_id,
        owner_unit_id, owner_unit_name, owner_level,
-       is_inherited, is_own, specificity
+       is_inherited, is_own, specificity,
+       valid_from,
+       valid_to_eff
 from candidates
 where rn = 1
 distributed by (unit_id);
 
 create index kpi_effective_unit_idx on hrbp_mart.kpi_effective (unit_id, metric_id);
+
+/* ---------- Цель как ряд ----------
+   Витрина фактов свернула время в массивы, и цель обязана приехать в том
+   же виде: иначе линия цели на графике не ляжет на ту же ось.
+
+   Массив заполняется по ИСТОРИИ правила: там, где цель ещё не была
+   поставлена, стоит ноль в маске — и график не рисует цель в прошлом,
+   которого у неё не было. Это то самое требование из контракта (§ 7.1):
+   цель, поставленную в июне, нельзя применять к январю.
+
+   Если цель за окно не менялась, ряд получается постоянным — то есть
+   ровно прямая линия макета, но полученная честно, а не размножением
+   одного числа на фронте.
+*/
+drop table if exists hrbp_mart.kpi_effective_arr;
+create table hrbp_mart.kpi_effective_arr as
+select k.unit_id, k.metric_id,
+       k.f_paint, k.f_it_segment, k.f_stream, k.f_spec, k.f_staff_type, k.f_hc_type,
+       max(k.target)           as target,
+       max(k.rule_id)          as rule_id,
+       max(k.hrbp_id)          as hrbp_id,
+       max(k.owner_unit_id)    as owner_unit_id,
+       max(k.owner_unit_name)  as owner_unit_name,
+       max(k.owner_level)      as owner_level,
+       max(k.is_inherited)     as is_inherited,
+       max(k.is_own)           as is_own,
+       max(k.specificity)      as specificity,
+       array_agg(case when p.period_end >= k.valid_from
+                       and p.period_start <= k.valid_to_eff
+                      then k.target else 0 end order by p.slot_idx)
+         filter (where p.grain = 'month')                        as target_m,
+       array_agg(case when p.period_end >= k.valid_from
+                       and p.period_start <= k.valid_to_eff
+                      then 1 else 0 end order by p.slot_idx)
+         filter (where p.grain = 'month')                        as tmask_m,
+       array_agg(case when p.period_end >= k.valid_from
+                       and p.period_start <= k.valid_to_eff
+                      then k.target else 0 end order by p.slot_idx)
+         filter (where p.grain = 'week')                         as target_w,
+       array_agg(case when p.period_end >= k.valid_from
+                       and p.period_start <= k.valid_to_eff
+                      then 1 else 0 end order by p.slot_idx)
+         filter (where p.grain = 'week')                         as tmask_w
+from hrbp_mart.kpi_effective k
+cross join hrbp_mart.dim_period p
+group by 1,2,3,4,5,6,7,8
+distributed by (unit_id);
 
 /* ---------- Признак «на юните есть своя цель» ----------
    Тумблер «Только фокусные» на вкладке «Команды» оставляет юниты,
