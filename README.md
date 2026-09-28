@@ -27,14 +27,16 @@
 
 Макет собран в Proteus **одним чартом на одном датасете**: полка фильтров стала
 строкой фильтров под вкладками, окно KPI — вкладкой «Цели». Данные — ноут
-Helicopter в Greenplum → шесть таблиц ClickHouse → датасет с доступом по логину.
+Helicopter в Greenplum → семь таблиц ClickHouse → датасет с доступом по логину.
+Оргструктура — уровни 1 и 3…12, как в ультраширокой витрине; рассчитано на
+≈100 тыс. сотрудников (`stand/scale.py`).
 
 | Путь | Что внутри |
 |---|---|
 | `docs/architecture.md` | как устроено: ноут, таблицы, метрики, датасет, чарт, доступ, цели, проверки |
 | `helicopter/paragraphs/` | параграфы ноута — источник правды; `helicopter/build.py` собирает `HRBP HUB.yaml` |
 | `proteus/` | датасет (`hrbp-hub.data.sql`), чарт (`hrbp-hub.chart.js`), поля (`FIELDS.md`), рабочие файлы скилла |
-| `Поставка — HRBP HUB v1/` | нумерованные файлы «что куда вставлять» и `0. Инструкция.md` |
+| `Поставка — HRBP HUB v2/` | нумерованные файлы «что куда вставлять» и `0. Инструкция.md` |
 | `stand/` | стенд без доступа к бою: синтетический мир → PostgreSQL → ClickHouse (chdb) → датасет |
 
 Стенд (нужны PostgreSQL, `pip install chdb psycopg2-binary jinja2 pyyaml`):
@@ -45,6 +47,7 @@ python3 stand/run_gp.py --seed-kpi    # параграфы ноута в Postgre
 python3 stand/ch.py load              # hrbp_hub_* → ClickHouse (chdb)
 python3 stand/check.py                # регресс датасета против независимого расчёта
 python3 stand/live.py                 # живая страница чарта: http://127.0.0.1:8765/?user=a.sergeeva
+python3 stand/scale.py                # нагрузка: ≈100 тыс. сотрудников, ≈10 тыс. юнитов
 python3 stand/pack.py                 # обновить копии в папке поставки
 ```
 

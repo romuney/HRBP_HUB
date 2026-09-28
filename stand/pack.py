@@ -12,7 +12,7 @@ import shutil
 import sys
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-PACK = os.path.join(ROOT, 'Поставка — HRBP HUB v1')
+PACK = os.path.join(ROOT, 'Поставка — HRBP HUB v2')
 COPIES = [
     ('helicopter/HRBP HUB.yaml', '1. Helicopter — ноут HRBP HUB.yaml'),
     ('proteus/hrbp-hub.data.sql', '2. Proteus — датасет hrbp_hub.sql'),

@@ -9,7 +9,8 @@ paragraphs:
       Ноут собирает всё, что нужно единственному чарту отчёта HRBP HUB в Proteus, и
       выгружает в ClickHouse (`prod_proteus.hrbp_hub_*`). Метрики — числитель и
       знаменатель, время — массивы по 24 слота (месяцы и недели), оргструктура —
-      путь юнитов в каждой строке. Проценты не храним: любая цифра отчёта — `Σ num / Σ den`.
+      путь юнитов в каждой строке: компания (lvl1) и lvl3…lvl12 mapped-структуры, как в
+      ультраширокой. Проценты не храним: любая цифра отчёта — `Σ num / Σ den`.
 
       #### Sources
       - `prod_v_emart.mdm_employee_structure_d` — база всех метрик (подневная витрина сотрудника)
@@ -22,14 +23,15 @@ paragraphs:
       |---|---|
       | `hrbp_hub_cube` | путь юнита × 6 разрезов численности → массивы компонентов метрик (24 мес + 24 нед) |
       | `hrbp_hub_attr` | то же × атрибут для трансформеров (грейд, стаж, город…), только месяцы |
-      | `hrbp_hub_unit` | справочник юнитов: имя, уровень, родитель, путь, численность сейчас |
+      | `hrbp_hub_base` | база сравнения: вся компания по 6 разрезам, без пути (строк — сколько комбинаций разрезов, тысячи) |
+      | `hrbp_hub_unit` | справочник юнитов: имя, уровень (1 — компания, 3…12), родитель, путь, численность сейчас, число детей и размер поддерева |
       | `hrbp_hub_access` | логин → роль и корни зоны (RLS внутри датасета) |
       | `hrbp_hub_kpi` | цели KPI (реестр правится в параграфе «KPI · реестр целей») |
       | `hrbp_hub_calendar` | 48 слотов: что значит позиция в массиве |
 
       #### Порядок
       Параметры → календарь → строки источника → справочник юнитов → зоны HRBP →
-      увольнения → когорты найма → события по слотам → куб → куб атрибутов → цели →
+      увольнения → когорты найма → события по слотам → куб и база → куб атрибутов → цели →
       проверки (падают делением на ноль) → выгрузка в ClickHouse → права → удаление времянок.
 
       Расписание: ежедневно после обновления `mdm_employee_structure_d`.
@@ -152,8 +154,12 @@ paragraphs:
       --   is_hire_row  строка дня найма (business_dt = company_hire_dt);
       --   is_ahire_row строка дня перехода в активную численность (= active_hire_dt).
       -- Атрибуты строки — на ЕЁ дату: запасы берут разрезы на конец периода, события —
-      -- на дату события. Путь юнита — mapped-цепочка lvl1…lvl13 + сам mapped-лист;
-      -- id узла = первые 12 знаков md5(rk): короткий, стабильный между пересборками.
+      -- на дату события. Путь юнита — mapped-цепочка, как в ультраширокой: lvl1
+      -- (компания) и lvl3…lvl12. lvl2 (группировка юрлиц над блоками) пропускается —
+      -- блоки встают прямо под компанию; глубже lvl12 отчёт не спускается: сотрудник
+      -- lvl13 считается прямо в своём юните 12-го уровня, сотрудник lvl1/lvl2 — прямо
+      -- в компании. id узла = первые 12 знаков md5(rk): короткий, стабильный между
+      -- пересборками.
       -- Разрезы численности (как в filter-fields.md):
       --   paint  = emp_specialization_oper_code      it    = emp_specialization_it_code
       --   stream = emp_stream_desc                   spec  = emp_specialization_desc
@@ -176,21 +182,18 @@ paragraphs:
           e.legal_fire_dt::date                                                      as legal_fire_dt,
           e.legal_position_rk::text                                                  as legal_position_rk,
           concat_ws('/',
-              substr(md5(nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-              substr(md5(nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-              substr(md5(nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-              substr(md5(nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-              substr(md5(nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-              substr(md5(nullif(nullif(trim(e.lvl6_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-              substr(md5(nullif(nullif(trim(e.lvl7_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-              substr(md5(nullif(nullif(trim(e.lvl8_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-              substr(md5(nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl6_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl7_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl8_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text), ''), '-')), 1, 12),
               substr(md5(nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-')), 1, 12),
               substr(md5(nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-')), 1, 12),
-              substr(md5(nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-')), 1, 12),
-              substr(md5(nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-')), 1, 12)
-          )                                                                          as chain_ids,
-          substr(md5(nullif(nullif(trim(e.mapped_management_unit_rk::text), ''), '-')), 1, 12) as leaf_id,
+              substr(md5(nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-')), 1, 12)
+          )                                                                          as path_s,
           coalesce(nullif(trim(e.emp_specialization_oper_code::text), ''), '-')      as paint,
           coalesce(nullif(trim(e.emp_specialization_it_code::text), ''), '-')        as it,
           coalesce(nullif(trim(e.emp_stream_desc::text), ''), '-')                   as stream,
@@ -239,17 +242,9 @@ paragraphs:
       -- берём самый свежий. Дубли самого источника проверяет параграф «HH · проверки».
       drop table if exists hh_src;
       create table hh_src as
-      select x.*,
-             case when x.leaf_id is null      then x.chain_ids
-                  when x.chain_ids = ''       then x.leaf_id
-                  when x.chain_ids = x.leaf_id
-                    or x.chain_ids like '%/' || x.leaf_id then x.chain_ids
-                  else x.chain_ids || '/' || x.leaf_id end                           as path_s
-      from (
-          select distinct on (mdm_employee_rk, business_dt) *
-          from hh_src_raw
-          order by mdm_employee_rk, business_dt, res_from desc
-      ) x
+      select distinct on (mdm_employee_rk, business_dt) *
+      from hh_src_raw
+      order by mdm_employee_rk, business_dt, res_from desc
       distributed by (mdm_employee_rk);
 
       -- Джун — по seniority и шаблонам из hh_param_junior (сопоставление по ILIKE, не точное).
@@ -272,12 +267,17 @@ paragraphs:
       -- HH · справочник юнитов → hrbp_hub_unit. Все узлы, которые встречаются в путях
       -- строк источника (текущие и исторические): имя и родитель — по самой свежей строке,
       -- где узел встречался; is_current — есть в срезе data_dt; hc_now — численность
-      -- поддерева на data_dt (для выбора юнита). rk — исходный mapped rk: по нему
-      -- заводят цели KPI. Путь — от корня до узла, те же id, что в кубе.
+      -- поддерева на data_dt (для выбора юнита); kids_n — сколько у узла дочерних юнитов
+      -- (выбор юнита показывает каретку, даже когда детей нет в ответе); sub_n — сколько
+      -- юнитов в поддереве вместе с самим узлом (датасет по нему решает, отдавать ли
+      -- справочник зоны целиком, не пересчитывая зону на каждый запрос). rk — исходный
+      -- mapped rk: по нему заводят цели KPI. lvl — номер уровня из источника: 1 —
+      -- компания, дальше 3…12 (как в ультраширокой: lvl2 и глубже lvl12 не берутся).
+      -- Путь — от корня до узла, те же id, что в кубе.
       -- ============================================================================
       drop table if exists hh_chain;
       create table hh_chain as
-      select t.chain_ids, t.names_s, t.lvls_s, t.rks_s, t.leaf_id, t.leaf_rk, t.leaf_nm, t.leaf_lvl,
+      select t.path_s, t.names_s, t.lvls_s, t.rks_s,
              max(t.business_dt) as last_dt,
              max(t.is_now)      as is_now
       from (
@@ -285,7 +285,6 @@ paragraphs:
                  case when e.business_dt = p.data_dt then 1 else 0 end            as is_now,
                  concat_ws('/',
                      substr(md5(nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text), ''), '-')), 1, 12),
-                     substr(md5(nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text), ''), '-')), 1, 12),
                      substr(md5(nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text), ''), '-')), 1, 12),
                      substr(md5(nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text), ''), '-')), 1, 12),
                      substr(md5(nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text), ''), '-')), 1, 12),
@@ -295,12 +294,10 @@ paragraphs:
                      substr(md5(nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text), ''), '-')), 1, 12),
                      substr(md5(nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-')), 1, 12),
                      substr(md5(nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-')), 1, 12),
-                     substr(md5(nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-')), 1, 12),
-                     substr(md5(nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-')), 1, 12)
-                 )                                                                as chain_ids,
+                     substr(md5(nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-')), 1, 12)
+                 )                                                                as path_s,
                  concat_ws(chr(31),
                      case when nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl1_mapped_management_unit_nm::text), ''), '—') end,
-                     case when nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl2_mapped_management_unit_nm::text), ''), '—') end,
                      case when nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl3_mapped_management_unit_nm::text), ''), '—') end,
                      case when nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl4_mapped_management_unit_nm::text), ''), '—') end,
                      case when nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl5_mapped_management_unit_nm::text), ''), '—') end,
@@ -310,12 +307,10 @@ paragraphs:
                      case when nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl9_mapped_management_unit_nm::text), ''), '—') end,
                      case when nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl10_mapped_management_unit_nm::text), ''), '—') end,
                      case when nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl11_mapped_management_unit_nm::text), ''), '—') end,
-                     case when nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl12_mapped_management_unit_nm::text), ''), '—') end,
-                     case when nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl13_mapped_management_unit_nm::text), ''), '—') end
+                     case when nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl12_mapped_management_unit_nm::text), ''), '—') end
                  )                                                                as names_s,
                  concat_ws(',',
                      case when nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text), ''), '-') is not null then '1' end,
-                     case when nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text), ''), '-') is not null then '2' end,
                      case when nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text), ''), '-') is not null then '3' end,
                      case when nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text), ''), '-') is not null then '4' end,
                      case when nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text), ''), '-') is not null then '5' end,
@@ -325,12 +320,10 @@ paragraphs:
                      case when nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text), ''), '-') is not null then '9' end,
                      case when nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-') is not null then '10' end,
                      case when nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-') is not null then '11' end,
-                     case when nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-') is not null then '12' end,
-                     case when nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-') is not null then '13' end
+                     case when nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-') is not null then '12' end
                  )                                                                as lvls_s,
                  concat_ws(',',
                      nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text), ''), '-'),
-                     nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text), ''), '-'),
                      nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text), ''), '-'),
                      nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text), ''), '-'),
                      nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text), ''), '-'),
@@ -340,13 +333,8 @@ paragraphs:
                      nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text), ''), '-'),
                      nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-'),
                      nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-'),
-                     nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-'),
-                     nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-')
-                 )                                                                as rks_s,
-                 substr(md5(nullif(nullif(trim(e.mapped_management_unit_rk::text), ''), '-')), 1, 12) as leaf_id,
-                 nullif(nullif(trim(e.mapped_management_unit_rk::text), ''), '-')  as leaf_rk,
-                 coalesce(nullif(trim(e.mapped_management_unit_nm::text), ''), '—') as leaf_nm,
-                 coalesce(e.management_unit_lvl_num::int, 0)                     as leaf_lvl
+                     nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-')
+                 )                                                                as rks_s
           from prod_v_emart.mdm_employee_structure_d e
           join hh_src s
               on s.mdm_employee_rk = e.mdm_employee_rk
@@ -354,59 +342,42 @@ paragraphs:
           cross join hh_param p
           where e.business_dt >= (select min(business_dt) from hh_src)
       ) t
-      group by 1, 2, 3, 4, 5, 6, 7, 8
+      where t.path_s <> ''
+      group by 1, 2, 3, 4
       distributed randomly;
 
-      -- Цепочка + лист (если лист не последний в цепочке) — так же, как path_s в hh_src.
+      -- Узел на каждой позиции пути: id, rk, имя и уровень — с той же позиции строк.
       drop table if exists hh_unit_long;
       create table hh_unit_long as
       select q.last_dt, q.is_now, q.i,
              (string_to_array(q.path_s, '/'))[q.i]                                as id,
-             (string_to_array(q.rks_all, ','))[q.i]                               as rk,
-             (string_to_array(q.names_all, chr(31)))[q.i]                         as nm,
-             coalesce(nullif((string_to_array(q.lvls_all, ','))[q.i], ''), '0')::int as lvl,
+             (string_to_array(q.rks_s, ','))[q.i]                                 as rk,
+             (string_to_array(q.names_s, chr(31)))[q.i]                           as nm,
+             coalesce(nullif((string_to_array(q.lvls_s, ','))[q.i], ''), '0')::int as lvl,
              case when q.i > 1 then (string_to_array(q.path_s, '/'))[q.i - 1] else '' end as pid,
              array_to_string((string_to_array(q.path_s, '/'))[1:q.i], '/')        as upath
       from (
           select c.*, generate_series(1, array_length(string_to_array(c.path_s, '/'), 1)) as i
-          from (
-              select h.last_dt, h.is_now,
-                     case when not h.app then h.chain_ids
-                          when h.chain_ids = '' then h.leaf_id
-                          else h.chain_ids || '/' || h.leaf_id end                  as path_s,
-                     case when not h.app then h.names_s
-                          when h.chain_ids = '' then h.leaf_nm
-                          else h.names_s || chr(31) || h.leaf_nm end                as names_all,
-                     case when not h.app then h.lvls_s
-                          when h.chain_ids = '' then h.leaf_lvl::text
-                          else h.lvls_s || ',' || h.leaf_lvl::text end              as lvls_all,
-                     case when not h.app then h.rks_s
-                          when h.chain_ids = '' then h.leaf_rk
-                          else h.rks_s || ',' || h.leaf_rk end                      as rks_all
-              from (
-                  select x.*,
-                         (x.leaf_id is not null
-                          and not (x.chain_ids = x.leaf_id or x.chain_ids like '%/' || x.leaf_id)) as app
-                  from hh_chain x
-              ) h
-          ) c
-          where c.path_s <> ''
+          from hh_chain c
       ) q
       distributed randomly;
 
       drop table if exists hrbp_hub_unit;
       create table hrbp_hub_unit as
-      select d.id, d.rk, d.nm, d.lvl, d.pid,
-             string_to_array(d.upath, '/')            as path,
-             coalesce(n.is_current, 0)                as is_current,
-             coalesce(h.hc_now, 0)::int               as hc_now,
-             d.last_dt
-      from (
+      with d as (
           select distinct on (id) id, rk, nm, lvl, pid, upath, last_dt
           from hh_unit_long
           where id <> ''
           order by id, last_dt desc, is_now desc
-      ) d
+      )
+      select d.id, d.rk, d.nm, d.lvl, d.pid,
+             string_to_array(d.upath, '/')            as path,
+             coalesce(n.is_current, 0)                as is_current,
+             coalesce(h.hc_now, 0)::int               as hc_now,
+             coalesce(k.kids_n, 0)::int               as kids_n,
+             coalesce(sb.sub_n, 1)::int               as sub_n,
+             d.last_dt
+      from d
       left join (select id, max(is_now) as is_current from hh_unit_long group by id) n
           on n.id = d.id
       left join (
@@ -417,6 +388,13 @@ paragraphs:
                 where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> '') x
           group by x.id
       ) h on h.id = d.id
+      left join (select pid, count(*) as kids_n from d where pid <> '' group by pid) k
+          on k.pid = d.id
+      left join (
+          select x.id, count(*) as sub_n
+          from (select unnest(string_to_array(upath, '/')) as id from d) x
+          group by x.id
+      ) sb on sb.id = d.id
       distributed by (id);
     isEnabled: true
   - sid: 01a0c821-1370-7113-bb81-9a738a191c7e
@@ -895,6 +873,118 @@ paragraphs:
           on w.kid = k.kid
       where m.tot + w.tot > 0
       distributed by (path_s);
+
+
+      -- ============================================================================
+      -- База сравнения → hrbp_hub_base: вся компания по 6 разрезам, БЕЗ пути юнита.
+      -- Датасет берёт базу отсюда, а не суммой куба: запрос юнита читает только его
+      -- поддерево (при 100 тыс. сотрудников это разница между «весь куб на каждый
+      -- клик» и «ветка юнита»). Окна аддитивны — Σ окон по юнитам = окно суммы, —
+      -- поэтому база собирается из того же hh_cube_win.
+      -- ============================================================================
+      drop table if exists hh_base_win;
+      create table hh_base_win as
+      select k.paint, k.it, k.stream, k.spec, k.staff, k.hct, w.grain, w.idx,
+             sum(w.hc) as hc,
+             sum(w.jun) as jun,
+             sum(w.rg) as rg,
+             sum(w.nrg) as nrg,
+             sum(w.hcw) as hcw,
+             sum(w.nr) as nr,
+             sum(w.r3n) as r3n,
+             sum(w.r3d) as r3d,
+             sum(w.r6n) as r6n,
+             sum(w.r6d) as r6d,
+             sum(w.r3an) as r3an,
+             sum(w.r3ad) as r3ad,
+             sum(w.r6an) as r6an,
+             sum(w.r6ad) as r6ad,
+             sum(w.hire) as hire,
+             sum(w.fire) as fire
+      from hh_cube_win w
+      join (select distinct kid, paint, it, stream, spec, staff, hct from hh_cube_long) k
+          on k.kid = w.kid
+      where w.idx >= 0
+      group by 1, 2, 3, 4, 5, 6, 7, 8
+      distributed randomly;
+
+      drop table if exists hrbp_hub_base;
+      create table hrbp_hub_base as
+      select m.paint, m.it, m.stream, m.spec, m.staff, m.hct,
+             m.hc as m_hc,
+             m.jun as m_jun,
+             m.rg as m_rg,
+             m.nrg as m_nrg,
+             m.hcw as m_hcw,
+             m.nr as m_nr,
+             m.r3n as m_r3n,
+             m.r3d as m_r3d,
+             m.r6n as m_r6n,
+             m.r6d as m_r6d,
+             m.r3an as m_r3an,
+             m.r3ad as m_r3ad,
+             m.r6an as m_r6an,
+             m.r6ad as m_r6ad,
+             m.hire as m_hire,
+             m.fire as m_fire,
+             w.hc as w_hc,
+             w.jun as w_jun,
+             w.rg as w_rg,
+             w.nrg as w_nrg,
+             w.hcw as w_hcw,
+             w.nr as w_nr,
+             w.r3n as w_r3n,
+             w.r3d as w_r3d,
+             w.r6n as w_r6n,
+             w.r6d as w_r6d,
+             w.r3an as w_r3an,
+             w.r3ad as w_r3ad,
+             w.r6an as w_r6an,
+             w.r6ad as w_r6ad,
+             w.hire as w_hire,
+             w.fire as w_fire
+      from (select paint, it, stream, spec, staff, hct,
+                   array_agg(hc::int order by idx) as hc,
+                   array_agg(jun::int order by idx) as jun,
+                   array_agg(rg::int order by idx) as rg,
+                   array_agg(nrg::int order by idx) as nrg,
+                   array_agg(hcw::int order by idx) as hcw,
+                   array_agg(nr::int order by idx) as nr,
+                   array_agg(r3n::int order by idx) as r3n,
+                   array_agg(r3d::int order by idx) as r3d,
+                   array_agg(r6n::int order by idx) as r6n,
+                   array_agg(r6d::int order by idx) as r6d,
+                   array_agg(r3an::int order by idx) as r3an,
+                   array_agg(r3ad::int order by idx) as r3ad,
+                   array_agg(r6an::int order by idx) as r6an,
+                   array_agg(r6ad::int order by idx) as r6ad,
+                   array_agg(hire::int order by idx) as hire,
+                   array_agg(fire::int order by idx) as fire
+            from hh_base_win
+            where grain = 'm'
+            group by 1, 2, 3, 4, 5, 6) m
+      join (select paint, it, stream, spec, staff, hct,
+                   array_agg(hc::int order by idx) as hc,
+                   array_agg(jun::int order by idx) as jun,
+                   array_agg(rg::int order by idx) as rg,
+                   array_agg(nrg::int order by idx) as nrg,
+                   array_agg(hcw::int order by idx) as hcw,
+                   array_agg(nr::int order by idx) as nr,
+                   array_agg(r3n::int order by idx) as r3n,
+                   array_agg(r3d::int order by idx) as r3d,
+                   array_agg(r6n::int order by idx) as r6n,
+                   array_agg(r6d::int order by idx) as r6d,
+                   array_agg(r3an::int order by idx) as r3an,
+                   array_agg(r3ad::int order by idx) as r3ad,
+                   array_agg(r6an::int order by idx) as r6an,
+                   array_agg(r6ad::int order by idx) as r6ad,
+                   array_agg(hire::int order by idx) as hire,
+                   array_agg(fire::int order by idx) as fire
+            from hh_base_win
+            where grain = 'w'
+            group by 1, 2, 3, 4, 5, 6) w
+          using (paint, it, stream, spec, staff, hct)
+      distributed randomly;
     isEnabled: true
   - sid: 01a0c821-26f8-7a2f-afa3-581fa1cdc656
     title: HH · куб атрибутов
@@ -1167,6 +1257,31 @@ paragraphs:
           where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> ''
       ) s;
 
+      -- 4б. База сходится с кубом: вся компания без пути = сумма куба (месяцы и недели,
+      --     численность и знаменатель текучести) и массивы по 24 позиции.
+      select 1 / (case when b.m_hc = c.m_hc and b.w_hc = c.w_hc and b.m_hcw = c.m_hcw and b.bad = 0 then 1 else 0 end) as base_equals_cube_check,
+             b.m_hc as base_hc, c.m_hc as cube_hc
+      from (
+          select sum(k.m_hc[l.pos]) as m_hc, sum(k.w_hc[24]) as w_hc, sum(k.m_hcw[l.pos]) as m_hcw,
+                 sum(case when array_length(k.m_hc, 1) <> 24 or array_length(k.w_r6ad, 1) <> 24 then 1 else 0 end) as bad
+          from hrbp_hub_base k
+          cross join (select c.idx + 1 as pos
+                      from hrbp_hub_calendar c
+                      join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
+      ) b
+      cross join (
+          select sum(k.m_hc[l.pos]) as m_hc, sum(k.w_hc[24]) as w_hc, sum(k.m_hcw[l.pos]) as m_hcw
+          from hrbp_hub_cube k
+          cross join (select c.idx + 1 as pos
+                      from hrbp_hub_calendar c
+                      join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
+      ) c;
+
+      -- 4в. Глубина пути: компания + не больше 10 уровней (lvl3…lvl12).
+      select 1 / (case when max(array_length(path, 1)) <= 11 then 1 else 0 end) as path_depth_check,
+             max(array_length(path, 1)) as max_path_len
+      from hrbp_hub_cube;
+
       -- 5. Каждый узел из путей куба есть в справочнике.
       select 1 / (case when count(*) > 0 then 0 else 1 end) as cube_units_in_dictionary_check
       from (select distinct unnest(path) as id from hrbp_hub_cube) x
@@ -1185,6 +1300,7 @@ paragraphs:
              (select count(*) from hh_fire where nr = 1)                           as fires_without_reason,
              (select count(*) from hrbp_hub_cube)                                  as cube_rows,
              (select count(*) from hrbp_hub_attr)                                  as attr_rows,
+             (select count(*) from hrbp_hub_base)                                  as base_rows,
              (select count(*) from hrbp_hub_unit where is_current = 1)             as units_now,
              (select count(distinct login) from hrbp_hub_access)                   as logins;
       select r.rule_id, r.unit_rk, r.metric_id,
@@ -1202,7 +1318,8 @@ paragraphs:
       # Выгрузка витрин HRBP HUB в ClickHouse (база Proteus CROSS → prod_proteus).
       # replace — таблица пересобирается целиком: окно сдвигается каждый месяц, и старые
       # слоты меняют смысл, дописывать нечего. ORDER BY — под фильтры датасета: куб
-      # режется по пути юнита, справочник — по id, доступ — по логину.
+      # режется по пути юнита (ветка юнита лежит подряд), справочник — по id, доступ —
+      # по логину, база — по разрезам.
       from proteus_py.database.clickhouse import gp_to_click
 
       gp_to_click('hrbp_hub_calendar', 'prod_proteus.hrbp_hub_calendar',
@@ -1217,6 +1334,8 @@ paragraphs:
           gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(path_s)')
       gp_to_click('hrbp_hub_attr', 'prod_proteus.hrbp_hub_attr',
           gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(attr_k, path_s)')
+      gp_to_click('hrbp_hub_base', 'prod_proteus.hrbp_hub_base',
+          gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(paint, it, stream, spec, staff, hct)')
     isEnabled: true
     color: '#1BA6CE'
   - sid: 01a0c821-3a80-7bec-ae45-2ac5a614cc14
@@ -1229,7 +1348,7 @@ paragraphs:
       from proteus_py.database.clickhouse import set_table_owners
 
       OWNERS = ['r.kazantsev']
-      for t in ['hrbp_hub_calendar', 'hrbp_hub_unit', 'hrbp_hub_access', 'hrbp_hub_kpi', 'hrbp_hub_cube', 'hrbp_hub_attr']:
+      for t in ['hrbp_hub_calendar', 'hrbp_hub_unit', 'hrbp_hub_access', 'hrbp_hub_kpi', 'hrbp_hub_cube', 'hrbp_hub_attr', 'hrbp_hub_base']:
           set_table_owners(database='prod_proteus', table=t, usernames=OWNERS)
     isEnabled: true
   - sid: 01a0c821-3e68-7199-a8bf-bdb5baf52164
@@ -1311,6 +1430,7 @@ paragraphs:
       drop table if exists hh_evt;
       drop table if exists hh_cube_long;
       drop table if exists hh_cube_win;
+      drop table if exists hh_base_win;
       drop table if exists hh_attr_long;
       drop table if exists hh_attr_win;
     isEnabled: true

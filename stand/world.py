@@ -12,6 +12,11 @@
 отдел, новый отдел, переименование, повторный найм, стажёры, декрет,
 увольнения без причины, увольнения в последние 30 дней, сотрудники прямо
 в юните верхнего уровня, rk листа ≠ mapped rk.
+
+Уровни — как в mapped-структуре боевой базы (ультраширокая): lvl1 — компания,
+lvl2 — юрлицо-группировка (отчёт его пропускает), lvl3 — блоки, дальше до lvl13.
+Одна ветка уходит вглубь до lvl13: отчёт берёт уровни до 12-го, сотрудники
+lvl13 считаются прямо в своём юните 12-го уровня. Есть люди прямо в lvl1 и lvl2.
 """
 import datetime as dt
 import hashlib
@@ -116,19 +121,24 @@ TREE = {
         'Департамент финансов': {'Управление отчётности': ['Отдел МСФО', 'Отдел налогов']},
     },
 }
-BLOCK = {}      # key юнита -> блок (уровень 2)
+BLOCK = {}      # key юнита -> блок (уровень 3)
 LEAVES = []
 BY_NAME = {}
+# lvl2 — группировки над блоками: в отчёте их нет, блоки встают прямо под компанию
+L2 = {'Технологии': mk('lvl2-tech', 'ТБанк · Технологии', ROOT, 2)}
+L2_BANK = mk('lvl2-bank', 'ТБанк · Банк', ROOT, 2)
+BY_NAME['ТБанк · Технологии'] = L2['Технологии']
+BY_NAME['ТБанк · Банк'] = L2_BANK
 for bname, deps in TREE.items():
-    b = mk(bname, bname, ROOT, 2)
+    b = mk(bname, bname, L2.get(bname, L2_BANK), 3)
     BLOCK[b.key] = bname
     BY_NAME[bname] = b
     for dname, uprs in deps.items():
-        d = mk(dname, dname, b, 3)
+        d = mk(dname, dname, b, 4)
         BY_NAME[dname] = d
         for uname, otds in uprs.items():
             key = uname
-            u = mk(key, uname, d, 4)
+            u = mk(key, uname, d, 5)
             if uname == 'HR-партнёры':
                 u.rk = SUPER_UNIT_RK
                 u.raw_rk = SUPER_UNIT_RK
@@ -136,22 +146,31 @@ for bname, deps in TREE.items():
             if not otds:
                 LEAVES.append(u)
             for oname in otds:
-                o = mk(oname, oname, u, 5)
+                o = mk(oname, oname, u, 6)
                 BY_NAME[oname] = o
                 LEAVES.append(o)
-                # у части отделов есть группы шестого уровня
+                # у части отделов есть группы седьмого уровня
                 if oname in ('Отдел бэкенда', 'Отдел поддержки 1', 'Отдел скоринга'):
                     for gi in (1, 2):
-                        g = mk(oname + ' / группа ' + str(gi), 'Группа ' + str(gi) + ' · ' + oname.replace('Отдел ', ''), o, 6)
+                        g = mk(oname + ' / группа ' + str(gi), 'Группа ' + str(gi) + ' · ' + oname.replace('Отдел ', ''), o, 7)
                         BY_NAME[g.key] = g
                         LEAVES.append(g)
+# глубокая ветка: от группы бэкенда вниз до lvl13 (как самые мелкие юниты в бою)
+DEEP = []
+_par = BY_NAME['Отдел бэкенда / группа 1']
+for lv, nm in ((8, 'Команда платёжного API'), (9, 'Подкоманда шлюзов'), (10, 'Звено шлюзов A'),
+               (11, 'Подзвено A1'), (12, 'Ячейка A1-1'), (13, 'Микроячейка A1-1-a')):
+    _par = mk(nm, nm, _par, lv)
+    BY_NAME[nm] = _par
+    DEEP.append(_par)
+    LEAVES.append(_par)
 
 # реорганизация: управление платформ данных переезжает в департамент данных
 BY_NAME['Управление платформ данных'].parents.append((dt.date(2025, 10, 1), BY_NAME['Департамент данных']))
 # расформирован отдел ручного тестирования (люди уходят в «Отдел вычислений»)
 BY_NAME['Отдел ручного тестирования'].valid_to = dt.date(2025, 6, 30)
 # новый отдел с 2026-02-01
-NEW = mk('Отдел ИИ-ассистентов', 'Отдел ИИ-ассистентов', BY_NAME['Управление ML'], 5)
+NEW = mk('Отдел ИИ-ассистентов', 'Отдел ИИ-ассистентов', BY_NAME['Управление ML'], 6)
 NEW.valid_from = dt.date(2026, 2, 1)
 BY_NAME[NEW.key] = NEW
 LEAVES.append(NEW)
@@ -162,7 +181,7 @@ BY_NAME['Отдел архива'].raw_rk = hashlib.md5(b'raw-archive').hexdiges
 BY_NAME['Отдел МСФО'].raw_rk = hashlib.md5(b'raw-ifrs').hexdigest()
 
 # листья, в которые люди приходят (часть — середина дерева: руководители и штаб)
-MID = [u for u in UNITS if u.level in (3, 4) and u not in LEAVES]
+MID = [u for u in UNITS if u.level in (4, 5) and u not in LEAVES]
 
 
 def leaf_alive(u, d):
@@ -246,7 +265,10 @@ def new_emp():
 
 
 def block_of(u, d):
-    return u.chain_at(d)[1].key if len(u.chain_at(d)) > 1 else None
+    for x in u.chain_at(d):
+        if x.level == 3:
+            return x.key
+    return None
 
 
 def fresh_attrs(unit, d, intern=False):
@@ -299,6 +321,11 @@ for _ in range(1150):
     e = new_emp()
     hire = dt.date(2014, 1, 1) + dt.timedelta(days=R.randrange(0, 365 * 9))
     start_period(e, hire)
+# верхушка: прямо в компании (lvl1) и в группировках lvl2 — в отчёте «напрямую в компании»
+for _u, _n in ((ROOT, 2), (L2_BANK, 4), (L2['Технологии'], 3)):
+    for _ in range(_n):
+        e = new_emp()
+        start_period(e, dt.date(2015, 1, 1) + dt.timedelta(days=R.randrange(0, 365 * 6)), unit=_u)
 
 # помесячная жизнь
 for ms in month_starts(START, D):
@@ -415,7 +442,7 @@ for ln, fn, lg in names:
     HRBPS.append(e)
 LEAD = HRBPS[0]           # супер-HRBP: сидит в HR-партнёрах, над ней HRBP нет
 HRBP_UNIT.head = LEAD
-# зоны: департамент -> HRBP; у пары управлений — «младший» HRBP внутри зоны старшего
+# зоны: департамент (lvl4) -> HRBP; у пары управлений (lvl5) — «младший» HRBP внутри зоны старшего
 ZONE3 = {'Департамент платформ': HRBPS[1], 'Департамент данных': HRBPS[1], 'Департамент разработки': HRBPS[2],
          'Департамент карт': HRBPS[3], 'Департамент вкладов': HRBPS[3], 'Департамент процессинга': HRBPS[4],
          'Департамент бэк-офиса': HRBPS[4], 'Департамент поддержки': HRBPS[5], 'Департамент качества': HRBPS[6],
@@ -459,8 +486,17 @@ def state(e, d):
     return p, a
 
 
+# Уровни, которые берёт отчёт: компания (lvl1) и lvl3…lvl12 — как в ультраширокой.
+REPORT_LEVELS = frozenset([1] + list(range(3, 13)))
+
+
+def report_chain(unit, d):
+    return [u for u in unit.chain_at(d) if u.level in REPORT_LEVELS]
+
+
 def path_rks(unit, d):
-    return [u.rk for u in unit.chain_at(d)]
+    """Путь юнита в отчёте: lvl2 пропущен, глубже lvl12 — обрезано."""
+    return [u.rk for u in report_chain(unit, d)]
 
 
 def is_junior(sen):

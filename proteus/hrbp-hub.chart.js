@@ -35,7 +35,7 @@ var CFG = {
     w: { hc: 'w_hc', jun: 'w_jun', rg: 'w_rg', nrg: 'w_nrg', hcw: 'w_hcw', nr: 'w_nr',
          r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire' }
   },
-  carriers: { unit: 'unit_f', axis: 'tr_f' },
+  carriers: { unit: 'unit_f', axis: 'tr_f', exp: 'exp_f', q: 'q_f' },
   // Разрезы численности: ключ колонки куба → носитель кросс-фильтра. Один перечень
   // и для фильтра отчёта, и для условий целей KPI (f_*), иначе разъедутся.
   cuts: [
@@ -132,7 +132,12 @@ var CFG = {
   },
   deadZone: 0.05,
   pendingWarnMs: 9000,
-  levels: { 1: 'Компания', 2: 'Блок', 3: 'Департамент', 4: 'Управление', 5: 'Отдел', 6: 'Группа' },
+  // Уровни — номера mapped-структуры, как в ультраширокой: 1 — компания, дальше 3…12
+  // (lvl2 отчёт пропускает). Подпись — по номеру, у юнитов одного уровня разные слова
+  // в названиях («Департамент …», «Отдел …»), поэтому слово не выдумываем.
+  levels: { 1: 'Компания' },
+  maxExp: 50,                // раскрытых глубоких узлов «Команд» в одном запросе
+  searchMin: 2,              // с какой длины строки поиск идёт по всей зоне
   tabs: [
     { key: 'onepager', label: 'Сводка' }, { key: 'teams', label: 'Команды' },
     { key: 'transform', label: 'Трансформеры' }, { key: 'goals', label: 'Цели' },
@@ -277,9 +282,9 @@ function serOf(r) {
 function buildModel() {
   var F = CFG.fields;
   var M = { ok: false, missing: [], meta: null, cal: { m: [], w: [] }, L: -1, dataDt: '',
-            units: {}, kids: {}, hrbps: [], base: null, scope: null, c: [], g: {}, facets: {},
+            units: {}, kids: {}, hrbps: [], base: null, scope: null, c: [], g: {}, x: {}, facets: {},
             tr: [], rules: [], role: 'none', scopeIds: [], roots: [], single: false,
-            sel: {}, axis: '', reqUnit: [] };
+            sel: {}, axis: '', reqUnit: [], exp: [], reqExp: [], q: '', dictMode: 'full', zoneN: 0 };
   if (!rawData.length) return M;
   var need = [F.role, F.id, F.pid, F.n, F.j];
   for (var ci = 0; ci < COMP.length; ci++) { need.push(F.m[COMP[ci]]); need.push(F.w[COMP[ci]]); }
@@ -294,7 +299,8 @@ function buildModel() {
       var recs = splitRecords(r[F.j]);
       for (var k = 0; k < recs.length; k++) {
         var f = recs[k];
-        var u = { id: f[0], pid: f[1] || '', lvl: num(f[2]) || 0, hc: num(f[3]) || 0, cur: f[4] === '1', rk: f[5] || '', nm: f[6] || '—' };
+        var u = { id: f[0], pid: f[1] || '', lvl: num(f[2]) || 0, hc: num(f[3]) || 0, cur: f[4] === '1', rk: f[5] || '', nm: f[6] || '—',
+                  nk: f.length > 7 ? (num(f[7]) || 0) : -1 };
         M.units[u.id] = u;
       }
     } else if (role === 'hrbps') {
@@ -306,6 +312,7 @@ function buildModel() {
     else if (role === 'scope') M.scope = serOf(r);
     else if (role === 'c') M.c.push({ id: id, ser: serOf(r) });
     else if (role === 'g') { if (!M.g[pid]) M.g[pid] = []; M.g[pid].push({ id: id, pid: pid, ser: serOf(r) }); }
+    else if (role === 'x') { if (!M.x[pid]) M.x[pid] = []; M.x[pid].push({ id: id, pid: pid, ser: serOf(r) }); }
     else if (role === 'f') { if (!M.facets[pid]) M.facets[pid] = []; M.facets[pid].push({ v: id, n: num(r[F.n]) || 0 }); }
     else if (role === 'tr') M.tr.push({ v: id, ser: serOf(r) });
     else if (role === 'kpi') {
@@ -323,6 +330,11 @@ function buildModel() {
   M.single = M.scopeIds.length === 1;
   M.axis = meta.axis || '';
   M.reqUnit = meta.req_unit || [];
+  M.exp = (meta.exp || []).slice().sort();
+  M.reqExp = meta.req_exp || [];
+  M.q = meta.q || '';
+  M.dictMode = meta.dict_mode || 'full';
+  M.zoneN = num(meta.zone_n) || 0;
   for (var cc = 0; cc < CFG.cuts.length; cc++) M.sel[CFG.cuts[cc].key] = (meta['f_' + CFG.cuts[cc].key] || []).slice();
   var cal = meta.cal || [];
   for (var q = 0; q < cal.length; q++) {
@@ -354,7 +366,8 @@ function pathTo(id) {
   while (cur && MODEL.units[cur] && guard++ < 30) { out.unshift(cur); cur = MODEL.units[cur].pid; }
   return out;
 }
-function levelLabel(lvl) { return CFG.levels[lvl] || ('ур. ' + lvl); }
+function levelLabel(lvl) { return CFG.levels[lvl] || (lvl ? 'Уровень ' + lvl : '—'); }
+function levelShort(lvl) { return CFG.levels[lvl] || (lvl ? 'ур. ' + lvl : ''); }
 function sameSet(a, b) {
   if (a.length !== b.length) return false;
   var x = a.slice().sort(), y = b.slice().sort();
@@ -538,19 +551,23 @@ function selMetrics(block) {
 function reqNow() {
   var cuts = {};
   for (var i = 0; i < CFG.cuts.length; i++) cuts[CFG.cuts[i].key] = (MODEL.sel[CFG.cuts[i].key] || []).slice();
-  return { unit: sameSet(MODEL.scopeIds, MODEL.roots) ? [] : MODEL.scopeIds.slice(), cuts: cuts, axis: MODEL.axis || '' };
+  return { unit: sameSet(MODEL.scopeIds, MODEL.roots) ? [] : MODEL.scopeIds.slice(), cuts: cuts, axis: MODEL.axis || '',
+           exp: MODEL.exp.slice(), q: '' };
 }
-// Эхо запроса: что датасет получил (req_unit — как пришло, до проверки доступа).
+// Эхо запроса: что датасет получил (req_unit / req_exp — как пришло, до проверки доступа).
 function reqEcho() {
-  var r = reqNow(), u = [];
+  var r = reqNow(), u = [], x = [];
   for (var i = 0; i < MODEL.reqUnit.length; i++) if (MODEL.reqUnit[i]) u.push(MODEL.reqUnit[i]);
+  for (var j = 0; j < MODEL.reqExp.length; j++) if (MODEL.reqExp[j]) x.push(MODEL.reqExp[j]);
   r.unit = u;
+  r.exp = x;
+  r.q = MODEL.q;
   return r;
 }
 function sigOf(o) {
   var s = 'u:' + (o.unit || []).slice().sort().join(',');
   for (var i = 0; i < CFG.cuts.length; i++) s += '|' + CFG.cuts[i].key + ':' + ((o.cuts && o.cuts[CFG.cuts[i].key]) || []).slice().sort().join('\u0001');
-  return s + '|a:' + (o.axis || '');
+  return s + '|a:' + (o.axis || '') + '|x:' + (o.exp || []).slice().sort().join(',') + '|q:' + (o.q || '');
 }
 function maskOf(o) {
   var out = [];
@@ -562,6 +579,8 @@ function maskOf(o) {
   add(CFG.carriers.unit, (o.unit || []).slice(0, 50));
   for (var c = 0; c < CFG.cuts.length; c++) add(CFG.cuts[c].carrier, o.cuts ? o.cuts[CFG.cuts[c].key] : []);
   if (o.axis) add(CFG.carriers.axis, [o.axis]);
+  add(CFG.carriers.exp, (o.exp || []).slice(0, CFG.maxExp));
+  if (o.q) add(CFG.carriers.q, [o.q]);
   return out;
 }
 
@@ -947,6 +966,7 @@ function buildCSS() {
     P + '-tn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
     P + '-tl{color:' + C.muted2 + ';font-size:' + F.micro + 'px;font-weight:800;text-transform:uppercase;white-space:nowrap;}',
     P + '-th{color:' + C.muted + ';font-size:' + F.note + 'px;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:44px;text-align:right;}',
+    P + '-thint ' + P + '-tn{color:' + C.act + ';font-weight:600;font-size:' + F.note + 'px;white-space:normal;}',
     P + '-tpath{display:block;color:' + C.muted + ';font-size:' + F.cap + 'px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
     P + '-gone{display:inline-block;font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:5px;background:' + C.surface2 + ';color:' + C.muted + ';margin-left:4px;vertical-align:middle;white-space:nowrap;}',
     P + '-seg{display:inline-flex;gap:2px;background:' + C.line2 + ';border-radius:9px;padding:2px;}',
@@ -1039,8 +1059,8 @@ function buildCSS() {
     P + '-t td' + P + '-spk{padding:8px 24px 8px 20px;text-align:center;}',
     P + '-rl{display:flex;align-items:flex-start;}',
     P + '-rb{min-width:0;}',
-    P + '-t tr' + P + '-lv2 td' + P + '-l ' + P + '-rl{padding-left:26px;position:relative;}',
-    P + '-t tr' + P + '-lv2 td' + P + '-l ' + P + '-rl::before{content:"";position:absolute;left:11px;top:3px;width:9px;height:9px;border-left:1px solid ' + C.line + ';border-bottom:1px solid ' + C.line + ';border-bottom-left-radius:3px;}',
+    P + '-ind{display:inline-block;flex:0 0 auto;align-self:stretch;position:relative;}',
+    P + '-t tr' + P + '-lv2 ' + P + '-ind::after{content:"";position:absolute;right:3px;top:3px;width:8px;height:8px;border-left:1px solid ' + C.line + ';border-bottom:1px solid ' + C.line + ';border-bottom-left-radius:3px;}',
     P + '-us{display:block;font-size:' + F.cap + 'px;color:' + C.muted + ';font-weight:600;margin-top:1px;}',
     P + '-muted{color:' + C.muted + ';font-weight:600;}',
     P + '-car{display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;margin-right:7px;border:0;background:transparent;border-radius:6px;color:' + C.ink2 + ';font-size:12px;cursor:pointer;flex:0 0 auto;padding:0;}',
@@ -1049,6 +1069,7 @@ function buildCSS() {
     P + '-cars{display:inline-block;width:23px;margin-right:7px;flex:0 0 auto;}',
     P + '-go{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;margin-left:6px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:6px;color:' + C.muted + ';font-size:12px;cursor:pointer;padding:0;vertical-align:middle;}',
     P + '-go:hover{border-color:' + C.act + ';color:' + C.act + ';background:' + C.blueBg + ';}',
+    P + '-nw{white-space:nowrap;}',
 
     // ---- ячейки сравнения, пилюли, метки ----
     P + '-cell{display:inline-block;border-radius:9px;padding:6px 8px;font-weight:700;font-size:' + F.body + 'px;line-height:1.15;font-variant-numeric:tabular-nums;}',
@@ -1115,7 +1136,7 @@ function buildCSS() {
     P + '-narrow ' + P + '-dsplit::before{display:none;}',
     P + '-narrow ' + P + '-dsplit ' + P + '-dcol:first-child{padding-right:0;padding-bottom:14px;}',
     P + '-narrow ' + P + '-dsplit ' + P + '-dcol+' + P + '-dcol{padding-left:0;border-top:1px solid ' + C.line + ';}',
-    P + '-split{display:grid;grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr);gap:16px;align-items:start;}',
+    P + '-split{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);gap:16px;align-items:start;}',
     P + '-narrow ' + P + '-split{grid-template-columns:minmax(0,1fr);}',
     P + '-split ' + P + '-pb' + P + '-tbl{max-height:680px;}',
     P + '-dyn{display:flex;flex-direction:column;gap:18px;}',
@@ -1384,17 +1405,30 @@ function kidsOf(id) {
   });
   return k;
 }
-function treeOpen(id, depth) { return state.treeOpen.hasOwnProperty(id) ? !!state.treeOpen[id] : depth === 0; }
+// По умолчанию раскрыты корни и путь до выбранного юнита.
+function onScopePath(id) {
+  for (var i = 0; i < MODEL.scopeIds.length; i++) if (pathTo(MODEL.scopeIds[i]).indexOf(id) > -1 && MODEL.scopeIds[i] !== id) return true;
+  return false;
+}
+function treeOpen(id, depth) { return state.treeOpen.hasOwnProperty(id) ? !!state.treeOpen[id] : (depth === 0 || onScopePath(id)); }
 function treeRows(id, depth, cur, out) {
   var P = CFG.ns, u = MODEL.units[id];
   if (!u || out.n > 600) return;
   out.n++;
-  var kids = kidsOf(id), open = treeOpen(id, depth);
+  // Большая зона: справочник приходит окрестностью — дети узла могут быть не загружены (nk > 0).
+  var kids = kidsOf(id), more = !kids.length && u.nk > 0, open = treeOpen(id, depth);
   out.s += '<div class="' + P + '-tr' + (id === cur ? ' ' + P + '-cur' : '') + '" data-action="unit" data-id="' + esc(id) + '" style="padding-left:' + (6 + depth * 16) + 'px">'
-    + (kids.length ? '<button class="' + P + '-tw" data-action="tree" data-id="' + esc(id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button>' : '<span class="' + P + '-tsp"></span>')
+    + (kids.length || more ? '<button class="' + P + '-tw" data-action="tree" data-id="' + esc(id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button>' : '<span class="' + P + '-tsp"></span>')
     + '<span class="' + P + '-tn">' + esc(u.nm) + (u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>') + '</span>'
-    + '<span class="' + P + '-tl">' + esc(levelLabel(u.lvl)) + '</span><span class="' + P + '-th">' + fmtInt(u.hc) + '</span></div>';
-  if (open) for (var i = 0; i < kids.length; i++) treeRows(kids[i], depth + 1, cur, out);
+    + '<span class="' + P + '-tl">' + esc(levelShort(u.lvl)) + '</span><span class="' + P + '-th">' + fmtInt(u.hc) + '</span></div>';
+  if (!open) return;
+  if (more) {
+    out.s += '<div class="' + P + '-tr ' + P + '-thint" data-action="unit" data-id="' + esc(id) + '" style="padding-left:' + (6 + (depth + 1) * 16) + 'px">'
+      + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + u.nk + ' ' + plural(u.nk, 'подразделение', 'подразделения', 'подразделений')
+      + ' — откройте юнит, и они подгрузятся</span></div>';
+    return;
+  }
+  for (var i = 0; i < kids.length; i++) treeRows(kids[i], depth + 1, cur, out);
 }
 function unitListHTML() {
   var P = CFG.ns, M = MODEL, q = String(state.q || '').replace(/^\s+|\s+$/g, '').toLowerCase();
@@ -1416,16 +1450,25 @@ function unitListHTML() {
     if (at < 0 || !inZone(id)) continue;
     hits.push({ id: id, u: u, rank: (at === 0 ? 0 : 1) * 100 + u.lvl });
   }
-  if (!hits.length) return '<div class="' + P + '-nores">Ничего не найдено</div>';
-  hits.sort(function (a, b) { return a.rank - b.rank || (a.u.nm < b.u.nm ? -1 : 1); });
+  // Большая зона: здесь только юниты вокруг выбранного — остальное ищет датасет (q_f).
   var r = '';
+  if (M.dictMode === 'part') {
+    var done = M.q && M.q.toLowerCase() === q;
+    r += done
+      ? '<div class="' + P + '-nores">Найдено по всей зоне: ' + hits.length + '</div>'
+      : (q.length >= CFG.searchMin
+         ? '<div class="' + P + '-tr ' + P + '-thint" data-action="qsearch"><span class="' + P + '-tsp"></span><span class="' + P + '-tn">Искать «' + esc(state.q) + '» во всей зоне (' + fmtInt(M.zoneN) + ' юнитов) — Enter</span></div>'
+         : '<div class="' + P + '-nores">Введите от ' + CFG.searchMin + ' букв — найдём по всей зоне</div>');
+  }
+  if (!hits.length) return r + (M.dictMode === 'part' && !(M.q && M.q.toLowerCase() === q) ? '' : '<div class="' + P + '-nores">Ничего не найдено</div>');
+  hits.sort(function (a, b) { return a.rank - b.rank || (a.u.nm < b.u.nm ? -1 : 1); });
   for (var k = 0; k < hits.length && k < 80; k++) {
     var h = hits[k], chain = pathTo(h.id), names = [];
     for (var c = Math.max(0, chain.length - 4); c < chain.length - 1; c++) names.push(unitName(M, chain[c]));
     r += '<div class="' + P + '-tr' + (h.id === cur ? ' ' + P + '-cur' : '') + '" data-action="unit" data-id="' + esc(h.id) + '">'
       + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + esc(h.u.nm) + (h.u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>')
       + '<span class="' + P + '-tpath">' + esc(names.join(' › ') || levelLabel(h.u.lvl)) + '</span></span>'
-      + '<span class="' + P + '-tl">' + esc(levelLabel(h.u.lvl)) + '</span><span class="' + P + '-th">' + fmtInt(h.u.hc) + '</span></div>';
+      + '<span class="' + P + '-tl">' + esc(levelShort(h.u.lvl)) + '</span><span class="' + P + '-th">' + fmtInt(h.u.hc) + '</span></div>';
   }
   if (hits.length > 80) r += '<div class="' + P + '-nores">Показаны 80 из ' + hits.length + ' — уточните запрос</div>';
   return r;
@@ -1751,16 +1794,37 @@ function hasKids(cid) {
   for (var i = 0; i < g.length; i++) if (g[i].id !== '·') return true;
   return false;
 }
+// Дерево «Команд» до 12-го уровня: −1 (c) и −2 (g) приезжают сразу, глубже —
+// строки x по раскрытию (exp_f). lvl строки — глубина от выбранного юнита.
+function rowKids(r) {
+  if (r.id === '·') return null;
+  if (r.lvl === 1) return MODEL.g[r.id] || [];
+  return MODEL.x[r.id] || null;                  // null — ещё не загружены
+}
+function rowCanExp(r) {
+  if (r.id === '·') return false;
+  if (r.lvl === 1) return hasKids(r.id);
+  var u = MODEL.units[r.id];
+  if (u && u.nk >= 0) return u.nk > 0;
+  var xs = MODEL.x[r.id];
+  if (!xs) return true;                          // число детей неизвестно — даём раскрыть
+  for (var i = 0; i < xs.length; i++) if (xs[i].id !== '·') return true;
+  return false;
+}
 function teamRows() {
-  var M = MODEL, out = [], cs = M.c.slice().sort(byHc);
-  for (var i = 0; i < cs.length; i++) {
-    var c = cs[i];
-    out.push({ lvl: 1, id: c.id, pid: '', ser: c.ser, key: '1::' + c.id });
-    if (c.id !== '·' && state.openRows[c.id] && hasKids(c.id)) {
-      var gs = (M.g[c.id] || []).slice().sort(byHc);
-      for (var k = 0; k < gs.length; k++) out.push({ lvl: 2, id: gs[k].id, pid: c.id, ser: gs[k].ser, key: '2:' + c.id + ':' + gs[k].id });
+  var out = [];
+  function walk(list, lvl, pid) {
+    var ls = list.slice().sort(byHc);
+    for (var i = 0; i < ls.length; i++) {
+      var r = { lvl: lvl, id: ls[i].id, pid: pid, ser: ls[i].ser, key: lvl + ':' + pid + ':' + ls[i].id };
+      out.push(r);
+      if (r.id === '·' || !state.openRows[r.id] || !rowCanExp(r)) continue;
+      var kids = rowKids(r);
+      if (kids) walk(kids, lvl + 1, r.id);
+      else out.push({ lvl: lvl + 1, id: '', pid: r.id, ser: null, key: 'load:' + r.id, loading: true });
     }
   }
+  walk(MODEL.c, 1, '');
   return out;
 }
 // Юнит, чьи цели действуют на строку: «·» — сотрудники прямо в родителе.
@@ -1768,6 +1832,13 @@ function rowUnit(r) { return r.id !== '·' ? r.id : (r.lvl === 1 ? scopeUnit() :
 function rowName(r) {
   if (r.id !== '·') return unitName(MODEL, r.id);
   return 'Напрямую в «' + (r.lvl === 1 ? scopeLabel() : unitName(MODEL, r.pid)) + '»';
+}
+// Стрелка «→» держится за последнее слово имени: в узкой колонке глубокого
+// дерева она не уезжает на отдельную строку.
+function nameGo(name, go) {
+  if (!go) return esc(name);
+  var sp = name.lastIndexOf(' ');
+  return (sp > 0 ? esc(name.slice(0, sp + 1)) : '') + '<span class="' + CFG.ns + '-nw">' + esc(sp > 0 ? name.slice(sp + 1) : name) + go + '</span>';
 }
 function unitCell(unitId, ser, m, selected) {
   var P = CFG.ns, L = MODEL.L, v = mval(ser, 'm', m, L), txt = fmtVal(m, v);
@@ -1809,7 +1880,7 @@ function teamsHTML() {
   var rows = teamRows();
   if (state.focusOnly) {
     var kept = [];
-    for (var f = 0; f < rows.length; f++) if (rows[f].id !== '·' && ownLive(rows[f].id, keys)) kept.push(rows[f]);
+    for (var f = 0; f < rows.length; f++) if (rows[f].id && rows[f].id !== '·' && ownLive(rows[f].id, keys)) kept.push(rows[f]);
     rows = kept;
   }
   var sel = null;
@@ -1829,20 +1900,31 @@ function teamsHTML() {
   for (var tm = 0; tm < mets.length; tm++) t += unitCell(scopeUnit(), M.scope, mets[tm], !sel);
   t += '</tr>';
   for (var i = 0; i < rows.length; i++) {
-    var row = rows[i], isSel = sel && sel.key === row.key, uid = rowUnit(row), unit = M.units[row.id];
-    var canExp = row.lvl === 1 && row.id !== '·' && hasKids(row.id), open = !!state.openRows[row.id];
+    var row = rows[i];
+    // Отступ дерева: 12 px на уровень, но не больше 8 ступеней — на 12 уровнях имя не сжимается в столбик,
+    // а глубину договаривает подпись «ур. N».
+    var ind = '<span class="' + P + '-ind" style="width:' + (Math.min(row.lvl - 1, 8) * 12) + 'px"></span>';
+    if (row.loading) {
+      t += '<tr class="' + P + '-lv2"><td class="' + P + '-l" colspan="' + (mets.length + 1) + '"><span class="' + P + '-rl">' + ind
+        + '<span class="' + P + '-cars"></span><span class="' + P + '-muted">'
+        + (state.pend ? 'Загружаю подразделения…' : 'Подразделения не загрузились — сверните и раскройте ещё раз.') + '</span></span></td></tr>';
+      continue;
+    }
+    var isSel = sel && sel.key === row.key, uid = rowUnit(row), unit = M.units[row.id];
+    var canExp = rowCanExp(row), open = !!state.openRows[row.id];
     var nOwn = row.id !== '·' ? ownLive(row.id, keys) : 0;
     var hidOwn = [];
     if (row.id !== '·') { var allOwn = ownRules(row.id, ''); for (var ho = 0; ho < allOwn.length; ho++) if (keys.indexOf(allOwn[ho].metric) > -1 && !ruleMatches(allOwn[ho])) hidOwn.push(allOwn[ho]); }
-    t += '<tr class="' + P + '-row' + (row.lvl === 2 ? ' ' + P + '-lv2' : '') + (isSel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="' + esc(row.key) + '">'
-      + '<td class="' + P + '-l"><span class="' + P + '-rl">'
-      + (canExp ? hCaret(open, 'exp', row.id, 'Раскрыть детализацию', { title: 'Детализация', text: 'Юниты уровнем ниже внутри «' + unitName(M, row.id) + '».' }) : '<span class="' + P + '-cars"></span>')
-      + '<span class="' + P + '-rb">' + esc(rowName(row))
+    t += '<tr class="' + P + '-row' + (row.lvl >= 2 ? ' ' + P + '-lv2' : '') + (isSel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="' + esc(row.key) + '">'
+      + '<td class="' + P + '-l"><span class="' + P + '-rl">' + ind
+      + (canExp ? hCaret(open, 'exp', row.id, 'Раскрыть детализацию', { title: 'Детализация', text: 'Юниты уровнем ниже внутри «' + unitName(M, row.id) + '».',
+          note: row.lvl >= 2 && !M.x[row.id] ? 'Подразделения этого уровня подгружаются запросом — секунда-две.' : null }) : '<span class="' + P + '-cars"></span>')
+      + '<span class="' + P + '-rb">' + nameGo(rowName(row), row.id !== '·' ? '<button class="' + P + '-go" data-action="unit" data-id="' + esc(row.id) + '" aria-label="Открыть юнит"'
+          + tip({ title: 'Открыть юнит', text: 'Сделать «' + unitName(M, row.id) + '» юнитом отчёта: сводка, команды и цели — по нему.' }) + '>→</button>' : '')
       + (nOwn ? ' <span class="' + P + '-tag ' + P + '-own"' + tip({ title: 'Фокус юнита', text: 'Цели установлены на этом юните и уходят вниз по всей его ветке.', rows: [{ label: 'целей в фокусе', value: String(nOwn) }] }) + '>★ Фокус</span>' : '')
       + moreFocus(hidOwn, true)
       + (unit && !unit.cur ? '<span class="' + P + '-gone">нет в структуре</span>' : '')
-      + (row.id !== '·' ? '<button class="' + P + '-go" data-action="unit" data-id="' + esc(row.id) + '" aria-label="Открыть юнит"' + tip({ title: 'Открыть юнит', text: 'Сделать «' + unitName(M, row.id) + '» юнитом отчёта: сводка, команды и цели — по нему.' }) + '>→</button>' : '')
-      + '<span class="' + P + '-us">' + fmtInt(hcOf(row.ser)) + ' чел</span></span></span></td>';
+      + '<span class="' + P + '-us">' + (unit ? esc(levelShort(unit.lvl)) + ' · ' : '') + fmtInt(hcOf(row.ser)) + ' чел</span></span></span></td>';
     for (var mm = 0; mm < mets.length; mm++) t += unitCell(uid, row.ser, mets[mm], isSel);
     t += '</tr>';
   }
@@ -2315,10 +2397,12 @@ function buildHTML() {
         if (state.rerender) state.rerender();
       }, left);
     }
-    function emit(next) {
-      state.open = '';
-      state.q = '';
-      state.draft = null;
+    function emit(next, keepPop) {
+      if (!keepPop) {
+        state.open = '';
+        state.q = '';
+        state.draft = null;
+      }
       var sig = sigOf(next);
       if (sig === sigOf(reqEcho())) { state.pend = null; armPend(); render(); return; }
       if (typeof applyCrossFilter !== 'function') {
@@ -2334,10 +2418,23 @@ function buildHTML() {
       render();
       applyCrossFilter(maskOf(next));
     }
+    // Новый юнит — новое дерево «Команд»: раскрытия и поиск не переносятся.
     function withUnit(ids) {
       var n = reqNow();
       n.unit = sameSet(ids, MODEL.roots) ? [] : ids.slice();
+      n.exp = [];
+      n.q = '';
+      state.openRows = {};
+      state.selTeam = '';
       return n;
+    }
+    // Поиск юнита по всей зоне (справочник большой зоны приходит окрестностью).
+    function searchZone() {
+      var q = String(state.q || '').replace(/^\s+|\s+$/g, '');
+      if (q.length < CFG.searchMin || MODEL.dictMode !== 'part') return;
+      var n = reqNow();
+      n.q = q.slice(0, 60);
+      emit(n, true);
     }
     // Трансформеры: ось грузится лениво — один раз на ось, когда вкладку открыли.
     function ensureAxis() {
@@ -2447,13 +2544,29 @@ function buildHTML() {
         state.openMetric = '';
         state.selTeam = '';
         state.openRows = {};
-        emit({ unit: [], cuts: {}, axis: MODEL.axis || '' });
+        emit({ unit: [], cuts: {}, axis: MODEL.axis || '', exp: [], q: '' });
         return;
       }
       if (act === 'openm') { state.openMetric = state.openMetric === key ? '' : key; render(); return; }
       if (act === 'block') { state.block = key; state.selTeam = ''; render(); return; }
       if (act === 'team') { state.selTeam = key; render(); return; }
-      if (act === 'exp') { state.openRows[key] = !state.openRows[key]; render(); return; }
+      if (act === 'exp') {
+        var opening = !state.openRows[key], isC = false;
+        state.openRows[key] = opening;
+        for (var cx = 0; cx < MODEL.c.length; cx++) if (MODEL.c[cx].id === key) isC = true;
+        // −1 раскрывается данными −2 из ответа; глубже — дети приходят запросом (exp_f).
+        if (opening && !isC && !MODEL.x[key]) {
+          var nx = reqNow(), list = nx.exp.slice();
+          if (list.indexOf(key) < 0) list.push(key);
+          while (list.length > CFG.maxExp) list.shift();
+          nx.exp = list;
+          emit(nx, true);
+          return;
+        }
+        render();
+        return;
+      }
+      if (act === 'qsearch') { searchZone(); return; }
       if (act === 'expall') {
         state.openRows = {};
         if (key === '1') for (var ci = 0; ci < MODEL.c.length; ci++) if (MODEL.c[ci].id !== '·') state.openRows[MODEL.c[ci].id] = true;
@@ -2518,9 +2631,14 @@ function buildHTML() {
       if (kd) { state.kd[kd] = t.value; updateKd(); }
     }
 
-    // Escape закрывает открытый поповер (smoke E24).
+    // Escape закрывает открытый поповер (smoke E24); Enter в поиске юнита — поиск по всей зоне.
     function onKeydown(e) {
       var k = e.keyCode || e.which;
+      if (k === 13 && e.target && e.target.getAttribute && e.target.getAttribute('data-psearch') === 'unit') {
+        e.preventDefault();
+        searchZone();
+        return;
+      }
       if (k === 27 && state.open) {
         state.open = '';
         state.q = '';

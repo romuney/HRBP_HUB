@@ -44,6 +44,7 @@ TABLES = {
     'hrbp_hub_kpi': ('(unit_id)', {}),
     'hrbp_hub_cube': ('(path_s)', {}),
     'hrbp_hub_attr': ('(attr_k, path_s)', {}),
+    'hrbp_hub_base': ('(paint, it, stream, spec, staff, hct)', {}),
 }
 PG2CH = {'text': 'String', 'integer': 'Int32', 'bigint': 'Int64', 'smallint': 'Int16', 'numeric': 'Float64',
          'double precision': 'Float64', 'date': 'Date', 'timestamp without time zone': 'DateTime'}
@@ -106,8 +107,11 @@ def where_in(values, mark="'"):
     return '(' + ', '.join(q(v) for v in values) + ')'
 
 
-def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET):
+def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET, dict_full_max=None):
+    """dict_full_max — подменить порог «справочник целиком» (стенд маленький: так
+    проверяется режим больших зон). По умолчанию — из окружения HH_DICT_FULL_MAX."""
     flt = flt or {}
+    dict_full_max = dict_full_max or os.environ.get('HH_DICT_FULL_MAX')
     env = jinja2.Environment(extensions=['jinja2.ext.do'])
     env.filters['where_in'] = where_in
 
@@ -121,8 +125,10 @@ def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET):
 
     def current_username(add_to_cache_keys=True):
         return user
-    return env.from_string(open(path, encoding='utf-8').read()).render(
-        filter_values=filter_values, current_username=current_username)
+    text = open(path, encoding='utf-8').read()
+    if dict_full_max:
+        text = text.replace('{% set DICT_FULL_MAX = 1500 %}', '{% set DICT_FULL_MAX = ' + str(int(dict_full_max)) + ' %}')
+    return env.from_string(text).render(filter_values=filter_values, current_username=current_username)
 
 
 def run(sql, settings=''):
@@ -131,8 +137,8 @@ def run(sql, settings=''):
     return d['data'], d.get('statistics', {})
 
 
-def dataset(flt=None, user='a.sergeeva', settings='', always_true=False):
-    return run(render(flt, user, always_true), settings)
+def dataset(flt=None, user='a.sergeeva', settings='', always_true=False, dict_full_max=None):
+    return run(render(flt, user, always_true, dict_full_max=dict_full_max), settings)
 
 
 if __name__ == '__main__':

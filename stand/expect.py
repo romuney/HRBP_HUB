@@ -61,19 +61,36 @@ def passes(a, flt):
 
 def under(*sets):
     """Предикат области: путь юнита на дату пересекается с КАЖДЫМ из множеств rk."""
-    return lambda unit, pth: all(pth & s for s in sets)
+    return lambda unit, pth, rp: all(pth & s for s in sets)
 
 
 def direct(rk):
-    """Сотрудник сидит прямо в юните rk (не в его потомках)."""
-    return lambda unit, pth: unit.rk == rk
+    """Сотрудник сидит прямо в юните rk отчёта: последний узел пути отчёта — rk
+    (люди lvl13 — прямо в своём юните lvl12, люди lvl2 — прямо в компании)."""
+    return lambda unit, pth, rp: bool(rp) and rp[-1] == rk
+
+
+def child_of(parent_rk, child_rk):
+    """В пути отчёта сразу за parent_rk идёт child_rk; child_rk = None — parent_rk
+    последний в пути (сотрудник прямо в нём). Строки «раскрытия» x датасета."""
+    def f(unit, pth, rp):
+        if parent_rk not in pth:
+            return False
+        i = rp.index(parent_rk)
+        return (rp[i + 1] if i + 1 < len(rp) else None) == child_rk
+    return f
 
 
 _STOCK = {}
 
 
+def rpath(unit, d):
+    """Путь юнита в отчёте на дату: кортеж rk от компании вниз (lvl1, lvl3…lvl12)."""
+    return tuple(W.path_rks(unit, d))
+
+
 def stock(grain, i):
-    """Кэш: работающие на конец слота (кроме «Декрет»): (атрибуты, юнит, множество rk пути)."""
+    """Кэш: работающие на конец слота (кроме «Декрет»): (атрибуты, юнит, множество rk пути, путь)."""
     key = (grain, i)
     if key not in _STOCK:
         e_ = slot(grain, i)[1]
@@ -84,7 +101,8 @@ def stock(grain, i):
                 if st is None or st[1]['hct'] == 'Декрет':
                     continue
                 a = st[1]
-                rows.append((a, a['unit'], frozenset(W.path_rks(a['unit'], e_))))
+                rp = rpath(a['unit'], e_)
+                rows.append((a, a['unit'], frozenset(rp), rp))
         _STOCK[key] = rows
     return _STOCK[key]
 
@@ -101,7 +119,8 @@ def events():
                 evs.append(('hire_a', p.active_hire))
             for kind, d in evs:
                 a = W.seg_at(p, d)
-                out.append((kind, d, e, p, a, frozenset(W.path_rks(a['unit'], d))))
+                rp = rpath(a['unit'], d)
+                out.append((kind, d, e, p, a, frozenset(rp), rp))
     return out
 
 
@@ -113,13 +132,13 @@ def component_series(grain, pred, flt, active_base=False):
     lo = -11 if grain == 'm' else -51
     raw = {k: {i: 0 for i in range(lo, 24)} for k in ('hc', 'jun', 'fire', 'rg', 'nrg', 'nr', 'hire', 'r3n', 'r3d', 'r6n', 'r6d')}
     for i in range(lo, 24):
-        for a, unit, pth in stock(grain, i):
-            if not passes(a, flt) or not pred(unit, pth):
+        for a, unit, pth, rp in stock(grain, i):
+            if not passes(a, flt) or not pred(unit, pth, rp):
                 continue
             raw['hc'][i] += 1
             raw['jun'][i] += int(W.is_junior(a['sen']))
-    for kind, d, emp, p, a, pth in EVENTS:
-        if not passes(a, flt) or not pred(a['unit'], pth):
+    for kind, d, emp, p, a, pth, rp in EVENTS:
+        if not passes(a, flt) or not pred(a['unit'], pth, rp):
             continue
         if kind == 'fire':
             i = slot_of(grain, d)

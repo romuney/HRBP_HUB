@@ -7,8 +7,12 @@
 --   is_hire_row  строка дня найма (business_dt = company_hire_dt);
 --   is_ahire_row строка дня перехода в активную численность (= active_hire_dt).
 -- Атрибуты строки — на ЕЁ дату: запасы берут разрезы на конец периода, события —
--- на дату события. Путь юнита — mapped-цепочка lvl1…lvl13 + сам mapped-лист;
--- id узла = первые 12 знаков md5(rk): короткий, стабильный между пересборками.
+-- на дату события. Путь юнита — mapped-цепочка, как в ультраширокой: lvl1
+-- (компания) и lvl3…lvl12. lvl2 (группировка юрлиц над блоками) пропускается —
+-- блоки встают прямо под компанию; глубже lvl12 отчёт не спускается: сотрудник
+-- lvl13 считается прямо в своём юните 12-го уровня, сотрудник lvl1/lvl2 — прямо
+-- в компании. id узла = первые 12 знаков md5(rk): короткий, стабильный между
+-- пересборками.
 -- Разрезы численности (как в filter-fields.md):
 --   paint  = emp_specialization_oper_code      it    = emp_specialization_it_code
 --   stream = emp_stream_desc                   spec  = emp_specialization_desc
@@ -31,21 +35,18 @@ select
     e.legal_fire_dt::date                                                      as legal_fire_dt,
     e.legal_position_rk::text                                                  as legal_position_rk,
     concat_ws('/',
-        substr(md5(nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-        substr(md5(nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-        substr(md5(nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-        substr(md5(nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-        substr(md5(nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-        substr(md5(nullif(nullif(trim(e.lvl6_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-        substr(md5(nullif(nullif(trim(e.lvl7_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-        substr(md5(nullif(nullif(trim(e.lvl8_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
-        substr(md5(nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+        substr(md5(nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+        substr(md5(nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+        substr(md5(nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+        substr(md5(nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+        substr(md5(nullif(nullif(trim(e.lvl6_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+        substr(md5(nullif(nullif(trim(e.lvl7_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+        substr(md5(nullif(nullif(trim(e.lvl8_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+        substr(md5(nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text), ''), '-')), 1, 12),
         substr(md5(nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-')), 1, 12),
         substr(md5(nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-')), 1, 12),
-        substr(md5(nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-')), 1, 12),
-        substr(md5(nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-')), 1, 12)
-    )                                                                          as chain_ids,
-    substr(md5(nullif(nullif(trim(e.mapped_management_unit_rk::text), ''), '-')), 1, 12) as leaf_id,
+        substr(md5(nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-')), 1, 12)
+    )                                                                          as path_s,
     coalesce(nullif(trim(e.emp_specialization_oper_code::text), ''), '-')      as paint,
     coalesce(nullif(trim(e.emp_specialization_it_code::text), ''), '-')        as it,
     coalesce(nullif(trim(e.emp_stream_desc::text), ''), '-')                   as stream,
@@ -94,17 +95,9 @@ distributed by (mdm_employee_rk);
 -- берём самый свежий. Дубли самого источника проверяет параграф «HH · проверки».
 drop table if exists hh_src;
 create table hh_src as
-select x.*,
-       case when x.leaf_id is null      then x.chain_ids
-            when x.chain_ids = ''       then x.leaf_id
-            when x.chain_ids = x.leaf_id
-              or x.chain_ids like '%/' || x.leaf_id then x.chain_ids
-            else x.chain_ids || '/' || x.leaf_id end                           as path_s
-from (
-    select distinct on (mdm_employee_rk, business_dt) *
-    from hh_src_raw
-    order by mdm_employee_rk, business_dt, res_from desc
-) x
+select distinct on (mdm_employee_rk, business_dt) *
+from hh_src_raw
+order by mdm_employee_rk, business_dt, res_from desc
 distributed by (mdm_employee_rk);
 
 -- Джун — по seniority и шаблонам из hh_param_junior (сопоставление по ILIKE, не точное).

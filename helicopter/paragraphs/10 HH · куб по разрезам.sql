@@ -169,3 +169,115 @@ join (select kid,
     on w.kid = k.kid
 where m.tot + w.tot > 0
 distributed by (path_s);
+
+
+-- ============================================================================
+-- База сравнения → hrbp_hub_base: вся компания по 6 разрезам, БЕЗ пути юнита.
+-- Датасет берёт базу отсюда, а не суммой куба: запрос юнита читает только его
+-- поддерево (при 100 тыс. сотрудников это разница между «весь куб на каждый
+-- клик» и «ветка юнита»). Окна аддитивны — Σ окон по юнитам = окно суммы, —
+-- поэтому база собирается из того же hh_cube_win.
+-- ============================================================================
+drop table if exists hh_base_win;
+create table hh_base_win as
+select k.paint, k.it, k.stream, k.spec, k.staff, k.hct, w.grain, w.idx,
+       sum(w.hc) as hc,
+       sum(w.jun) as jun,
+       sum(w.rg) as rg,
+       sum(w.nrg) as nrg,
+       sum(w.hcw) as hcw,
+       sum(w.nr) as nr,
+       sum(w.r3n) as r3n,
+       sum(w.r3d) as r3d,
+       sum(w.r6n) as r6n,
+       sum(w.r6d) as r6d,
+       sum(w.r3an) as r3an,
+       sum(w.r3ad) as r3ad,
+       sum(w.r6an) as r6an,
+       sum(w.r6ad) as r6ad,
+       sum(w.hire) as hire,
+       sum(w.fire) as fire
+from hh_cube_win w
+join (select distinct kid, paint, it, stream, spec, staff, hct from hh_cube_long) k
+    on k.kid = w.kid
+where w.idx >= 0
+group by 1, 2, 3, 4, 5, 6, 7, 8
+distributed randomly;
+
+drop table if exists hrbp_hub_base;
+create table hrbp_hub_base as
+select m.paint, m.it, m.stream, m.spec, m.staff, m.hct,
+       m.hc as m_hc,
+       m.jun as m_jun,
+       m.rg as m_rg,
+       m.nrg as m_nrg,
+       m.hcw as m_hcw,
+       m.nr as m_nr,
+       m.r3n as m_r3n,
+       m.r3d as m_r3d,
+       m.r6n as m_r6n,
+       m.r6d as m_r6d,
+       m.r3an as m_r3an,
+       m.r3ad as m_r3ad,
+       m.r6an as m_r6an,
+       m.r6ad as m_r6ad,
+       m.hire as m_hire,
+       m.fire as m_fire,
+       w.hc as w_hc,
+       w.jun as w_jun,
+       w.rg as w_rg,
+       w.nrg as w_nrg,
+       w.hcw as w_hcw,
+       w.nr as w_nr,
+       w.r3n as w_r3n,
+       w.r3d as w_r3d,
+       w.r6n as w_r6n,
+       w.r6d as w_r6d,
+       w.r3an as w_r3an,
+       w.r3ad as w_r3ad,
+       w.r6an as w_r6an,
+       w.r6ad as w_r6ad,
+       w.hire as w_hire,
+       w.fire as w_fire
+from (select paint, it, stream, spec, staff, hct,
+             array_agg(hc::int order by idx) as hc,
+             array_agg(jun::int order by idx) as jun,
+             array_agg(rg::int order by idx) as rg,
+             array_agg(nrg::int order by idx) as nrg,
+             array_agg(hcw::int order by idx) as hcw,
+             array_agg(nr::int order by idx) as nr,
+             array_agg(r3n::int order by idx) as r3n,
+             array_agg(r3d::int order by idx) as r3d,
+             array_agg(r6n::int order by idx) as r6n,
+             array_agg(r6d::int order by idx) as r6d,
+             array_agg(r3an::int order by idx) as r3an,
+             array_agg(r3ad::int order by idx) as r3ad,
+             array_agg(r6an::int order by idx) as r6an,
+             array_agg(r6ad::int order by idx) as r6ad,
+             array_agg(hire::int order by idx) as hire,
+             array_agg(fire::int order by idx) as fire
+      from hh_base_win
+      where grain = 'm'
+      group by 1, 2, 3, 4, 5, 6) m
+join (select paint, it, stream, spec, staff, hct,
+             array_agg(hc::int order by idx) as hc,
+             array_agg(jun::int order by idx) as jun,
+             array_agg(rg::int order by idx) as rg,
+             array_agg(nrg::int order by idx) as nrg,
+             array_agg(hcw::int order by idx) as hcw,
+             array_agg(nr::int order by idx) as nr,
+             array_agg(r3n::int order by idx) as r3n,
+             array_agg(r3d::int order by idx) as r3d,
+             array_agg(r6n::int order by idx) as r6n,
+             array_agg(r6d::int order by idx) as r6d,
+             array_agg(r3an::int order by idx) as r3an,
+             array_agg(r3ad::int order by idx) as r3ad,
+             array_agg(r6an::int order by idx) as r6an,
+             array_agg(r6ad::int order by idx) as r6ad,
+             array_agg(hire::int order by idx) as hire,
+             array_agg(fire::int order by idx) as fire
+      from hh_base_win
+      where grain = 'w'
+      group by 1, 2, 3, 4, 5, 6) w
+    using (paint, it, stream, spec, staff, hct)
+distributed randomly;

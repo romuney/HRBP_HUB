@@ -5,5 +5,6 @@ drop table if exists hh_unit_long;
 drop table if exists hh_evt;
 drop table if exists hh_cube_long;
 drop table if exists hh_cube_win;
+drop table if exists hh_base_win;
 drop table if exists hh_attr_long;
 drop table if exists hh_attr_win;
