@@ -1,0 +1,98 @@
+title: Накопленные дни отпуска
+paragraphs:
+  - sid: 019ddd53-51f6-7580-92ba-9b490ce44f1e
+    title: Актуальность
+    shebang: python_condition
+    code: |-
+      import tinkoff as tf
+      tf.actuality.tables_wait([
+          'prod_v_hrmart.legal_position_accum_vacation'
+          , 'prod_v_chrono_peoplehub_employee_status.vacations_employee_status'
+          , 'prod_v_dds.employee_main'
+          , 'prod_v_emart.mdm_employee_structure_d'
+          , 'usr_cross_data.unused_vacation'
+          , 'prod_v_hrmart.mdm_employee_structure_list_d'
+      ], gp_service='cross')
+    isEnabled: true
+  - sid: 019be531-52b7-7bb0-8864-0eff964724db
+    title: Запланированные отпуска в этом году
+    shebang: gp
+    code: |-
+      drop table if exists plan_vacation;
+      create table plan_vacation as
+
+      select mdm_employee_rk
+      , sum(vacation_day_cnt) as plan_vacation
+      from prod_v_hrmart.statement_vacation
+      where 1=1
+          and start_vacation_dt > current_date
+          and start_vacation_dt <= (date_trunc('year',current_date) + interval '1 year' - interval '1 day')
+          --and end_vacation_dt >= date_trunc('year',current_date)
+      group by 1
+    isEnabled: true
+  - sid: 019be502-7186-793f-b39c-3c4268b5e36f
+    title: Untitled 1
+    shebang: gp
+    code: |
+      select *
+      from prod_v_hrmart.statement_vacation
+      where 1=1
+          and start_vacation_dt > current_date
+          and start_vacation_dt <= (date_trunc('year',current_date) + interval '1 year' - interval '1 day')
+          --and mdm_employee_rk=1036699
+          ;
+
+      -- select *
+      -- from prod_v_dds.legal_position_accum_vacation
+      -- where legal_position_rk = 'ORGebb1fe9f094fda578c36427a16f820e0'
+      -- and vacation_type_dk = 1
+      --mdm_employee_rk=1036699
+    isEnabled: false
+  - sid: 019be502-7189-77f2-a3b8-ac5d0338638b
+    title: Использованные и прогноз на конец года
+    shebang: gp
+    code: "drop table if exists last_vacation;\ncreate table last_vacation as\n\nselect uv.mdm_employee_rk\n, legal_position_rk\n, (cnt_holiday_forecast + cnt_dop_holiday_forecast - coalesce(pv.plan_vacation,0)) as forecast_end_year\n, cnt_holiday_forecast\n, cnt_dop_holiday_forecast\n, vacations_this_year_cnt\n, days_from_last_vacation\n, last_vacation_days_count\n, coalesce(pv.plan_vacation,0) as plan_vacation\n, case \n    when uv.days_14_flg = 1 then 'был отпуск 14+ дней'\n    when uv.vacations_this_year_cnt>0 then 'не было отпуска 14+ дней'\n    else 'без отпуска с начала года' end as employee_category_14_days_flg\nfrom usr_cross_data.unused_vacation uv\n\nleft join plan_vacation pv\n    on uv.mdm_employee_rk = pv.mdm_employee_rk\n\nwhere 1=1\n    and (uv.legal_fire_dt is null or uv.legal_fire_dt >= current_date);\n"
+    isEnabled: true
+  - sid: 019be502-7189-7843-b44f-6fd1f2239e6d
+    title: Фактические отпуска из 1С
+    shebang: gp
+    code: "drop table if exists vacation_exact;\ncreate table vacation_exact as\n\nselect v.position_id\n, sum(case when vacation_type_id = 1 then v.days_available_exact end) as main_vacation_day_cnt_exact --Основной\n, sum(case when vacation_type_id = 2 then v.days_available_exact end) as additional_vacation_day_cnt_exact --Дополнительный\n, sum(case when vacation_type_id = 3 then v.days_available_exact end) as northern_vacation_day_cnt_exact --Северный\n, sum(case when vacation_type_id = 4 then v.days_available_exact end) as disability_vacation_day_cnt_exact --Дополнительный отпуск инвалидам\n, sum(case when vacation_type_id = 5 then v.days_available_exact end) as hazard_vacation_day_cnt_exact --Отпуск за вредность\n, sum(case when vacation_type_id = 6 then v.days_available_exact end) as chernobyl_vacation_day_cnt_exact --Чернобыльский отпуск\n, sum(case when vacation_type_id = 7 then v.days_available_exact end) as extended_vacation_day_cnt_exact --Удлиненный отпуск\nfrom prod_v_chrono_peoplehub_employee_status.vacations_employee_status v\nwhere 1=1\n    and days_available_exact is not null \ngroup by 1"
+    isEnabled: true
+  - sid: 01a0b4fb-2898-7302-ab79-dfd2158558e1
+    title: Собираем варден
+    shebang: gp
+    code: |-
+      drop table if exists mdm_employee_structure_list_d;
+      create table mdm_employee_structure_list_d as
+
+      select mdm_employee_rk
+      , mdm_employee_rk_list
+      , legal_unit_rk_list
+      , mapped_management_unit_rk_list
+      from prod_v_hrmart.mdm_employee_structure_list_d
+      where business_dt = current_date - 1
+    isEnabled: true
+  - sid: 019b4f8e-2ea1-718e-97e6-04644ce96a3f
+    title: Собираем итоговую таблицу
+    shebang: gp
+    code: "drop table if exists legal_position_accum_vacation;\ncreate table legal_position_accum_vacation as\n\nselect v.*\n    , coalesce(main_vacation_day_cnt,0) + coalesce(additional_vacation_day_cnt,0) + coalesce(northern_vacation_day_cnt,0) + coalesce(disability_vacation_day_cnt,0) + coalesce(hazard_vacation_day_cnt,0) + coalesce(chernobyl_vacation_day_cnt,0) + coalesce(extended_vacation_day_cnt,0)\n    as total_vacation_day_cnt\n    , count(v.legal_position_rk) over (partition by v.mdm_employee_rk) as legal_position_cnt\n    , ve.main_vacation_day_cnt_exact\n    , ve.additional_vacation_day_cnt_exact\n    , ve.northern_vacation_day_cnt_exact\n    , ve.disability_vacation_day_cnt_exact\n    , ve.hazard_vacation_day_cnt_exact\n    , ve.chernobyl_vacation_day_cnt_exact\n    , ve.extended_vacation_day_cnt_exact\n    , case when main_vacation_day_cnt_exact is null and additional_vacation_day_cnt_exact is null and northern_vacation_day_cnt_exact is null and disability_vacation_day_cnt_exact is null \n        and hazard_vacation_day_cnt_exact is null and chernobyl_vacation_day_cnt_exact is null and extended_vacation_day_cnt_exact is null then null \n        else coalesce(main_vacation_day_cnt_exact,0) + coalesce(additional_vacation_day_cnt_exact,0) + coalesce(northern_vacation_day_cnt_exact,0) + coalesce(disability_vacation_day_cnt_exact,0) + coalesce(hazard_vacation_day_cnt_exact,0) + coalesce(chernobyl_vacation_day_cnt_exact,0) + coalesce(extended_vacation_day_cnt_exact,0)\n    end as total_vacation_day_cnt_exact\n    , lp.last_nm\n    , lp.first_nm\n    , lp.last_nm || ' ' || lp.first_nm as employee_nm\n    , m.ad_login\n    , m.company_hire_dt\n    , lp.hire_dt as legal_hire_dt\n    , lp.fire_dt as legal_fire_dt\n    , lp.employment_type_desc -- occupation_type_nm /*тип занятости: Основное место работы, Внутреннее совместительство, Внешнее совместительство, не определен, null*/\n    , m.wrk_email_address_txt\n    -- , lp.legal_position_rk\n    , lp.legal_position_id\n    , lp.legal_position_nm\n    , lp.employment_relation_type_desc\n    , m.active_type_nm\n    , lp.lvl1_legal_unit_nm\n    , lp.lvl2_legal_unit_nm\n    , lp.lvl3_legal_unit_nm\n    , lp.lvl4_legal_unit_nm\n    , lp.lvl5_legal_unit_nm\n    , lp.lvl6_legal_unit_nm\n    , lp.lvl7_legal_unit_nm\n    , lp.lvl1_legal_unit_rk\n    , lp.lvl2_legal_unit_rk\n    , lp.lvl3_legal_unit_rk\n    , lp.lvl4_legal_unit_rk\n    , lp.lvl5_legal_unit_rk\n    , lp.lvl6_legal_unit_rk\n    , lp.lvl7_legal_unit_rk\n    , lp.hr_head_mdm_employee_rk\n    , lp.hr_head_last_nm || ' ' || lp.hr_head_first_nm as hr_head_full_nm\n    , lp.tsdc_head_mdm_employee_rk\n    , lp.tsdc_head_last_nm || ' ' || lp.tsdc_head_first_nm as tsdc_head_full_nm\n    , lp.main_legal_position_flg\n\n    , m.lvl1_management_unit_rk\n    , coalesce(m.lvl1_management_unit_nm,'-') as lvl1_management_unit_nm\n    , m.lvl2_management_unit_rk\n    , coalesce(m.lvl2_management_unit_nm,'-') as lvl2_management_unit_nm\n    , m.lvl3_management_unit_rk\n    , coalesce(m.lvl3_management_unit_nm,'-') as lvl3_management_unit_nm\n    , m.lvl4_management_unit_rk\n    , coalesce(m.lvl4_management_unit_nm,'-') as lvl4_management_unit_nm\n    , m.lvl5_management_unit_rk\n    , coalesce(m.lvl5_management_unit_nm,'-') as lvl5_management_unit_nm\n    , m.lvl6_management_unit_rk\n    , coalesce(m.lvl6_management_unit_nm,'-') as lvl6_management_unit_nm\n    , m.lvl7_management_unit_rk\n    , coalesce(m.lvl7_management_unit_nm,'-') as lvl7_management_unit_nm\n    , m.lvl8_management_unit_rk\n    , coalesce(m.lvl8_management_unit_nm,'-') as lvl8_management_unit_nm\n    , m.lvl9_management_unit_rk\n    , coalesce(m.lvl9_management_unit_nm,'-') as lvl9_management_unit_nm\n    , m.lvl10_management_unit_rk\n    , coalesce(m.lvl10_management_unit_nm,'-') as lvl10_management_unit_nm\n    , m.lvl11_management_unit_rk\n    , coalesce(m.lvl11_management_unit_nm,'-') as lvl11_management_unit_nm\n    , m.lvl12_management_unit_rk\n    , coalesce(m.lvl12_management_unit_nm,'-') as lvl12_management_unit_nm\n    , m.lvl13_management_unit_rk\n    , coalesce(m.lvl13_management_unit_nm,'-') as lvl13_management_unit_nm\n    --Структура с маппингом\n\n    , m.lvl1_mapped_management_unit_rk\n    , coalesce(m.lvl1_mapped_management_unit_nm,'-') as lvl1_mapped_management_unit_nm\n    , m.lvl2_mapped_management_unit_rk\n    , coalesce(m.lvl2_mapped_management_unit_nm,'-') as lvl_mapped_management_unit_nm\n    , m.lvl3_mapped_management_unit_rk\n    , coalesce(m.lvl3_mapped_management_unit_nm,'-') as lvl3_mapped_management_unit_nm\n    , m.lvl4_mapped_management_unit_rk\n    , coalesce(m.lvl4_mapped_management_unit_nm,'-') as lvl4_mapped_management_unit_nm\n    , m.lvl5_mapped_management_unit_rk\n    , coalesce(m.lvl5_mapped_management_unit_nm,'-') as lvl5_mapped_management_unit_nm\n    , m.lvl6_mapped_management_unit_rk\n    , coalesce(m.lvl6_mapped_management_unit_nm,'-') as lvl6_mapped_management_unit_nm\n    , m.lvl7_mapped_management_unit_rk\n    , coalesce(m.lvl7_mapped_management_unit_nm,'-') as lvl7_mapped_management_unit_nm\n    , m.lvl8_mapped_management_unit_rk\n    , coalesce(m.lvl8_mapped_management_unit_nm,'-') as lvl8_mapped_management_unit_nm\n    , m.lvl9_mapped_management_unit_rk\n    , coalesce(m.lvl9_mapped_management_unit_nm,'-') as lvl9_mapped_management_unit_nm\n    , m.lvl10_mapped_management_unit_rk\n    , coalesce(m.lvl10_mapped_management_unit_nm,'-') as lvl10_mapped_management_unit_nm\n    , m.lvl11_mapped_management_unit_rk\n    , coalesce(m.lvl11_mapped_management_unit_nm,'-') as lvl11_mapped_management_unit_nm\n    , m.lvl12_mapped_management_unit_rk\n    , coalesce(m.lvl12_mapped_management_unit_nm,'-') as lvl12_mapped_management_unit_nm\n    , m.lvl13_mapped_management_unit_rk\n    , coalesce(m.lvl13_mapped_management_unit_nm,'-') as lvl13_mapped_management_unit_nm\n\n\n    , m.hrbp_mdm_employee_rk\n    , m.hrbp_last_nm\n    , m.hrbp_first_nm\n    , m.management_head_flg\n    , m.emp_stream_desc\n    , m.emp_specialization_desc\n    , m.emp_specialization_oper_code\n    , m.emp_specialization_it_code\n    , m.grade\n    , m.management_head_last_nm || ' ' || m.management_head_first_nm as management_head_full_nm\n    , m.management_head_mdm_employee_rk\n    , em.employee_main_work_no\n\n    , lv.forecast_end_year\n    , lv.vacations_this_year_cnt\n    , lv.days_from_last_vacation\n    , lv.last_vacation_days_count\n    , lv.plan_vacation\n    , lv.employee_category_14_days_flg\n    \n    , w.mdm_employee_rk_list\n    , w.legal_unit_rk_list\n    , w.mapped_management_unit_rk_list\n\nfrom prod_v_hrmart.legal_position_accum_vacation v\n\ninner join prod_v_emart.legal_position lp\n    on v.legal_position_rk = lp.legal_position_rk\n\ninner join last_vacation lv\n    on v.legal_position_rk = lv.legal_position_rk\n\nleft join vacation_exact ve\n    on ve.position_id = lp.legal_position_id::uuid\n\nleft join prod_v_dds.employee_main em\n    on lp.employee_main_rk = em.employee_main_rk\n    and em.valid_to_dttm = '5999-01-01 00:00:00'\n    and em.deleted_flg = 0\n\nleft join prod_v_emart.mdm_employee_structure_d m\n    on v.mdm_employee_rk = m.mdm_employee_rk\n    and m.last_day_flg = 1\n\nleft join mdm_employee_structure_list_d w\n    on v.mdm_employee_rk = w.mdm_employee_rk"
+    isEnabled: true
+  - sid: 019ddd53-51fd-7a31-83bf-22b9c26e7aaf
+    title: В клик
+    shebang: python
+    code: |-
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click( 'legal_position_accum_vacation', 'prod_proteus.legal_position_accum_vacation',
+      gp_service = 'gp',
+      upload_mode = 'replace',
+      array_type_cast=True);
+    isEnabled: true
+  - sid: 019ddd53-51fe-7f20-aba5-00aa26205a9b
+    title: Доступ к таблице в протеусе
+    shebang: python
+    code: |-
+      from proteus_py.database.clickhouse import get_table_owners, set_table_owners, delete_table_owners
+
+      set_table_owners(database='prod_proteus',  table='legal_position_accum_vacation', usernames=['v.slutskiy'])
+    isEnabled: true

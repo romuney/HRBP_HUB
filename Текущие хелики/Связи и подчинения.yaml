@@ -1,0 +1,338 @@
+title: Связи и подчинения
+paragraphs:
+  - sid: 019f8a78-0e0c-7822-a332-0db9bf6fada3
+    title: Параграф 1. Справочник уровней юнитов
+    shebang: gp
+    code: |-
+      DROP TABLE IF EXISTS tmp_unit_dict;
+      CREATE TABLE tmp_unit_dict AS
+      SELECT DISTINCT
+          management_unit_rk           AS unit_rk,
+          mapped_management_unit_nm    AS unit_nm,
+          management_unit_lvl_num::int AS unit_lvl_num    -- приведение к int
+      FROM prod_v_emart.mdm_employee_structure_d
+      WHERE 1=1
+          AND last_day_flg = 1
+      DISTRIBUTED BY (unit_rk);
+      ANALYZE tmp_unit_dict;
+    isEnabled: true
+  - sid: 019f8a7f-49b1-7096-8246-059d1f4f98f1
+    title: Параграф 2. Плоская иерархия юнитов (юнит → предок/сам + уровень)
+    shebang: gp
+    code: |-
+      DROP TABLE IF EXISTS tmp_hierarchy;
+      CREATE TABLE tmp_hierarchy AS
+      SELECT management_unit_rk AS base_unit_rk, lvl1_mapped_management_unit_rk  AS node_unit_rk, 1  AS node_lvl FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl1_mapped_management_unit_rk  IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl2_mapped_management_unit_rk,  2  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl2_mapped_management_unit_rk  IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl3_mapped_management_unit_rk,  3  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl3_mapped_management_unit_rk  IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl4_mapped_management_unit_rk,  4  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl4_mapped_management_unit_rk  IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl5_mapped_management_unit_rk,  5  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl5_mapped_management_unit_rk  IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl6_mapped_management_unit_rk,  6  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl6_mapped_management_unit_rk  IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl7_mapped_management_unit_rk,  7  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl7_mapped_management_unit_rk  IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl8_mapped_management_unit_rk,  8  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl8_mapped_management_unit_rk  IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl9_mapped_management_unit_rk,  9  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl9_mapped_management_unit_rk  IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl10_mapped_management_unit_rk, 10 FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl10_mapped_management_unit_rk IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl11_mapped_management_unit_rk, 11 FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl11_mapped_management_unit_rk IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl12_mapped_management_unit_rk, 12 FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl12_mapped_management_unit_rk IS NOT NULL
+      UNION ALL
+      SELECT management_unit_rk, lvl13_mapped_management_unit_rk, 13 FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl13_mapped_management_unit_rk IS NOT NULL
+      DISTRIBUTED BY (base_unit_rk);
+      ANALYZE tmp_hierarchy;
+    isEnabled: true
+  - sid: 019f8ab2-7861-7096-8b11-2e11d5663f0b
+    title: Параграф 2.1. Плоская цепочка руководителей сотрудника (все 13 уровней)
+    shebang: gp
+    code: |-
+      DROP TABLE IF EXISTS tmp_head_chain;
+      CREATE TABLE tmp_head_chain AS
+      SELECT mdm_employee_rk AS emp_rk, lvl1_management_head_mdm_employee_rk  AS head_rk, 1  AS head_lvl FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl1_management_head_mdm_employee_rk  IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl2_management_head_mdm_employee_rk,  2  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl2_management_head_mdm_employee_rk  IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl3_management_head_mdm_employee_rk,  3  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl3_management_head_mdm_employee_rk  IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl4_management_head_mdm_employee_rk,  4  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl4_management_head_mdm_employee_rk  IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl5_management_head_mdm_employee_rk,  5  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl5_management_head_mdm_employee_rk  IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl6_management_head_mdm_employee_rk,  6  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl6_management_head_mdm_employee_rk  IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl7_management_head_mdm_employee_rk,  7  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl7_management_head_mdm_employee_rk  IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl8_management_head_mdm_employee_rk,  8  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl8_management_head_mdm_employee_rk  IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl9_management_head_mdm_employee_rk,  9  FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl9_management_head_mdm_employee_rk  IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl10_management_head_mdm_employee_rk, 10 FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl10_management_head_mdm_employee_rk IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl11_management_head_mdm_employee_rk, 11 FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl11_management_head_mdm_employee_rk IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl12_management_head_mdm_employee_rk, 12 FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl12_management_head_mdm_employee_rk IS NOT NULL
+      UNION ALL
+      SELECT mdm_employee_rk, lvl13_management_head_mdm_employee_rk, 13 FROM prod_v_emart.mdm_employee_structure_d WHERE 1=1 AND last_day_flg = 1 AND lvl13_management_head_mdm_employee_rk IS NOT NULL
+      DISTRIBUTED BY (emp_rk);
+      ANALYZE tmp_head_chain;
+    isEnabled: true
+  - sid: 019f9427-7f0e-7685-b638-2461e4e6d76e
+    title: Параграф 2.2 (новый). Корень уровня 2 для каждого юнита
+    shebang: gp
+    code: |-
+      DROP TABLE IF EXISTS tmp_unit_lvl2_root;
+      CREATE TABLE tmp_unit_lvl2_root AS
+      SELECT
+          h.base_unit_rk   AS unit_rk,
+          h.node_unit_rk   AS lvl2_unit_rk,
+          ud.unit_nm       AS lvl2_unit_nm,
+          h.node_lvl       AS lvl2_lvl          -- всегда 2
+      FROM tmp_hierarchy h
+      JOIN tmp_unit_dict ud
+          ON ud.unit_rk = h.node_unit_rk
+      WHERE h.node_lvl = 2
+      DISTRIBUTED BY (unit_rk);
+      ANALYZE tmp_unit_lvl2_root;
+    isEnabled: true
+  - sid: 019f8a81-ab54-7454-a91a-a729e3ae19df
+    title: Параграф 3. Корни HRBP (юнит назначения + уровень + логин)
+    shebang: gp
+    code: |-
+      DROP TABLE IF EXISTS tmp_hrbp_roots;
+      CREATE TABLE tmp_hrbp_roots AS
+      SELECT DISTINCT
+          hrbp_mdm_employee_rk,
+          hrbp_ad_login,
+          mapped_management_unit_rk    AS root_unit_rk,
+          mapped_management_unit_nm    AS root_unit_nm,
+          management_unit_lvl_num::int AS root_lvl        -- приведение к int
+      FROM prod_v_emart.mdm_employee_structure_d
+      WHERE 1=1
+          AND last_day_flg = 1
+      DISTRIBUTED BY (root_unit_rk);
+      ANALYZE tmp_hrbp_roots;
+    isEnabled: true
+  - sid: 019f8efc-442c-78e7-8840-f60efe01ec1c
+    title: Определяем супер HRBP
+    shebang: gp
+    code: |-
+      DROP TABLE IF EXISTS tmp_super_hrbp;
+      CREATE TABLE tmp_super_hrbp AS
+      SELECT DISTINCT
+          r.hrbp_mdm_employee_rk,
+          r.hrbp_ad_login
+      FROM tmp_hrbp_roots r                                    -- условие 1: является HRBP
+      WHERE NOT EXISTS (                                        -- условие 2: выше него нет HRBP
+          SELECT 1
+          FROM tmp_head_chain hc
+          JOIN (SELECT DISTINCT hrbp_mdm_employee_rk
+                FROM tmp_hrbp_roots) h
+              ON h.hrbp_mdm_employee_rk = hc.head_rk
+          WHERE hc.emp_rk  = r.hrbp_mdm_employee_rk
+            AND hc.head_rk <> r.hrbp_mdm_employee_rk
+      )
+      AND EXISTS (                                             -- условие 3: сидит в целевом юните
+          SELECT 1
+          FROM prod_v_emart.mdm_employee_structure_d s
+          WHERE 1=1
+            AND s.last_day_flg = 1
+            AND s.mdm_employee_rk   = r.hrbp_mdm_employee_rk
+            AND s.management_unit_rk = '50eb70d6df69372ceb7f354df8e8aa53'
+      )
+      DISTRIBUTED BY (hrbp_mdm_employee_rk);
+
+      select *  from tmp_super_hrbp;
+    isEnabled: true
+  - sid: 019f8a81-f4e9-71ec-8c9d-dea204146fe7
+    title: Параграф 4. ИСТОЧНИК 1 — HRBP → доступные юниты + вложенность
+    shebang: gp
+    code: |-
+      DROP TABLE IF EXISTS tmp_hrbp_visible_units;
+      CREATE TABLE tmp_hrbp_visible_units AS
+      WITH unioned AS (
+          -- 1) Обычная видимость по зоне HRBP
+          SELECT
+              hr.hrbp_mdm_employee_rk,
+              hr.hrbp_ad_login,
+              hr.root_unit_rk,
+              hr.root_unit_nm,
+              hr.root_lvl,
+              h.base_unit_rk                    AS visible_unit_rk,
+              ud.unit_nm                        AS visible_unit_nm,
+              ud.unit_lvl_num                   AS visible_unit_lvl,
+              1 AS is_regular_flg
+          FROM tmp_hrbp_roots hr
+          JOIN tmp_hierarchy h
+              ON h.node_unit_rk = hr.root_unit_rk
+             AND h.node_lvl     = hr.root_lvl
+          JOIN tmp_unit_dict ud
+              ON ud.unit_rk = h.base_unit_rk
+          WHERE ud.unit_lvl_num >= hr.root_lvl
+
+          UNION ALL
+
+          -- 2) Супер-HRBP: корень = уровень 2 ветки, либо сам юнит если он lvl1
+          SELECT
+              s.hrbp_mdm_employee_rk,
+              s.hrbp_ad_login,
+              COALESCE(l2.lvl2_unit_rk, ud.unit_rk)      AS root_unit_rk,
+              COALESCE(l2.lvl2_unit_nm, ud.unit_nm)      AS root_unit_nm,
+              COALESCE(l2.lvl2_lvl,     ud.unit_lvl_num) AS root_lvl,
+              ud.unit_rk      AS visible_unit_rk,
+              ud.unit_nm      AS visible_unit_nm,
+              ud.unit_lvl_num AS visible_unit_lvl,
+              0 AS is_regular_flg
+          FROM tmp_super_hrbp s
+          CROSS JOIN tmp_unit_dict ud
+          LEFT JOIN tmp_unit_lvl2_root l2
+              ON l2.unit_rk = ud.unit_rk
+      ),
+      ranked AS (
+          SELECT
+              u.*,
+              ROW_NUMBER() OVER (
+                  PARTITION BY u.hrbp_mdm_employee_rk, u.visible_unit_rk, u.is_regular_flg
+                  ORDER BY u.root_lvl ASC
+              ) AS rn
+          FROM unioned u
+      )
+      SELECT
+          hrbp_mdm_employee_rk,
+          hrbp_ad_login,
+          root_unit_rk,
+          root_unit_nm,
+          root_lvl,
+          visible_unit_rk,
+          visible_unit_nm,
+          visible_unit_lvl,
+          visible_unit_lvl - root_lvl + 1 AS unit_level,
+          CASE
+              WHEN MAX(is_regular_flg) = 1 THEN 'спец роль'
+              ELSE 'лид эйчар'
+          END AS access_role
+      FROM ranked
+      WHERE rn = 1
+      GROUP BY
+          hrbp_mdm_employee_rk,
+          hrbp_ad_login,
+          root_unit_rk,
+          root_unit_nm,
+          root_lvl,
+          visible_unit_rk,
+          visible_unit_nm,
+          visible_unit_lvl
+      DISTRIBUTED BY (hrbp_mdm_employee_rk);
+      ANALYZE tmp_hrbp_visible_units;
+    isEnabled: true
+  - sid: 019f8a8e-8285-7acc-93ec-72957b963c55
+    title: Параграф 5. ИСТОЧНИК 2 — HRBP → кто его видит (вышестоящие) + флаг подчинения
+    shebang: gp
+    code: |-
+      DROP TABLE IF EXISTS tmp_hrbp_viewers;
+      CREATE TABLE tmp_hrbp_viewers AS
+      WITH unioned AS (
+          -- 1) Обычная видимость по структуре юнитов
+          SELECT
+              a.hrbp_mdm_employee_rk  AS hrbp_mdm_employee_rk,
+              a.hrbp_ad_login         AS hrbp_ad_login,
+              b.hrbp_mdm_employee_rk  AS viewer_hrbp_mdm_employee_rk,
+              b.hrbp_ad_login         AS viewer_hrbp_ad_login,
+              CASE WHEN hc.head_rk IS NOT NULL THEN 1 ELSE 0 END AS is_subordinate_flg,
+              0 AS is_super_flg,
+              1 AS is_regular_flg
+          FROM tmp_hrbp_roots a
+          JOIN tmp_hierarchy h
+              ON h.base_unit_rk = a.root_unit_rk
+          JOIN tmp_hrbp_roots b
+              ON b.root_unit_rk = h.node_unit_rk
+             AND b.root_lvl     = h.node_lvl
+          LEFT JOIN tmp_head_chain hc
+              ON  hc.emp_rk  = a.hrbp_mdm_employee_rk
+              AND hc.head_rk = b.hrbp_mdm_employee_rk
+          WHERE b.root_lvl <= a.root_lvl
+            AND a.hrbp_mdm_employee_rk <> b.hrbp_mdm_employee_rk
+
+          UNION ALL
+
+          -- 2) Супер-HRBP видит ВСЕХ HRBP
+          SELECT
+              a.hrbp_mdm_employee_rk  AS hrbp_mdm_employee_rk,
+              a.hrbp_ad_login         AS hrbp_ad_login,
+              s.hrbp_mdm_employee_rk  AS viewer_hrbp_mdm_employee_rk,
+              s.hrbp_ad_login         AS viewer_hrbp_ad_login,
+              CASE WHEN hc.head_rk IS NOT NULL THEN 1 ELSE 0 END AS is_subordinate_flg,
+              1 AS is_super_flg,
+              0 AS is_regular_flg
+          FROM tmp_super_hrbp s
+          CROSS JOIN (SELECT DISTINCT hrbp_mdm_employee_rk, hrbp_ad_login FROM tmp_hrbp_roots) a
+          LEFT JOIN tmp_head_chain hc
+              ON  hc.emp_rk  = a.hrbp_mdm_employee_rk
+              AND hc.head_rk = s.hrbp_mdm_employee_rk
+          WHERE a.hrbp_mdm_employee_rk <> s.hrbp_mdm_employee_rk
+      )
+      SELECT
+          hrbp_mdm_employee_rk,
+          hrbp_ad_login,
+          viewer_hrbp_mdm_employee_rk,
+          viewer_hrbp_ad_login,
+          MAX(is_subordinate_flg) AS is_subordinate_flg,
+          CASE
+              WHEN MAX(is_regular_flg) = 1 THEN 'По спец роль' -- основной HRBP
+              ELSE 'Лид HRBP'                              -- доступ только как супер
+          END                     AS access_role
+      FROM unioned
+      GROUP BY
+          hrbp_mdm_employee_rk,
+          hrbp_ad_login,
+          viewer_hrbp_mdm_employee_rk,
+          viewer_hrbp_ad_login
+      DISTRIBUTED BY (hrbp_mdm_employee_rk);
+      ANALYZE tmp_hrbp_viewers;
+    isEnabled: true
+  - sid: 019fc7cc-283d-7c5f-ba4b-129ca73b2101
+    title: Untitled 10
+    shebang: gp
+    code: |-
+      select * from tmp_hrbp_visible_units;
+      select * from tmp_hrbp_viewers;
+    isEnabled: true
+  - sid: 019f8a8e-b4df-7c1f-97e8-78c856558890
+    title: Untitled 7
+    shebang: gp
+    code: "-- SELECT hrbp_mdm_employee_rk\n-- , hrbp_ad_login\n-- , root_unit_nm\n-- , root_unit_rk\n-- , count(distinct root_lvl)\n-- FROM tmp_hrbp_visible_units \n-- GROUP BY 1,2,3,4\n-- HAVING count(distinct root_lvl) > 1;\n\n-- Строк с NULL быть не должно\nSELECT COUNT(*) \nFROM tmp_hrbp_visible_units \nWHERE access_role = 'лид эйчар'\n  AND (root_unit_rk IS NULL OR visible_unit_rk IS NULL);\n\n-- Для юнитов lvl1 корень = сам юнит\nSELECT DISTINCT visible_unit_rk, visible_unit_nm, root_unit_rk, root_unit_nm, root_lvl, unit_level\nFROM tmp_hrbp_visible_units\nWHERE access_role = 'лид эйчар'\n  AND visible_unit_lvl = 1;\n\n-- Для юнитов lvl2 корень = они сами (т.к. tmp_unit_lvl2_root для lvl2 юнита выдаст его же)\nSELECT DISTINCT visible_unit_rk, root_unit_rk\nFROM tmp_hrbp_visible_units\nWHERE access_role = 'лид эйчар'\n  AND visible_unit_lvl = 2\nLIMIT 5;\n\n-- select * FROM tmp_hrbp_visible_units;\n\n--SELECT * FROM tmp_hrbp_viewers;"
+    isEnabled: true
+  - sid: 019f8f01-13a1-7979-97dc-c187bb56a200
+    title: Untitled 9
+    shebang: gp
+    code: |-
+      SELECT DISTINCT
+          management_unit_rk           AS unit_rk,
+          mapped_management_unit_nm    AS unit_nm,
+          lvl7_management_unit_rk,
+          lvl8_management_unit_rk,
+          management_unit_lvl_num::int AS unit_lvl_num    -- приведение к int
+      FROM prod_v_emart.mdm_employee_structure_d
+      WHERE 1=1
+          AND last_day_flg = 1
+          and management_unit_rk = 'ff1240b26b81938ba6b8bce497a4cd5d';
+
+
+      SELECT DISTINCT
+          management_unit_rk           AS unit_rk,
+          mapped_management_unit_nm    AS unit_nm,
+          lvl7_management_unit_rk,
+          lvl8_management_unit_rk,
+          subordination_lvl   -- приведение к int
+      FROM prod_v_sse_crossdata.mdm_employee_d
+      WHERE 1=1
+          AND last_day_flg = 1
+          and management_unit_rk = 'ff1240b26b81938ba6b8bce497a4cd5d'
+    isEnabled: true

@@ -1,0 +1,1601 @@
+title: Ультраширокая для отчета
+paragraphs:
+  - sid: 019b12c0-c1c6-7212-8625-bda6d8a6e97e
+    title: Актуальность источников
+    shebang: python_condition
+    code: |
+      tf.tables_wait([
+          'prod_v_emart.mdm_employee_structure_d'
+          , 'usr_cross_data.functional_role_d_br'
+          , 'prod_v_hrmart.legal_position_dismissal_reason'
+          , 'usr_cross_data.regrettable_n_non_regrettable_base'
+          , 'prod_v_sse_crossdata.management_position_attr_chng'
+          , 'prod_v_sse_crossdata.legal_position_attr_chng'
+          , 'prod_v_sse_crossdata.mdm_employee_common_attr_change_d'
+          , 'prod_v_sse_crossdata.mdm_employee_t_education'
+          , 'prod_v_hrmart.mdm_employee_structure_list_d'
+          ], gp_service='cross'
+      )
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7225-8029-d5a73975af0b
+    title: Проверка на дубли
+    shebang: gp
+    code: "with pre as (\nselect \n    business_dt\n    , mdm_employee_rk\n    , count(*) as cnt\n    , case when count(*)>1\n    then 0\n    else 1\n    end as div\nfrom prod_v_emart.mdm_employee_structure_d\ngroup by 1,2\nhaving count(*) > 1\n)\nselect\n    1/div as quality_check\nfrom pre"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7228-a2d3-dd4838d594c8
+    title: Выдаем права на юзер лабы
+    shebang: gp
+    code: |+
+      select public.tcs_harmonize_grants('usr_cross_data.hr_executive_proteus');
+      select public.tcs_harmonize_grants('usr_cross_data.mdm_employee_d_light');
+      select public.tcs_harmonize_grants('usr_cross_data.functional_structure_digest');
+
+    isEnabled: true
+  - sid: 019b12c0-c1c6-72ef-b7b0-d6f6b88a7c97
+    title: Логины руководителей/HR
+    shebang: gp
+    code: "drop table if exists login;\ncreate table login as\n\nselect e.mdm_employee_rk\n    , e.business_dt\n    , e1.wrk_email_address_txt as head_wrk_email_address_txt\n    , e1.wo_employee_login as head_wo_employee_login\n\nfrom prod_v_emart.mdm_employee_structure_d e\n\nleft join prod_v_emart.mdm_employee l\n    on e.management_head_mdm_employee_rk=l.mdm_employee_rk\n\nleft join prod_v_emart.mdm_employee_structure_d e1\n    on e.management_head_mdm_employee_rk=e1.mdm_employee_rk\n    and e.business_dt=e1.business_dt\n\n\nwhere 1=1\n    and e.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n\ndistributed by (mdm_employee_rk,business_dt);\n\n-- select * from login \n-- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'"
+    isEnabled: true
+  - sid: 019fd708-1e58-77f3-b848-1e15d03bdee7
+    title: Сотрудник_х_регHR
+    shebang: gp
+    code: "drop table if exists mdm_employee_x_reg_hr;\ncreate table mdm_employee_x_reg_hr as\n\nselect mdm_employee_rk\n, valid_from_dttm\n, valid_to_dttm\n, array_agg(login_reg_hr) as login_reg_hr_list\nfrom usr_cross_data.location_hr\nwhere 1=1 \ngroup by 1,2,3\n\n\ndistributed by (mdm_employee_rk, valid_from_dttm, valid_to_dttm );"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-72f5-971b-f66c3354268b
+    title: Готовим КП
+    shebang: gp
+    code: "drop table if exists functional_array;\n\ncreate table functional_array as \n\nselect mdm_employee_rk\n    , business_dt\n    , string_agg(\n             coalesce(trim(f.lvl1_functional_unit_nm),'-')||'<>'||\n             coalesce(trim(f.lvl2_functional_unit_nm),'-')||'<>'||\n             coalesce(trim(f.lvl3_functional_unit_nm),'-')||'<>'||\n             coalesce(trim(replace(f.lvl4_functional_unit_nm,'\\t', '')), '-') ||'<>'||\n             coalesce(trim(f.lvl5_functional_unit_nm),'-')||'<>'||\n             coalesce(trim(f.lvl6_functional_unit_nm),'-')||'<>'||\n             coalesce(trim(f.lvl7_functional_unit_nm),'-')||'<>'||\n             coalesce(trim(f.lvl8_functional_unit_nm),'-')||'<>'||\n             coalesce(trim(f.lvl9_functional_unit_nm),'-')||'<>'||\n             coalesce(trim(f.lvl10_functional_unit_nm),'-')||'<>'||\n             coalesce(trim(f.lvl11_functional_unit_nm),'-')||'<>'||\n             coalesce(trim(f.lvl12_functional_unit_nm),'-')||'<>'||\n             coalesce(f.allocation_prt_norm,0),';') as functional_lvl_all_array\n    , array_agg(f.lvl1_functional_unit_nm) as array_lvl1_functional_unit_nm\n    , array_agg(f.lvl2_functional_unit_nm) as array_lvl2_functional_unit_nm\n    , array_agg(f.lvl2_functional_unit_nm) as array_lvl3_functional_unit_nm\n    --, string_agg(f.functional_unit_rk,';') as array_functional_unit_rk\n    , string_agg(\n             coalesce(f.lvl1_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl2_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl3_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl4_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl5_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl6_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl7_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl8_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl9_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl10_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl11_functional_unit_rk,'-')||';'||\n             coalesce(f.lvl12_functional_unit_rk,'-'),';') as array_functional_unit_rk\nfrom usr_cross_data.functional_role_d_br f \nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    --and f.business_dt >= date_trunc('month', current_date - interval '1 day') - interval '3 month'\n    and f.mdm_employee_rk is not null\n\ngroup by mdm_employee_rk, business_dt\n\n-- union all\n\n-- select *\n-- from no_functional\n\ndistributed by (mdm_employee_rk, business_dt);\n\n-- select * from functional_array \n-- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7301-830a-7dd7ac2f99e6
+    title: Оценки ревью
+    shebang: gp
+    code: "drop table if exists review_mark;\n\ncreate table review_mark as\n\nselect mdm_employee_rk /* дублятся: как починят - убрать можно */\n       , (business_dt + interval '9 month')::date as mark_from_dt\n       , case summary_score\n            when 0 then 'Не соответствует ожиданиям'\n            when 1 then 'Есть на чем поработать'\n            when 2 then 'Хорошо, продолжай в том же духе'\n            when 3 then 'Огонь'\n            when 4 then 'Звезда'\n      end::varchar(512) as summary_score\n       , lead((business_dt - interval '1 day' + interval '9 month')::date, 1, '5999-01-01'::date) over (partition by mdm_employee_rk order by business_dt)::date as mark_to_dt\nfrom prod_v_hrmart.summary_evaluation\nwhere 1=1\n      and summary_score is not null\n      and business_dt >= date_trunc('year', current_date - interval '1 day') - interval '3 year'\n      and valid_to_dttm = '5999-01-01 00:00:00'\n      and deleted_flg=0\n\ndistributed by (mdm_employee_rk);\n\n-- select * from review_mark \n-- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-730f-be61-e6ce44ed7314
+    title: Атрибуты юридических юнитов
+    shebang: gp
+    code: "drop table if exists legal_unit;\n\ncreate table legal_unit as \n\nselect distinct on (lu.legal_unit_rk) lu.legal_unit_rk\n    , lu.rus_tcr_flg\n    , lu.foreign_tcr_flg\n    , case when lu.rus_tcr_flg=1 or lu.foreign_tcr_flg=1 then 1 else 0 end::smallint as tcr_flg\n    , lu.emp_legal_unit_it_code\n    , lu.unit_country_iso_code\n    , code.code_1c\nfrom prod_v_sse_crossdata.legal_unit_metric_d lu \n\nleft join usr_cross_data.code_1c code\n    on lu.legal_unit_rk = code.legal_unit_rk\n\nwhere 1=1\n    --and lu.calendar_dt = current_date - interval '1 day'\n\norder by lu.legal_unit_rk, lu.calendar_dt desc\n\ndistributed by (legal_unit_rk);\n\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7315-ade0-2aa303894538
+    title: Разворачиваем подневную историю по профессиям
+    shebang: gp
+    code: "drop table if exists mdm_employee_detail_profession;\ncreate table mdm_employee_detail_profession as \n\nselect mdm_employee_rk\n, dp.employee_profession_nm\n, generate_series(mp.valid_from_dttm, least(mp.valid_to_dttm, current_date - interval '1 day'), '1 day')::date as business_dt\nfrom prod_v_dds.mdm_employee_x_profession mp\n\ninner join prod_v_dds_dic.employee_profession dp\n    on mp.profession_dk = dp.employee_profession_code\n    and dp.valid_to_dttm = '5999-01-01'\n    and dp.deleted_flg = 0\n\nwhere 1=1\n    and mp.deleted_flg = 0\n\ndistributed by (mdm_employee_rk, business_dt);\n\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-731a-a339-0da3bbea23df
+    title: Собираем массив профессий
+    shebang: gp
+    code: "drop table if exists mdm_employee_profession;\ncreate table mdm_employee_profession as \n\nselect mdm_employee_rk\n, business_dt\n, string_agg(employee_profession_nm,',') as profession_array_nm\nfrom mdm_employee_detail_profession\nwhere 1=1\n    and business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\ngroup by mdm_employee_rk\n, business_dt\n\ndistributed by (mdm_employee_rk, business_dt);\n\n-- select * from mdm_employee_profession\n-- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'"
+    isEnabled: true
+  - sid: 019cadb7-b492-77f0-99c5-46fd09b74443
+    title: NEW - Собираем массив профессий
+    shebang: gp
+    code: "drop table if exists mdm_employee_profession_new;\ncreate table mdm_employee_profession_new as \n\nwith pre as (select mdm_employee_rk\n, business_dt\n, emp_specialization_desc as profession_name\nfrom prod_v_emart.mdm_employee_structure_d\nwhere 1=1\n    and business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n\nunion all \n\nselect mdm_employee_rk\n, business_dt\n, employee_profession_nm\nfrom mdm_employee_detail_profession)\n\nselect mdm_employee_rk\n, business_dt\n, array_agg(\n        profession_name\n ) as profession_nm_array_new\nfrom pre\ngroup by mdm_employee_rk, business_dt\n\ndistributed by (mdm_employee_rk, business_dt);\n\n"
+    isEnabled: true
+    color: "#EA58A9"
+  - sid: 019b12c0-c1c6-732f-953b-3c9581c669a8
+    title: Сотрудники с детьми
+    shebang: gp
+    code: "drop table if exists mdm_employee_with_children;\ncreate table mdm_employee_with_children as \n\nselect distinct individualid::integer as mdm_employee_rk\n, min(birthdate) over (partition by individualid::integer) as valid_from_dttm\n, '5999-01-01 00:00:00'::date as valid_to_dttm\nfrom prod_v_chrono_peoplehub_masterid.individualchildren_public\nwhere 1=1\n    and isdeleted = 'false' \n    and snils is not null\n    and birthdate is not null"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7334-a0a5-a8bcfd0672c0
+    title: Группа специализаций
+    shebang: gp
+    code: |
+      drop table if exists specialization_group;
+      create table specialization_group as
+
+      select sp.employee_specialization_dk as emp_specialization_dk
+          , sc.group_specialization_nm
+          , sp.tgrowth_effective_dt
+
+      from prod_v_dds_dic.employee_specialization sp
+
+      inner join prod_v_dds_dic.employee_stream st
+          on sp.employee_stream_dk = st.employee_stream_dk
+          and st.deleted_flg = 0
+          and st.valid_to_dttm = '5999-01-01'
+
+      inner join prod_sse_emp.specialization_x_category sc
+          on sp.employee_specialization_desc = sc.specialization_nm
+          and st.employee_stream_desc = sc.stream_nm
+          and sc.valid_to_dttm = '5999-01-01 00:00:00'
+          and sc.deleted_flg = 0
+          and sc.ph_flg = 'true'
+
+      where 1=1
+          and sp.deleted_flg = 0
+          and sp.valid_to_dttm = '5999-01-01'
+          and sp.employee_specialization_dk != 391;
+    isEnabled: true
+  - sid: 019f042f-1beb-7e79-b53a-1d8e781381f2
+    title: Данные по причинам увольнений
+    shebang: gp
+    code: "drop table if exists legal_position_dismissal_reason;\n\ncreate table legal_position_dismissal_reason as\n\nselect l.legal_position_rk\n    , l.mdm_employee_rk\n    , l.fire_dt\n    --итоговая причина\n    , l.dismissal_initiator_code\n    , l.dismissal_reason_group_nm\n    , l.dismissal_reason_desc \n    --причина от HR\n    , l.hr_dismissal_initiator_code\n    , l.hr_dismissal_reason_desc\n    , l.hr_dismissal_sub_reason_desc\n    , l.hr_dismissal_comment_txt\n\n    --причина от руководителя\n    , l.head_dismissal_initiator_code\n    , l.head_dismissal_reason_desc\n    , l.head_dismissal_sub_reason_desc\n    , l.head_dismissal_comment_txt\n    \n    , case \n        when l.lose_talent_flg=1 then 'Сожалеем' \n        when l.lose_talent_flg=0 then 'Нейтрально' \n        else 'Нейтрально' end::varchar(20) as lose_talent_txt\n    , l.head_dismissal_comment_txt as company_dismissal_comment_txt\n    , l.source_system_cd\n    , coalesce(edms.edms_fire_reason, l.employee_dismissal_reason_desc) as employee_dismissal_reason_desc\n    , l.head_target_company_nm\n    --юридические причины увольнения\n    , l.dismissal_clause_nm\n    , l.dismissal_clause_desc\n    , edms.rotation_flg\n\nfrom prod_v_hrmart.legal_position_dismissal_reason l \n\nleft join prod_v_sse.edms_reasons_dismissal edms\n    on l.mdm_employee_rk = edms.mdm_employee_rk\n    and l.fire_dt = edms.fire_dt"
+    isEnabled: true
+    color: "#EA58A9"
+  - sid: 019b12c0-c1c6-733c-9334-2f4f6808eb01
+    title: Данные по образованию сотрудников
+    shebang: gp
+    code: "drop table if exists mdm_employee_main_education_pre;\n\ncreate table mdm_employee_main_education_pre as\n\nselect distinct on (mdm_employee_rk, valid_from_dt)\n       mdm_employee_rk\n     , generate_series(coalesce(create_dttm, valid_from_dttm), least(valid_to_dttm, current_date - interval '1 day'), '1 day')::date as valid_from_dt\n     , '5999-01-01'::date as valid_to_dt\n     , okso\n     , education_level_nm\n     , e.graduation_year\n     , e.education_spec_nm\n     , case \n          when education_level_nm ilike '%Докторантура%' then 'Докторантура'\n          when education_level_nm ilike '%Аспирантура%' then 'Аспирантура'\n          when education_level_nm ilike '%Ординатура%' then 'Ординатура'\n          when education_level_nm ilike '%Адъюнктура%' then 'Адъюнктура'\n          when education_level_nm ilike '%Магистратура%' then 'Магистратура'\n          when education_level_nm ilike '%Специалитет%' then 'Специалитет'\n          when education_level_nm ilike '%Бакалав%' then 'Бакалавриат'\n          when education_level_nm ilike '%Высшее образование%' and  not\n          \n          (education_level_nm ilike '%неоконченное высшее%' \n          or \n          education_level_nm ilike '%неполное высшее%'\n          )\n           then 'Высшее образование'\n          when education_level_nm ilike '%Подготовка кадров высшей категории%' then 'Подготовка кадров высшей категории'\n          when \n                education_level_nm ilike '%неоконченное высшее%'\n                or education_level_nm ilike '%Неполное высшее%'\n                \n          /* and not education_level_nm ilike '%Высшее образование%' */ then 'Неполное высшее образование'\n          when education_level_nm ilike '%профессионал%' then 'Среднее профессиональное'\n          when education_level_nm ilike '%Студент%' then 'Студент'\n          when education_level_nm ilike '%11 класс%' then 'Среднее общее образование (11 класс)'\n          when education_level_nm ilike '%9 класс%' then 'Среднее общее образование (9 класс)'\n          when education_level_nm ilike '%в академическом отпуске%' then 'В академическом отпуске'\n          when education_level_nm ilike '%Послевузовское образование%' then 'Повышение квалификации'\n          else education_level_nm end as education_degree_unique_max\nfrom prod_v_hrmart.mdm_employee_education e\nwhere 1=1\n      and e.deleted_flg = 0\n\norder by e.mdm_employee_rk, valid_from_dt, graduation_year desc\n\ndistributed by (mdm_employee_rk)\n;\n\nselect rollup_history(\n    'mdm_employee_main_education_pre',\n    'mdm_employee_main_education(distribution=mdm_employee_rk)',\n    'mdm_employee_rk'\n)\n;"
+    isEnabled: false
+  - sid: 01a00fce-ac5f-76a4-9be6-199e734f4809
+    title: Copy Данные по образованию сотрудников
+    shebang: gp
+    code: "drop table if exists mdm_employee_main_education_pre;\n\ncreate table mdm_employee_main_education_pre as\n\nwith renamed as (\n    select\n       mdm_employee_rk\n     , okso\n     , education_level_nm\n     , graduation_year\n     , education_spec_nm\n     , case \n          when education_level_nm ilike '%Докторантура%' then 'Докторантура'\n          when education_level_nm ilike '%Аспирантура%' then 'Аспирантура'\n          when education_level_nm ilike '%Ординатура%' then 'Ординатура'\n          when education_level_nm ilike '%Адъюнктура%' then 'Адъюнктура'\n          when education_level_nm ilike '%Магистратура%' then 'Магистратура'\n          when education_level_nm ilike '%Специалитет%' then 'Специалитет'\n          when education_level_nm ilike '%Бакалав%' then 'Бакалавриат'\n          when education_level_nm ilike '%Высшее образование%' and  not\n          \n          (education_level_nm ilike '%неоконченное высшее%' \n          or \n          education_level_nm ilike '%неполное высшее%'\n          )\n           then 'Высшее образование'\n          when education_level_nm ilike '%Подготовка кадров высшей категории%' then 'Подготовка кадров высшей категории'\n          when \n                education_level_nm ilike '%неоконченное высшее%'\n                or education_level_nm ilike '%Неполное высшее%'\n                \n          /* and not education_level_nm ilike '%Высшее образование%' */ then 'Неполное высшее образование'\n          when education_level_nm ilike '%профессионал%' then 'Среднее профессиональное'\n          when education_level_nm ilike '%Студент%' then 'Студент'\n          when education_level_nm ilike '%11 класс%' then 'Среднее общее образование (11 класс)'\n          when education_level_nm ilike '%9 класс%' then 'Среднее общее образование (9 класс)'\n          when education_level_nm ilike '%в академическом отпуске%' then 'В академическом отпуске'\n          when education_level_nm ilike '%Послевузовское образование%' then 'Повышение квалификации'\n          else education_level_nm \n        end as education_degree_unique_max\n     ,  create_dttm\n     ,  valid_from_dttm\n     ,  valid_to_dttm\nfrom prod_v_hrmart.mdm_employee_education\nwhere 1=1\n      and deleted_flg = 0 \n)\n\nselect distinct on (mdm_employee_rk, valid_from_dt)\n       mdm_employee_rk\n     , generate_series(coalesce(create_dttm, valid_from_dttm), least(valid_to_dttm, current_date - interval '1 day'), '1 day')::date as valid_from_dt\n     , '5999-01-01'::date as valid_to_dt\n     , okso\n     , education_level_nm\n     , graduation_year\n     , education_spec_nm\n     , education_degree_unique_max\nfrom renamed\n\norder by mdm_employee_rk, valid_from_dt, graduation_year desc\n\ndistributed by (mdm_employee_rk)\n;\n\nselect rollup_history(\n    'mdm_employee_main_education_pre',\n    'mdm_employee_main_education(distribution=mdm_employee_rk)',\n    'mdm_employee_rk'\n)\n;"
+    isEnabled: true
+    color: "#EA58A9"
+  - sid: 019aee35-8d60-7742-bc14-f1fe2eb30d83
+    title: Забираем данные из ультра-широкой
+    shebang: gp
+    code: "drop table if exists mdm_employee_d;\ncreate table mdm_employee_d as \n\nselect e.business_dt\n    , date_trunc('month',e.business_dt)::date as business_dt_month\n    , date_part('year',e.business_dt)::integer as business_year_nm\n    , date_part('quarter',e.business_dt)::integer as business_quarter_nm\n    , date_part('month',e.business_dt)::integer as business_month_nm\n    , e.mdm_employee_rk\n    , (e.business_dt + interval '1 day')::date as  business_dt_transfer_out\n    , (e.business_dt - interval '1 day')::date as  prev_business_dt\n    , e.company_hire_dt\n    , e.company_fire_dt\n    , e.company_hire_flg\n    , e.company_fire_flg\n    , e.last_work_experience_period_flg\n    , e.work_experience_day_cnt\n    , (e.work_experience_day_cnt::numeric(23,5)/365)::numeric(23,2) as work_experience_year\n    , coalesce(e.experience_group_nm,'-') as experience_group_nm\n    , e.experience_detail_group_nm\n    , e.last_nm\n    , e.first_nm\n    , e.last_nm || ' ' || e.first_nm as mdm_employee_nm\n    , e.middle_nm\n    , e.full_nm\n    , e.last_eng_nm\n    , e.first_eng_nm\n    , e.middle_eng_nm\n    , e.birth_dt\n    , case\n        when birth_dt between '1925-01-01' and '1944-12-31' then 'молчаливое'\n        when birth_dt between '1945-01-01' and '1967-12-31' then 'бэби-бумеров'  \n        when birth_dt between '1968-01-01' and '1984-12-31' then 'X' \n        when birth_dt between '1985-01-01' and '2000-12-31' then 'Y' \n        when birth_dt between '2001-01-01' and '2011-12-31' then 'Z'\n    else 'Y' \n    end as age_generation_nm\n    , e.age as mdm_employee_age\n    , e.birth_day\n    , e.birth_month\n    , coalesce(e.gender_desc,'Мужчина') as gender_desc\n    -- , e.disability_flg\n    , e.clothes_size_code\n    , coalesce(e.marital_status_desc,'-') as marital_status_desc\n    , e.foreign_flg\n    , e.citizenship_country_desc\n    , coalesce(e.office_desc,'-') as office_desc\n    , e.ad_login\n    , e.wrk_email_address_txt\n    , e.snils\n    , e.inn\n    , e.employee_document_type_desc\n    , e.passport_no\n    , e.passport_issuer_nm\n    , e.passport_div_code\n    , e.passport_issue_dt\n    , e.birth_city_nm\n    --, e.birth_dictrict_nm\n    , e.birth_region_nm\n    , e.birth_country_nm\n    , e.contact_main_phone_no\n    , e.prs_email_address_txt\n    , e.registration_postal_code\n    , e.registration_district_nm\n    , e.registration_city_nm\n    , e.registration_state_nm\n    , e.registration_settlement_nm\n    , e.registration_full_address_txt\n    , e.residential_postal_code\n    , e.residential_district_nm\n    , e.residential_city_nm\n    -- , coalesce(r.state_nm,'-') as residential_state_nm --доработанная витрина SSE_CROSSDATA.EMPLOYEE_RESIDENCE\n    -- , coalesce(r.city_nm,'-') as city_nm\n    --доработанная витрина SSE_CROSSDATA.MDM_EMPLOYEE_RESIDENCE\n    , coalesce(r.region_nm,'-') as residential_state_nm --доработанная витрина SSE_CROSSDATA.EMPLOYEE_RESIDENCE\n    , coalesce(r.city_nm,'-') as city_nm\n    , coalesce(r.macroregion_nm,'-') as macroregion_nm\n    , coalesce(r.group_nm,'-') as location_type\n    , coalesce(r.tcr_exist_flg, 0) as tcr_exist_flg\n\n\n    , r.country_cd\n    , e.doc_city_nm\n    , e.residential_settlement_nm\n    , e.residential_full_address_txt\n    , e.legal_hire_dt\n    , e.legal_fire_dt\n    , e.legal_hire_flg\n    , e.legal_fire_flg\n    , e.legal_position_rk\n    , e.legal_position_id\n    , coalesce(e.legal_position_nm,'-') as legal_position_nm\n    , e.legal_integration_source_system_code\n    , e.legal_head_flg\n    , coalesce(e.employment_relation_type_desc,'-') as employment_relation_type_desc\n    , e.employee_status_desc\n    , e.employment_type_desc\n    , e.legal_unit_rk\n    , e.legal_unit_nm\n    , e.legal_unit_type_desc\n    , e.legal_head_mdm_employee_rk\n    , e.legal_head_last_nm\n    , e.legal_head_first_nm\n    , e.legal_head_middle_nm\n    , e.legal_head_full_nm\n    , e.tsdc_head_mdm_employee_rk\n    , e.tsdc_head_last_nm\n    , e.tsdc_head_first_nm\n    , e.hr_head_mdm_employee_rk\n    , e.hr_head_last_nm\n    , e.hr_head_first_nm\n    , coalesce(e.hr_head_last_nm || ' ' || e.hr_head_first_nm,'-') as hr_head_nm\n    , coalesce(e.lvl1_legal_unit_rk,'-') as lvl1_legal_unit_rk\n    , coalesce(e.lvl1_legal_unit_nm,'-') as lvl1_legal_unit_nm\n    , coalesce(e.lvl2_legal_unit_rk,'-') as lvl2_legal_unit_rk\n    , coalesce(e.lvl2_legal_unit_nm,'-') as lvl2_legal_unit_nm\n    , coalesce(e.lvl3_legal_unit_rk,'-') as lvl3_legal_unit_rk\n    , coalesce(e.lvl3_legal_unit_nm,'-') as lvl3_legal_unit_nm\n    , coalesce(e.lvl4_legal_unit_rk,'-') as lvl4_legal_unit_rk\n    , coalesce(e.lvl4_legal_unit_nm,'-') as lvl4_legal_unit_nm\n    , coalesce(e.lvl5_legal_unit_rk,'-') as lvl5_legal_unit_rk\n    , coalesce(e.lvl5_legal_unit_nm,'-') as lvl5_legal_unit_nm\n    , coalesce(e.lvl6_legal_unit_rk,'-') as lvl6_legal_unit_rk\n    , coalesce(e.lvl6_legal_unit_nm,'-') as lvl6_legal_unit_nm\n    , coalesce(e.lvl7_legal_unit_rk,'-') as lvl7_legal_unit_rk\n    , coalesce(e.lvl7_legal_unit_nm,'-') as lvl7_legal_unit_nm\n    , coalesce(e.probation_flg,0) as probation_flg\n    , probation_dt\n    , coalesce(e.employee_contract_type_desc,'-') as employee_contract_type_desc\n    , e.management_position_rk\n    , e.management_position_id\n    , e.management_position_nm\n    , coalesce(e.emp_stream_desc,'-') as emp_stream_desc\n    , coalesce(trim(e.emp_specialization_desc),'-') as emp_specialization_desc\n    , coalesce(e.emp_specialization_oper_code,'-') as emp_specialization_oper_code\n    , coalesce(e.emp_specialization_it_code,'-') as emp_specialization_it_code\n    , e.emp_specialization_dk\n    , e.emp_stream_dk\n    , coalesce(e.management_head_flg,0) as management_head_flg\n    \n    -- , replace(e.management_unit_nm,'&','and') as management_unit_nm\n    -- , e.management_unit_rk\n    \n    , coalesce(e.mapped_management_unit_nm,'-') as management_unit_nm\n    , e.management_unit_rk\n\n    \n    , e.management_head_mdm_employee_rk\n    , coalesce(e.management_head_last_nm || ' ' || e.management_head_first_nm,'-')::varchar(512) as management_head_nm\n    , e.management_head_last_nm\n    , e.management_head_first_nm\n    , e.management_head_middle_nm\n    , e.management_head_full_nm\n    , e.hrbp_mdm_employee_rk\n    , e.hrbp_last_nm\n    , e.hrbp_first_nm\n    , coalesce(e.hrbp_last_nm || ' ' || e.hrbp_first_nm,'-')::varchar(512) as hrbp_nm\n    , e.hrap_mdm_employee_rk\n    , e.hrap_last_nm\n    , e.hrap_first_nm\n    , coalesce(e.hrap_last_nm || ' ' || e.hrap_first_nm,'-')::varchar(512) as hrap_nm\n    \n    --Раскомментить, когда перейдем на норм нейминги\n    -- , coalesce(e.lvl1_management_unit_rk,'-') as lvl1_management_unit_rk\n    -- , coalesce(e.lvl1_management_unit_nm,'-') as lvl1_management_unit_nm\n    -- , coalesce(e.lvl2_management_unit_rk,'-') as lvl2_management_unit_rk\n    -- , coalesce(e.lvl2_management_unit_nm,'-') as lvl2_management_unit_nm\n    -- , coalesce(e.lvl3_management_unit_rk,'-') as lvl3_management_unit_rk\n    -- , coalesce(e.lvl3_management_unit_nm,'-') as lvl3_management_unit_nm\n    -- , coalesce(e.lvl4_management_unit_rk,'-') as lvl4_management_unit_rk\n    -- , coalesce(e.lvl4_management_unit_nm,'-') as lvl4_management_unit_nm\n    -- , coalesce(e.lvl5_management_unit_rk,'-') as lvl5_management_unit_rk\n    -- , coalesce(e.lvl5_management_unit_nm,'-') as lvl5_management_unit_nm\n    -- , coalesce(e.lvl6_management_unit_rk,'-') as lvl6_management_unit_rk\n    -- , coalesce(e.lvl6_management_unit_nm,'-') as lvl6_management_unit_nm\n    -- , coalesce(e.lvl7_management_unit_rk,'-') as lvl7_management_unit_rk\n    -- , coalesce(e.lvl7_management_unit_nm,'-') as lvl7_management_unit_nm\n    -- , coalesce(e.lvl8_management_unit_rk,'-') as lvl8_management_unit_rk\n    -- , coalesce(e.lvl8_management_unit_nm,'-') as lvl8_management_unit_nm\n    -- , coalesce(e.lvl9_management_unit_rk,'-') as lvl9_management_unit_rk\n    -- , coalesce(e.lvl9_management_unit_nm,'-') as lvl9_management_unit_nm\n    -- , coalesce(e.lvl10_management_unit_rk,'-') as lvl10_management_unit_rk\n    -- , coalesce(e.lvl10_management_unit_nm,'-') as lvl10_management_unit_nm\n    -- , coalesce(e.lvl11_management_unit_rk,'-') as lvl11_management_unit_rk\n    -- , coalesce(e.lvl11_management_unit_nm,'-') as lvl11_management_unit_nm\n    -- , coalesce(e.lvl12_management_unit_rk,'-') as lvl12_management_unit_rk\n    -- , coalesce(e.lvl12_management_unit_nm,'-') as lvl12_management_unit_nm\n    \n    --Костыль, пока не перешли на норм нейминги в Exec и дайджесте\n    , coalesce(e.lvl1_mapped_management_unit_rk,'-') as lvl1_management_unit_rk\n    , coalesce(e.lvl1_mapped_management_unit_nm,'-') as lvl1_management_unit_nm\n    , coalesce(e.lvl2_mapped_management_unit_rk,'-') as lvl2_management_unit_rk\n    , coalesce(e.lvl2_mapped_management_unit_nm,'-') as lvl2_management_unit_nm\n    , coalesce(e.lvl3_mapped_management_unit_rk,'-') as lvl3_management_unit_rk\n    , coalesce(e.lvl3_mapped_management_unit_nm,'-') as lvl3_management_unit_nm\n    , coalesce(e.lvl4_mapped_management_unit_rk,'-') as lvl4_management_unit_rk\n    , coalesce(e.lvl4_mapped_management_unit_nm,'-') as lvl4_management_unit_nm\n    , coalesce(e.lvl5_mapped_management_unit_rk,'-') as lvl5_management_unit_rk\n    , coalesce(e.lvl5_mapped_management_unit_nm,'-') as lvl5_management_unit_nm\n    , coalesce(e.lvl6_mapped_management_unit_rk,'-') as lvl6_management_unit_rk\n    , coalesce(e.lvl6_mapped_management_unit_nm,'-') as lvl6_management_unit_nm\n    , coalesce(e.lvl7_mapped_management_unit_rk,'-') as lvl7_management_unit_rk\n    , coalesce(e.lvl7_mapped_management_unit_nm,'-') as lvl7_management_unit_nm\n    , coalesce(e.lvl8_mapped_management_unit_rk,'-') as lvl8_management_unit_rk\n    , coalesce(e.lvl8_mapped_management_unit_nm,'-') as lvl8_management_unit_nm\n    , coalesce(e.lvl9_mapped_management_unit_rk,'-') as lvl9_management_unit_rk\n    , coalesce(e.lvl9_mapped_management_unit_nm,'-') as lvl9_management_unit_nm\n    , coalesce(e.lvl10_mapped_management_unit_rk,'-') as lvl10_management_unit_rk\n    , coalesce(e.lvl10_mapped_management_unit_nm,'-') as lvl10_management_unit_nm\n    , coalesce(e.lvl11_mapped_management_unit_rk,'-') as lvl11_management_unit_rk\n    , coalesce(e.lvl11_mapped_management_unit_nm,'-') as lvl11_management_unit_nm\n    , coalesce(e.lvl12_mapped_management_unit_rk,'-') as lvl12_management_unit_rk\n    , coalesce(e.lvl12_mapped_management_unit_nm,'-') as lvl12_management_unit_nm\n    , coalesce(e.lvl13_mapped_management_unit_rk,'-') as lvl13_management_unit_rk\n    , coalesce(e.lvl13_mapped_management_unit_nm,'-') as lvl13_management_unit_nm\n    \n    --Структура с маппингом\n    , coalesce(e.mapped_management_unit_nm,'-') as mapped_management_unit_nm\n    , e.mapped_management_unit_rk\n    , coalesce(e.lvl1_mapped_management_unit_rk,'-') as lvl1_mapped_management_unit_rk\n    , coalesce(e.lvl1_mapped_management_unit_nm,'-') as lvl1_mapped_management_unit_nm\n\n    , coalesce(e.lvl2_mapped_management_unit_rk,'-') as lvl2_mapped_management_unit_rk\n    , coalesce(e.lvl2_mapped_management_unit_nm,'-') as lvl2_mapped_management_unit_nm\n\n    , coalesce(e.lvl3_mapped_management_unit_rk,'-') as lvl3_mapped_management_unit_rk\n    , coalesce(e.lvl3_mapped_management_unit_nm,'-') as lvl3_mapped_management_unit_nm\n\n    , coalesce(e.lvl4_mapped_management_unit_rk,'-') as lvl4_mapped_management_unit_rk\n    , coalesce(e.lvl4_mapped_management_unit_nm,'-') as lvl4_mapped_management_unit_nm\n\n    , coalesce(e.lvl5_mapped_management_unit_rk,'-') as lvl5_mapped_management_unit_rk\n    , coalesce(e.lvl5_mapped_management_unit_nm,'-') as lvl5_mapped_management_unit_nm\n\n    , coalesce(e.lvl6_mapped_management_unit_rk,'-') as lvl6_mapped_management_unit_rk\n    , coalesce(e.lvl6_mapped_management_unit_nm,'-') as lvl6_mapped_management_unit_nm\n\n    , coalesce(e.lvl7_mapped_management_unit_rk,'-') as lvl7_mapped_management_unit_rk\n    , coalesce(e.lvl7_mapped_management_unit_nm,'-') as lvl7_mapped_management_unit_nm\n\n    , coalesce(e.lvl8_mapped_management_unit_rk,'-') as lvl8_mapped_management_unit_rk\n    , coalesce(e.lvl8_mapped_management_unit_nm,'-') as lvl8_mapped_management_unit_nm\n\n    , coalesce(e.lvl9_mapped_management_unit_rk,'-') as lvl9_mapped_management_unit_rk\n    , coalesce(e.lvl9_mapped_management_unit_nm,'-') as lvl9_mapped_management_unit_nm\n    \n    , coalesce(e.lvl10_mapped_management_unit_rk,'-') as lvl10_mapped_management_unit_rk\n    , coalesce(e.lvl10_mapped_management_unit_nm,'-') as lvl10_mapped_management_unit_nm\n\n    , coalesce(e.lvl11_mapped_management_unit_rk,'-') as lvl11_mapped_management_unit_rk\n    , coalesce(e.lvl11_mapped_management_unit_nm,'-') as lvl11_mapped_management_unit_nm\n\n    , coalesce(e.lvl12_mapped_management_unit_rk,'-') as lvl12_mapped_management_unit_rk\n    , coalesce(e.lvl12_mapped_management_unit_nm,'-') as lvl12_mapped_management_unit_nm\n\n    , coalesce(e.lvl13_mapped_management_unit_rk,'-') as lvl13_mapped_management_unit_rk\n    , coalesce(e.lvl13_mapped_management_unit_nm,'-') as lvl13_mapped_management_unit_nm\n    \n    , coalesce(e.learning_group_flg,0) as learning_group_flg\n    , e.last_day_flg\n    , e.last_day_of_month_flg\n    , coalesce(e.active_type_nm,'-') as active_type_nm\n    , e.business_hire_dt\n    , e.legal_employee_flg\n    , e.active_employee_flg\n    , e.candidate_transfer_flg as transfer_candidate_flg\n    , e.internal_transfer_flg as transfer_internal_flg\n    , e.employee_main_work_no\n    , pp.party_id\n    , e.seniority\n    , coalesce(e.grade::text, '-') as grade\n    , case when e.grade is not null and e.grade<=20 then 1 else 0 end as v_poljakov_access_flg --кастомный флаг, чтобы на уровне HR Exec выдать доступа Полякову\n    , case when e.business_dt = (date_trunc('quarter', e.business_dt) + interval '3 months - 1 day')::date then 1 else 0 end::smallint as last_day_of_quarter_flg\n    , case when e.business_dt = (date_trunc('year', e.business_dt) + interval '1 year - 1 day')::date then 1 else 0 end::smallint as last_day_of_year_flg\n    , e.last_state_flg\n    , e.employee_main_contract_end_dt\n    , coalesce(e.employee_main_contract_type_nm,'-') as employee_main_contract_type_nm\n    , e.active_hire_dt\n    -- , coalesce(lh.hrap_login,'-') as hrap_login\n    , coalesce(e.hrap_ad_login,'-') as hrap_login\n    , e.management_head_ad_login as head_login\n    , l.head_wrk_email_address_txt\n    , l.head_wo_employee_login\n    , coalesce(e.hrbp_ad_login,'-') as hrbp_login\n    , coalesce(e.hr_head_ad_login,'-') as regional_hr_login\n    , case when e.purchase_flg = 1 then 'Приобретенное' else 'Другое' end as type_create_company --Разметка ЮЛ на базе https://wiki.tcsbank.ru/pages/viewpage.action?pageId=3763756972\n    , e.rb_flg\n    , e.rb_migration_flg\n    , 'https://my.tbank.ru/profile/' || e.mdm_employee_rk as employee_link\n    , e.wo_employee_login\n    , coalesce(rm.summary_score,'-') as summary_score\n    , rt.regrettable_fire_flg\n    , rt.potential_regrettable_flg\n    , rt.potential_non_regrettable_flg\n    , rt.non_regrettable_fire_flg\n    , case \n        when rt.regrettable_fire_flg = 1 then 'Regrettable'\n        when rt.non_regrettable_fire_flg = 1 then 'Non-Regrettable'\n        else 'Прочее'\n    end as performer_fire_type\n    , e.schedule_nm as employee_main_schedule_nm\n    , e.emp_contract_no\n    , e.subordination_lvl_code as subordination_lvl\n    , case \n        when e.emp_specialization_desc is not null and pr.profession_array_nm is not null then (e.emp_specialization_desc || ',' || pr.profession_array_nm)\n        when e.emp_specialization_desc is not null and pr.profession_array_nm is null then e.emp_specialization_desc\n    else pr.profession_array_nm end as profession_array_nm\n    -- , prn.profession_nm_array_new\n    , case when mc.mdm_employee_rk is not null then 'Дети есть' else 'Детей нет' end::varchar(10) as has_children_flg  -- вернуть Кавторин\n    , coalesce(me.education_degree_unique_max, '-') as education_degree_unique_max\n    , coalesce(me.education_spec_nm, '-') as  education_spec_nm\n    \n    , wa.mapped_management_unit_rk_list\n    , wa.main_legal_unit_rk_list as legal_unit_rk_list\n    , wa.mdm_employee_rk_list\n    , wa.functional_unit_rk_list\n    , wa.profession_nm_list as profession_nm_array_new\n    , reg_hr.login_reg_hr_list\n   \nfrom prod_v_emart.mdm_employee_structure_d e\n\nleft join prod_v_hrmart.mdm_employee_structure_list_d wa\n    on e.mdm_employee_rk = wa.mdm_employee_rk\n    and e.business_dt = wa.business_dt\n\nleft join prod_v_sse_crossdata.mdm_employee_residence r\n--prod_v_sse_crossdata.employee_residence r \n    on e.mdm_employee_rk=r.mdm_employee_rk\n    and e.business_dt between r.valid_from_dttm and r.valid_to_dttm\n    and r.deleted_flg=0\n\nleft join  mdm_employee_x_reg_hr reg_hr\n    on e.mdm_employee_rk=reg_hr.mdm_employee_rk\n    and e.business_dt between reg_hr.valid_from_dttm and reg_hr.valid_to_dttm\n\nleft join review_mark rm \n    on rm.mdm_employee_rk = e.mdm_employee_rk\n    and e.business_dt between rm.mark_from_dt and rm.mark_to_dt\n\nleft join login l\n    on e.mdm_employee_rk=l.mdm_employee_rk\n    and e.business_dt = l.business_dt\n\nleft join usr_cross_data.regrettable_n_non_regrettable_base rt\n    on e.mdm_employee_rk = rt.mdm_employee_rk\n    and e.business_dt = rt.business_dt\n\nleft join mdm_employee_profession pr\n    on e.mdm_employee_rk = pr.mdm_employee_rk\n    and e.business_dt = pr.business_dt\n\n-- left join mdm_employee_profession_new prn\n--     on e.mdm_employee_rk = prn.mdm_employee_rk\n--     and e.business_dt = prn.business_dt\n\nleft join mdm_employee_with_children mc\n    on e.mdm_employee_rk = mc.mdm_employee_rk\n    and e.business_dt between mc.valid_from_dttm and mc.valid_to_dttm  -- Вернуть Кавторин\n\nleft join mdm_employee_main_education me\n    on e.mdm_employee_rk = me.mdm_employee_rk\n    and e.business_dt between me.valid_from_dt and me.valid_to_dt\n\nleft join prod_v_emart.mdm_employee_x_person_party pp\n    on e.mdm_employee_rk = pp.mdm_employee_rk\n    and e.business_dt between pp.valid_from_dttm and pp.valid_to_dttm\n    and pp.valid_to_dttm >= '2021-01-01'::timestamp\n    and pp.main_flg = 1\n    and pp.deleted_flg = 0\n    and pp.fire_flg = 0\n\nwhere 1=1\n    and e.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '3 year'\n    --and e.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '20 month'\n\n\ndistributed by (mdm_employee_rk, business_dt);\n\n\n-- select * from mdm_employee_d\n-- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7346-b60d-b068ea2add0c
+    title: Обогащаем каналами привлечения
+    shebang: gp
+    code: "drop table if exists all_employee_channel;\n\nset optimizer=off;\n\ncreate table all_employee_channel as \n\nselect e.*\n    , coalesce(cr.recruitment_type_nm,'-') as recruitmenttype\n    , coalesce(cr.mapping_channel_name,'-') as mapping_channel_name\n    , coalesce(cr.respond_source_nm,'-') as respond_source_nm\n    , coalesce(cr.recruiter_ad_login,'-') as recruiter_ad_login\n    , coalesce(cr.recruiter_group_nm,'-') as recruiter_group_nm\n    , coalesce(cr.recruiter_lvl1_legal_unit_nm,'-') as recruiter_lvl1_legal_unit_nm\n    , coalesce('https://candy.tbank.ru/candidates/' || cr.candidate_id,'-') as candy_link\nfrom mdm_employee_d e\n\nleft join usr_cross_data.candidate_x_employee cr\n    on e.mdm_employee_rk = cr.mdm_employee_rk\n    and e.legal_position_rk =cr.legal_position_rk\n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);\n\n\n-- select * from all_employee_channel\n-- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7357-97f5-56b1a248ea3a
+    title: Обогащаем причинами увольнений
+    shebang: gp
+    code: "drop table if exists all_employee_reason;\n\nset optimizer=off;\n\ncreate table all_employee_reason as \n\nselect e.*\n    , coalesce(fr.dismissal_initiator_code, 'Прочее') as fire_initiative\n    , coalesce(fr.dismissal_reason_group_nm, 'Причина отсутствует') as fire_reason_group\n    , coalesce(fr.dismissal_reason_desc, 'Причина отсутствует') as fire_reason\n    , coalesce(fr.lose_talent_txt, 'Нейтрально') as lose_talent_txt\n\n    , coalesce(fr.hr_dismissal_initiator_code, 'Прочее') as hr_dismissal_initiator_code\n    , coalesce(fr.hr_dismissal_reason_desc, 'Причина отсутствует') as hr_dismissal_reason_desc\n    , coalesce(fr.hr_dismissal_sub_reason_desc, '-') as hr_dismissal_sub_reason_desc\n    , coalesce(fr.hr_dismissal_comment_txt, '-') as hr_dismissal_comment_txt\n\n    , coalesce(fr.head_dismissal_initiator_code, 'Прочее') as head_dismissal_initiator_code\n    , coalesce(fr.head_dismissal_reason_desc, 'Причина отсутствует') as head_dismissal_reason_desc\n    , coalesce(fr.head_dismissal_sub_reason_desc, '-') as head_dismissal_sub_reason_desc\n    , coalesce(fr.head_dismissal_comment_txt, '-') as head_dismissal_comment_txt\n\n    , coalesce(fr.dismissal_clause_nm, '-') as dismissal_clause_nm\n    , coalesce(fr.dismissal_clause_desc || ' ' || fr.dismissal_clause_nm, '-') as dismissal_clause_desc\n    \n    , coalesce(fr.head_target_company_nm, '-') as head_exit_company_info\n    , coalesce(fr.employee_dismissal_reason_desc, '-') as employee_dismissal_reason_desc\n    , rotation_flg\nfrom all_employee_channel e\n\nleft join legal_position_dismissal_reason fr\n    on e.legal_position_rk = fr.legal_position_rk\n    and e.legal_fire_dt = fr.fire_dt\n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);\n\n\n-- select * from all_employee_reason\n-- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-735a-88a9-14d8e0542aeb
+    title: Обогащаем атрибутом Т-образования
+    shebang: gp
+    code: "drop table if exists all_employee_education;\n\n--set optimizer=off;\n\ncreate table all_employee_education as \n\nselect e.*\n    , coalesce(case when te.hipo_student_flg = 1 then te.project_nm || ' HiPo' else te.project_nm end, 'Не проходил(а)') as t_education_desc\nfrom all_employee_reason e\n\nleft join prod_v_sse_crossdata.mdm_employee_t_education te\n    on e.mdm_employee_rk = te.mdm_employee_rk\n    and e.business_dt between te.valid_from_dttm and te.valid_to_dttm\n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);\n\n-- select * from all_employee_education\n-- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-735d-bf59-f4858c11173a
+    title: Обогащаем атрибутами юр юнитов
+    shebang: gp
+    code: "drop table if exists all_employee_legal_unit;\n\n--set optimizer=off;\n\ncreate table all_employee_legal_unit as \n\nselect e.*\n    , lu.rus_tcr_flg\n    , lu.foreign_tcr_flg\n    , lu.tcr_flg\n    , lu.emp_legal_unit_it_code\n    , lu.code_1c\n    , (business_year_nm % 100) as rus_business_year_nm\n    , 'Q' || business_quarter_nm || ' ' || (business_year_nm % 100)  as rus_business_quarter_nm\n    , (case \n    when business_month_nm=1 then 'янв.' \n    when business_month_nm=2 then 'февр.' \n    when business_month_nm=3 then 'март' \n    when business_month_nm=4 then 'апр.' \n    when business_month_nm=5 then 'май' \n    when business_month_nm=6 then 'июнь' \n    when business_month_nm=7 then 'июль' \n    when business_month_nm=8 then 'авг.' \n    when business_month_nm=9 then 'сент.' \n    when business_month_nm=10 then 'окт.' \n    when business_month_nm=11 then 'нояб.' \n    when business_month_nm=12 then 'дек.' \n  end) || ' '|| (business_year_nm % 100)  as rus_business_month_nm\n--   , case\n--     -- lvl1: Удаленная работа\n--     when e.lvl3_legal_unit_nm ilike '%Департамент%дистанционной%разработки%' then 'Удаленная работа'\n--     when e.lvl2_legal_unit_nm ilike '%Департамент%дистанционной%разработки%' then 'Удаленная работа'\n--     when e.employee_contract_type_desc in ('Дистанционный','Временно дистанционный') then 'Удаленная работа'\n\n--     -- lvl2: СНГ (для указанных стран)\n--     when lu.unit_country_iso_code in ('KAZ', 'BLR', 'ARM', 'UZB') then 'СНГ'\n\n--     -- lvl3: Москва/Регионы по структурным подразделениям\n--     when e.lvl2_legal_unit_nm ilike 'Структурное подразделение%' and e.lvl2_legal_unit_nm not ilike '%москва%' then 'Регионы'\n--     when e.lvl3_legal_unit_nm ilike 'Структурное подразделение%' and e.lvl3_legal_unit_nm not ilike '%москва%' then 'Регионы'\n--     when e.lvl2_legal_unit_nm ilike 'Структурное подразделение%' and e.lvl2_legal_unit_nm ilike '%москва%' then 'Москва'\n--     when e.lvl3_legal_unit_nm ilike 'Структурное подразделение%' and e.lvl3_legal_unit_nm ilike '%москва%' then 'Москва'\n\n--     -- lvl4: Явный город Москва\n--     when e.city_nm is not null and e.city_nm ilike '%Москва%' then 'Москва'\n\n--     -- lvl5: Города офисов (РФ -> Регионы, СНГ -> СНГ)\n--     when e.city_nm is not null and e.city_nm in (\n--         'Владивосток','Воронеж','Екатеринбург','Ижевск','Иннополис','Казань','Калининград',\n--         'Краснодар','Красноярск','Нижний Новгород','Академгородок','Новосибирск','Омск',\n--         'Пермь','Ростов-на-Дону','Рязань','Самара','Санкт-Петербург','Саратов','Сочи',\n--         'Таганрог','Томск','Уфа','Чебоксары','Челябинск','Ярославль'\n--     ) then 'Регионы'\n--     when e.city_nm is not null and e.city_nm in ('Ереван','Брест','Ташкент','Минск','Алматы') then 'СНГ'\n\n--     -- lvl6: По региону/стране\n--     when e.residential_state_nm in ('Москва','Московская Область') then 'Москва'\n--     when country_cd = 'RUS' then 'Регионы'\n--     else '-'\n-- end as location_type\n\nfrom all_employee_education e\n\nleft join legal_unit lu\non e.legal_unit_rk = lu.legal_unit_rk\n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);\n\n\n-- select * from all_employee_legal_unit\n-- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7362-b5e8-537166f2b7a6
+    title: Обогащаем группой специализации
+    shebang: gp
+    code: |-
+      drop table if exists all_employee_group_specialization;
+
+      set optimizer=off;
+
+      create table all_employee_group_specialization as
+
+      select e.*
+          , coalesce(sg.group_specialization_nm, '-') as group_specialization_nm
+          , decode(sg.tgrowth_effective_dt <= e.business_dt, true, 'Да', 'Нет') as tgrowth_flg --флаг специализации сотрудника в Т-Росте
+          --, case when sg.tgrowth_effective_dt is not null and sg.tgrowth_effective_dt <= e.business_dt then 1 else 0 end as tgrowth_flg_new
+          --, sg.tgrowth_effective_dt
+      from all_employee_legal_unit e
+
+      left join specialization_group sg
+      on e.emp_specialization_dk = sg.emp_specialization_dk
+
+      where 1=1
+
+      distributed by (mdm_employee_rk, business_dt);
+
+      -- select * from all_employee_group_specialization
+      -- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'
+    isEnabled: true
+  - sid: 019b12c0-c1c6-736a-8ab6-a799d4f8be85
+    title: Обогащаем датой последней ротации
+    shebang: gp
+    code: |-
+      drop table if exists all_employee;
+
+      -- set optimizer=off;
+
+      create table all_employee as
+
+      select e.*
+          , cr.rotation_dt::varchar(512) as rotation_dt_text
+          , coalesce(wt.is_in_wt_bot_segment_flg,'Нет') as is_in_wt_bot_segment_flg
+
+      from all_employee_group_specialization e
+
+      left join prod_v_sse_crossdata.candy_rotation cr
+          on e.mdm_employee_rk = cr.mdm_employee_rk
+          and cr.last_rotation_flg = 1
+
+      left join usr_cross_pub.welcome_team_newbies_flags wt
+          on e.mdm_employee_rk = wt.mdm_employee_rk
+          and e.company_hire_dt = wt.company_hire_dt
+
+      where 1=1
+
+      distributed by (mdm_employee_rk, business_dt);
+
+      -- select * from all_employee
+      -- Where  mdm_employee_rk = 254374 and business_dt =  '2025-05-18'
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7371-8992-1d9267ae9475
+    title: Проверяем дубли
+    shebang: gp
+    code: "with pre as (\nselect \n    mdm_employee_rk\n    , business_dt\n    , count(*) as cnt\n    , case when count(*)>1\n    then 0\n    else 1\n    end as div\nfrom all_employee\ngroup by 1,2\nhaving count(*) > 1\n)\nselect\n    1/div as quality_check\nfrom pre"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7375-b7cf-16eb34ea607e
+    title: Добавляем прошлое и следующие значения
+    shebang: gp
+    code: "-- drop table if exists all_employee_new;  -- закоментил кавторин 11.02\n-- create table all_employee_new as\n\ndrop table if exists all_employee_new_prev_next;\ncreate table all_employee_new_prev_next as \n\n\nselect e.*\n   \n   --Тест полей для перехода на кросс-фильтры\n   , coalesce(e1.lvl3_mapped_management_unit_rk,'-') as prev_lvl3_mapped_management_unit_rk\n   --Наименования уровней УС - прошлое\n   , coalesce(e1.lvl3_management_unit_nm,'-') as prev_lvl3_management_unit_nm\n   , coalesce(e1.lvl4_management_unit_nm,'-') as prev_lvl4_management_unit_nm\n   , coalesce(e1.lvl5_management_unit_nm,'-') as prev_lvl5_management_unit_nm\n   , coalesce(e1.lvl6_management_unit_nm,'-') as prev_lvl6_management_unit_nm\n   , coalesce(e1.lvl7_management_unit_nm,'-') as prev_lvl7_management_unit_nm\n   , coalesce(e1.lvl8_management_unit_nm,'-') as prev_lvl8_management_unit_nm\n   , coalesce(e1.lvl9_management_unit_nm,'-') as prev_lvl9_management_unit_nm\n   , coalesce(e1.lvl10_management_unit_nm,'-') as prev_lvl10_management_unit_nm\n   , coalesce(e1.lvl11_management_unit_nm,'-') as prev_lvl11_management_unit_nm\n   , coalesce(e1.lvl12_management_unit_nm,'-') as prev_lvl12_management_unit_nm\n    \n   --Наименования уровней УС - следующее\n   , coalesce(e2.lvl3_management_unit_nm,'-') as next_lvl3_management_unit_nm\n   , coalesce(e2.lvl4_management_unit_nm,'-') as next_lvl4_management_unit_nm\n   , coalesce(e2.lvl5_management_unit_nm,'-') as next_lvl5_management_unit_nm\n   , coalesce(e2.lvl6_management_unit_nm,'-') as next_lvl6_management_unit_nm\n   , coalesce(e2.lvl7_management_unit_nm,'-') as next_lvl7_management_unit_nm\n   , coalesce(e2.lvl8_management_unit_nm,'-') as next_lvl8_management_unit_nm\n   , coalesce(e2.lvl9_management_unit_nm,'-') as next_lvl9_management_unit_nm\n   , coalesce(e2.lvl10_management_unit_nm,'-') as next_lvl10_management_unit_nm\n   , coalesce(e2.lvl11_management_unit_nm,'-') as next_lvl11_management_unit_nm\n   , coalesce(e2.lvl12_management_unit_nm,'-') as next_lvl12_management_unit_nm\n\n   --Атрибуты УС - прошлое\n   , coalesce(e1.emp_specialization_oper_code,'-') as prev_emp_specialization_oper_code\n   , coalesce(e1.emp_specialization_it_code,'-' ) as prev_emp_specialization_it_code\n   , coalesce(e1.emp_specialization_desc,'-' ) as prev_emp_specialization_desc\n   , coalesce(e1.emp_stream_desc, '-' ) as prev_emp_stream_desc\n   , coalesce(e1.management_head_nm, '-' ) as prev_management_head_nm\n\n   --Атрибуты УС - следующее\n   , coalesce(e2.emp_specialization_oper_code,'-') as next_emp_specialization_oper_code\n   , coalesce(e2.emp_specialization_it_code,'-' ) as next_emp_specialization_it_code\n   , coalesce(e2.emp_specialization_desc,'-' ) as next_emp_specialization_desc\n   , coalesce(e2.emp_stream_desc, '-' ) as next_emp_stream_desc\n   , coalesce(e2.management_head_nm, '-' ) as next_management_head_nm\n\n   --Наименования уровней ЮС - прошлое\n   , coalesce(e1.lvl1_legal_unit_nm, '-' ) as prev_lvl1_legal_unit_nm\n   , coalesce(e1.lvl2_legal_unit_nm, '-' ) as prev_lvl2_legal_unit_nm\n   , coalesce(e1.lvl3_legal_unit_nm, '-' ) as prev_lvl3_legal_unit_nm\n   , coalesce(e1.lvl4_legal_unit_nm, '-' ) as prev_lvl4_legal_unit_nm\n   , coalesce(e1.lvl5_legal_unit_nm, '-' ) as prev_lvl5_legal_unit_nm\n   , coalesce(e1.lvl6_legal_unit_nm, '-' ) as prev_lvl6_legal_unit_nm\n   , coalesce(e1.lvl7_legal_unit_nm, '-' ) as prev_lvl7_legal_unit_nm\n\n   --Наименования уровней ЮС - следующее\n   , coalesce(e2.lvl1_legal_unit_nm, '-' ) as next_lvl1_legal_unit_nm\n   , coalesce(e2.lvl2_legal_unit_nm, '-' ) as next_lvl2_legal_unit_nm\n   , coalesce(e2.lvl3_legal_unit_nm, '-' ) as next_lvl3_legal_unit_nm\n   , coalesce(e2.lvl4_legal_unit_nm, '-' ) as next_lvl4_legal_unit_nm\n   , coalesce(e2.lvl5_legal_unit_nm, '-' ) as next_lvl5_legal_unit_nm\n   , coalesce(e2.lvl6_legal_unit_nm, '-' ) as next_lvl6_legal_unit_nm\n   , coalesce(e2.lvl7_legal_unit_nm, '-' ) as next_lvl7_legal_unit_nm\n\n   --Атрибуты ЮС - прошлое\n   , coalesce(e1.employment_relation_type_desc, '-' ) as prev_employment_relation_type_desc\n   , coalesce(e1.employee_contract_type_desc, '-' ) as prev_employee_contract_type_desc\n   , coalesce(e1.active_type_nm, '-' ) as prev_active_type_nm\n   , coalesce(e1.legal_employee_flg, 0 ) as prev_legal_employee_flg\n   , coalesce(e1.experience_group_nm, '-' ) as prev_experience_group_nm\n   , coalesce(e1.experience_detail_group_nm, '-' ) as prev_experience_detail_group_nm\n   , coalesce(e1.legal_position_nm, '-' ) as prev_legal_position_nm\n\n   --Атрибуты ЮС - следующее\n   , coalesce(e2.employment_relation_type_desc, '-' ) as next_employment_relation_type_desc\n   , coalesce(e2.employee_contract_type_desc, '-' ) as next_employee_contract_type_desc\n   , coalesce(e2.active_type_nm, '-' ) as next_active_type_nm\n   , coalesce(e2.legal_employee_flg, 0 ) as next_legal_employee_flg\n   , coalesce(e2.experience_group_nm, '-' ) as next_experience_group_nm\n   , coalesce(e2.experience_detail_group_nm, '-' ) as next_experience_detail_group_nm\n   , coalesce(e2.legal_position_nm, '-' ) as next_legal_position_nm\n\n   --Атрибуты ФЛ - прошлое\n   , e1.office_desc as prev_office_desc\n   , e1.residential_state_nm as prev_residential_state_nm\n   , e1.gender_desc as prev_gender_desc\n   , e1.seniority as prev_seniority\n   , e1.grade as prev_grade\n   , e1.management_head_flg as prev_management_head_flg\n\n   --Атрибуты ФЛ - следующее\n   , e2.office_desc as next_office_desc\n   , e2.residential_state_nm as next_residential_state_nm\n   , e2.gender_desc as next_gender_desc\n   , e2.seniority as next_seniority\n   , e2.grade as next_grade\n   , e2.management_head_flg as next_management_head_flg\n \nfrom all_employee e\n\nleft join all_employee e1\non e.mdm_employee_rk = e1.mdm_employee_rk\n   and e.business_dt = (e1.business_dt + interval '1 day')::date\n\nleft join all_employee e2\non e.mdm_employee_rk = e2.mdm_employee_rk\n   and e.business_dt = (e2.business_dt - interval '1 day')::date\n\n-- where e.mdm_employee_rk=153461\n\ndistributed by (mdm_employee_rk, business_dt)\n;"
+    isEnabled: true
+  - sid: 019c476f-6841-763b-b7dc-e911dfd53885
+    title: Обогащаем атрибутами
+    shebang: gp
+    code: |-
+      drop table if exists all_employee_new;
+      create table all_employee_new as
+
+      select e.*,
+          -- предыдущие и следующие значения
+          pn.prev_lvl3_management_unit_nm,
+          pn.prev_lvl4_management_unit_nm,
+          pn.prev_lvl5_management_unit_nm,
+          pn.prev_lvl6_management_unit_nm,
+          pn.prev_lvl7_management_unit_nm,
+          pn.prev_lvl8_management_unit_nm,
+          pn.prev_lvl9_management_unit_nm,
+          pn.prev_lvl10_management_unit_nm,
+          pn.prev_lvl11_management_unit_nm,
+          pn.prev_lvl12_management_unit_nm,
+          --
+          pn.next_lvl3_management_unit_nm,
+          pn.next_lvl4_management_unit_nm,
+          pn.next_lvl5_management_unit_nm,
+          pn.next_lvl6_management_unit_nm,
+          pn.next_lvl7_management_unit_nm,
+          pn.next_lvl8_management_unit_nm,
+          pn.next_lvl9_management_unit_nm,
+          pn.next_lvl10_management_unit_nm,
+          pn.next_lvl11_management_unit_nm,
+          pn.next_lvl12_management_unit_nm,
+          --
+          pn.prev_emp_specialization_oper_code,
+          pn.prev_emp_specialization_it_code,
+          pn.prev_emp_specialization_desc,
+          pn.prev_emp_stream_desc,
+          pn.prev_management_head_nm,
+          --
+          pn.next_emp_specialization_oper_code,
+          pn.next_emp_specialization_it_code,
+          pn.next_emp_specialization_desc,
+          pn.next_emp_stream_desc,
+          pn.next_management_head_nm,
+          --
+          pn.prev_lvl1_legal_unit_nm,
+          pn.prev_lvl2_legal_unit_nm,
+          pn.prev_lvl3_legal_unit_nm,
+          pn.prev_lvl4_legal_unit_nm,
+          pn.prev_lvl5_legal_unit_nm,
+          pn.prev_lvl6_legal_unit_nm,
+          pn.prev_lvl7_legal_unit_nm,
+          --
+          pn.next_lvl1_legal_unit_nm,
+          pn.next_lvl2_legal_unit_nm,
+          pn.next_lvl3_legal_unit_nm,
+          pn.next_lvl4_legal_unit_nm,
+          pn.next_lvl5_legal_unit_nm,
+          pn.next_lvl6_legal_unit_nm,
+          pn.next_lvl7_legal_unit_nm,
+          --
+          pn.prev_employment_relation_type_desc,
+          pn.prev_employee_contract_type_desc,
+          pn.prev_active_type_nm,
+          pn.prev_legal_employee_flg,
+          pn.prev_experience_group_nm,
+          pn.prev_experience_detail_group_nm,
+          pn.prev_legal_position_nm,
+          --
+          pn.next_employment_relation_type_desc,
+          pn.next_employee_contract_type_desc,
+          pn.next_active_type_nm,
+          pn.next_legal_employee_flg,
+          pn.next_experience_group_nm,
+          pn.next_experience_detail_group_nm,
+          pn.next_legal_position_nm,
+          --
+          pn.prev_office_desc,
+          pn.prev_residential_state_nm,
+          pn.prev_gender_desc,
+          pn.prev_seniority,
+          pn.prev_grade,
+          pn.prev_management_head_flg,
+          --
+          pn.next_office_desc,
+          pn.next_residential_state_nm,
+          pn.next_gender_desc,
+          pn.next_seniority,
+          pn.next_grade,
+          pn.next_management_head_flg
+      from
+          all_employee e
+      left join
+          all_employee_new_prev_next pn on e.mdm_employee_rk = pn.mdm_employee_rk and e.business_dt = pn.business_dt
+
+      distributed by (mdm_employee_rk, business_dt)
+      ;
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7387-8b3e-54d3b18965c9
+    title: События переводов по атрибутам УС
+    shebang: gp
+    code: "select public.tcs_harmonize_grants('prod_v_sse_crossdata.management_position_attr_chng');\n\ndrop table if exists management_transfer;\ncreate table management_transfer as\n\nselect mt.mdm_employee_rk\n    , mt.change_dt\n    , mt.change_from_lvl3_management_flg as transfer_out_lvl3_management_flg\n    , mt.change_from_lvl4_management_flg as transfer_out_lvl4_management_flg\n    , mt.change_from_lvl5_management_flg as transfer_out_lvl5_management_flg\n    , mt.change_from_lvl6_management_flg as transfer_out_lvl6_management_flg\n    , mt.change_from_lvl7_management_flg as transfer_out_lvl7_management_flg\n    , mt.change_from_lvl8_management_flg as transfer_out_lvl8_management_flg\n    , mt.change_from_lvl9_management_flg as transfer_out_lvl9_management_flg\n    , mt.change_from_lvl10_management_flg as transfer_out_lvl10_management_flg\n    , mt.change_from_lvl11_management_flg as transfer_out_lvl11_management_flg\n    , mt.change_from_lvl12_management_flg as transfer_out_lvl12_management_flg\n\n    , mt.change_to_lvl3_management_unit_nm as next_lvl3_management_unit_nm\n    , mt.change_to_lvl4_management_unit_nm as next_lvl4_management_unit_nm\n    , mt.change_to_lvl5_management_unit_nm as next_lvl5_management_unit_nm\n    , mt.change_to_lvl6_management_unit_nm as next_lvl6_management_unit_nm\n    , mt.change_to_lvl7_management_unit_nm as next_lvl7_management_unit_nm\n    , mt.change_to_lvl8_management_unit_nm as next_lvl8_management_unit_nm\n    , mt.change_to_lvl9_management_unit_nm as next_lvl9_management_unit_nm\n    , mt.change_to_lvl10_management_unit_nm as next_lvl10_management_unit_nm\n    , mt.change_to_lvl11_management_unit_nm as next_lvl11_management_unit_nm\n    , mt.change_to_lvl12_management_unit_nm as next_lvl12_management_unit_nm\n\n\n    , mt.change_to_lvl3_management_flg as transfer_to_lvl3_management_flg\n    , mt.change_to_lvl4_management_flg as transfer_to_lvl4_management_flg\n    , mt.change_to_lvl5_management_flg as transfer_to_lvl5_management_flg\n    , mt.change_to_lvl6_management_flg as transfer_to_lvl6_management_flg \n    , mt.change_to_lvl7_management_flg as transfer_to_lvl7_management_flg\n    , mt.change_to_lvl8_management_flg as transfer_to_lvl8_management_flg \n    , mt.change_to_lvl9_management_flg as transfer_to_lvl9_management_flg\n    , mt.change_to_lvl10_management_flg as transfer_to_lvl10_management_flg \n    , mt.change_to_lvl11_management_flg as transfer_to_lvl11_management_flg\n    , mt.change_to_lvl12_management_flg as transfer_to_lvl12_management_flg\n\n    , mt.change_from_lvl3_management_unit_nm as prev_lvl3_management_unit_nm\n    , mt.change_from_lvl4_management_unit_nm as prev_lvl4_management_unit_nm\n    , mt.change_from_lvl5_management_unit_nm as prev_lvl5_management_unit_nm\n    , mt.change_from_lvl6_management_unit_nm as prev_lvl6_management_unit_nm\n    , mt.change_from_lvl7_management_unit_nm as prev_lvl7_management_unit_nm\n    , mt.change_from_lvl8_management_unit_nm as prev_lvl8_management_unit_nm\n    , mt.change_from_lvl9_management_unit_nm as prev_lvl9_management_unit_nm\n    , mt.change_from_lvl10_management_unit_nm as prev_lvl10_management_unit_nm\n    , mt.change_from_lvl11_management_unit_nm as prev_lvl11_management_unit_nm\n    , mt.change_from_lvl12_management_unit_nm as prev_lvl12_management_unit_nm\n\n    , mt.change_from_hq_flg as transfer_out_hq_flg\n    , mt.change_from_it_flg as transfer_out_it_flg\n    , mt.change_from_specialization_flg as transfer_out_specialization_flg\n    , mt.change_from_stream_flg as transfer_out_stream_flg\n    , mt.change_from_management_head_flg as transfer_out_management_head_flg\n    , mt.change_from_seniority_flg as transfer_out_seniority_flg\n    , mt.change_from_grade_flg as transfer_out_grade_flg\n\n    , mt.change_to_emp_specialization_oper_code as next_emp_specialization_oper_code\n    , mt.change_to_emp_specialization_it_code as next_emp_specialization_it_code\n    , mt.change_to_emp_specialization_desc as next_emp_specialization_desc\n    , mt.change_to_emp_stream_desc as next_emp_stream_desc\n\n    , mt.change_to_seniority as next_seniority\n\n    , mt.change_to_hq_flg as transfer_to_hq_flg\n    , mt.change_to_it_flg as transfer_to_it_flg\n    , mt.change_to_specialization_flg as transfer_to_specialization_flg\n    , mt.change_to_stream_flg as transfer_to_stream_flg\n    , mt.change_to_management_head_flg as transfer_to_management_head_flg\n    , mt.change_to_seniority_flg as transfer_to_seniority_flg\n    , mt.change_to_grade_flg as transfer_to_grade_flg\n\n\n    , mt.change_from_emp_specialization_oper_code as prev_emp_specialization_oper_code\n    , mt.change_from_emp_specialization_it_code as prev_emp_specialization_it_code\n    , mt.change_from_emp_specialization_desc as prev_emp_specialization_desc\n    , mt.change_from_emp_stream_desc as prev_emp_stream_desc\n\n    , mt.change_from_seniority as prev_seniority\n\n     -- Считаем ОБЩИЙ флаг перевода\n    , CASE \n            WHEN mt.change_from_lvl3_management_flg = 1 \n              OR mt.change_from_lvl4_management_flg = 1 \n              OR mt.change_from_lvl5_management_flg = 1 \n              OR mt.change_from_lvl6_management_flg = 1 \n              OR mt.change_from_lvl7_management_flg = 1 \n              OR mt.change_from_lvl8_management_flg = 1 \n              OR mt.change_from_lvl9_management_flg = 1 \n              OR mt.change_from_lvl10_management_flg = 1 \n              OR mt.change_from_lvl11_management_flg = 1 \n              OR mt.change_from_lvl12_management_flg = 1 \n              OR mt.change_from_hq_flg = 1 \n              OR mt.change_from_it_flg = 1 \n              OR mt.change_from_specialization_flg = 1 \n              OR mt.change_from_stream_flg = 1 \n              OR mt.change_from_management_head_flg = 1 \n              OR mt.change_from_seniority_flg = 1 \n              OR mt.change_from_grade_flg = 1\n            THEN 1\n            ELSE 0\n        END as is_transfer_out_management_flg\n\n    -- , w.next_emp_specialization_oper_code\n    -- , w.next_emp_specialization_it_code\n    -- , w.next_emp_specialization_desc\n    -- , w.next_emp_stream_desc\n\nfrom prod_v_sse_crossdata.management_position_attr_chng mt\n\nwhere 1=1\n    and mt.change_dt >= date_trunc('year', current_date - interval '1 day') - interval '3 year'\n\ndistributed by (mdm_employee_rk, change_dt)\n;\n\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-738a-a523-e981da08359d
+    title: События переводов по атрибутам ЮС
+    shebang: gp
+    code: "drop table if exists legal_transfer;\n\ncreate table legal_transfer as\n\nselect lt.mdm_employee_rk\n    , lt.change_dt\n    , lt.change_from_lvl1_legal_flg as transfer_out_lvl1_legal_flg\n    , lt.change_from_lvl2_legal_flg as transfer_out_lvl2_legal_flg\n    , lt.change_from_lvl3_legal_flg as transfer_out_lvl3_legal_flg\n    , lt.change_from_lvl4_legal_flg as transfer_out_lvl4_legal_flg\n    , lt.change_from_lvl5_legal_flg as transfer_out_lvl5_legal_flg\n    , lt.change_from_lvl6_legal_flg as transfer_out_lvl6_legal_flg\n    , lt.change_from_lvl7_legal_flg as transfer_out_lvl7_legal_flg\n\n    , lt.change_to_lvl1_legal_unit_nm as next_lvl1_legal_unit_nm\n    , lt.change_to_lvl2_legal_unit_nm as next_lvl2_legal_unit_nm\n    , lt.change_to_lvl3_legal_unit_nm as next_lvl3_legal_unit_nm\n    , lt.change_to_lvl4_legal_unit_nm as next_lvl4_legal_unit_nm\n    , lt.change_to_lvl5_legal_unit_nm as next_lvl5_legal_unit_nm\n    , lt.change_to_lvl6_legal_unit_nm as next_lvl6_legal_unit_nm\n    , lt.change_to_lvl7_legal_unit_nm as next_lvl7_legal_unit_nm\n\n    , lt.change_to_lvl1_legal_flg as transfer_to_lvl1_legal_flg\n    , lt.change_to_lvl2_legal_flg as transfer_to_lvl2_legal_flg\n    , lt.change_to_lvl3_legal_flg as transfer_to_lvl3_legal_flg\n    , lt.change_to_lvl4_legal_flg as transfer_to_lvl4_legal_flg\n    , lt.change_to_lvl5_legal_flg as transfer_to_lvl5_legal_flg\n    , lt.change_to_lvl6_legal_flg as transfer_to_lvl6_legal_flg\n    , lt.change_to_lvl7_legal_flg as transfer_to_lvl7_legal_flg\n\n    , lt.change_from_lvl1_legal_unit_nm as prev_lvl1_legal_unit_nm\n    , lt.change_from_lvl2_legal_unit_nm as prev_lvl2_legal_unit_nm\n    , lt.change_from_lvl3_legal_unit_nm as prev_lvl3_legal_unit_nm\n    , lt.change_from_lvl4_legal_unit_nm as prev_lvl4_legal_unit_nm\n    , lt.change_from_lvl5_legal_unit_nm as prev_lvl5_legal_unit_nm\n    , lt.change_from_lvl6_legal_unit_nm as prev_lvl6_legal_unit_nm\n    , lt.change_from_lvl7_legal_unit_nm as prev_lvl7_legal_unit_nm\n    \n    -- , w.next_lvl1_legal_unit_nm\n    -- , w.next_lvl2_legal_unit_nm\n    -- , w.next_lvl3_legal_unit_nm\n    -- , w.next_employment_relation_type_desc\n    -- , w.next_employee_contract_type_desc\n\n    , lt.change_from_employment_relation_type_flg as transfer_out_employment_relation_type_flg\n    , lt.change_from_employee_contract_type_flg as transfer_out_employee_contract_type_flg\n\n    , lt.change_to_employment_relation_type_flg as transfer_to_employment_relation_type_flg \n    , lt.change_to_employee_contract_type_flg as transfer_to_employee_contract_type_flg\n\n    , lt.change_from_legal_position_flg as transfer_out_legal_position_flg\n    , lt.change_to_legal_position_flg as transfer_to_legal_position_flg \n\n    , lt.change_to_employment_relation_type_desc as next_employment_relation_type_desc\n    , lt.change_to_employee_contract_type_desc as next_employee_contract_type_desc\n    , lt.change_to_legal_position_nm as next_legal_position_nm\n\n    , lt.change_from_employment_relation_type_desc as prev_employment_relation_type_desc\n    , lt.change_from_employee_contract_type_desc as prev_employee_contract_type_desc\n    , lt.change_from_legal_position_nm as prev_legal_position_nm\n\n    , CASE \n            WHEN lt.change_from_lvl1_legal_flg = 1 \n              OR lt.change_from_lvl2_legal_flg = 1 \n              OR lt.change_from_lvl3_legal_flg = 1 \n              OR lt.change_from_lvl4_legal_flg = 1 \n              OR lt.change_from_lvl5_legal_flg = 1 \n              OR lt.change_from_lvl6_legal_flg = 1 \n              OR lt.change_from_lvl7_legal_flg = 1 \n              OR lt.change_from_employment_relation_type_flg = 1 \n              OR lt.change_from_employee_contract_type_flg = 1 \n              OR lt.change_from_legal_position_flg = 1\n            THEN 1\n            ELSE 0\n        END as is_transfer_out_legal_flg\n\nfrom prod_v_sse_crossdata.legal_position_attr_chng lt\n\nwhere 1=1\n    and lt.change_dt >= date_trunc('year', current_date - interval '1 day') - interval '3 year'\n\ndistributed by (mdm_employee_rk, change_dt)\n;\n\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7392-bfb7-eed15686937e
+    title: События переводов по атрибутам сотрудника
+    shebang: gp
+    code: "drop table if exists mdm_emp_transfer;\n\ncreate table mdm_emp_transfer as\n\nselect ht.mdm_employee_rk\n    , ht.business_dt\n    , ht.change_from_office_flg as transfer_out_office_flg\n    , ht.change_from_residential_state_flg as transfer_out_residential_state_flg\n    , ht.change_from_active_type_flg as transfer_out_active_type_flg\n    , ht.change_from_legal_employee_flg as transfer_out_legal_employee_flg\n    , ht.change_from_experience_group_nm_flg as transfer_out_experience_group_flg\n    , ht.change_from_experience_detail_group_nm_flg as transfer_out_experience_detail_group_flg\n    , ht.change_from_gender_desc_flg as transfer_out_gender_desc_flg\n    \n    , ht.change_from_active_type_nm as prev_active_type_nm\n    , ht.change_from_legal_employee_flg as prev_legal_employee_flg\n    , ht.change_from_experience_group_nm as prev_experience_group_nm\n    , ht.change_from_experience_detail_group_nm as prev_experience_detail_group_nm\n\n    , ht.change_to_active_type_nm as next_active_type_nm\n    , ht.change_to_legal_employee_flg as next_legal_employee_flg\n    , ht.change_to_experience_group_nm as next_experience_group_nm\n    , ht.change_to_experience_detail_group_nm as next_experience_detail_group_nm\n\n    , ht.change_to_office_flg as transfer_to_office_flg\n    , ht.change_to_residential_state_flg as transfer_to_residential_state_flg\n    , ht.change_to_active_type_flg as transfer_to_active_type_flg\n    , ht.change_to_legal_employee_flg as transfer_to_legal_employee_flg\n    , ht.change_to_experience_group_nm_flg as transfer_to_experience_group_flg\n    , ht.change_to_experience_detail_group_nm_flg as transfer_to_experience_detail_group_flg \n    , ht.change_to_gender_desc_flg as transfer_to_gender_desc_flg  \n\n    , ht.change_from_office_desc as prev_office_desc\n    , ht.change_from_residential_state_nm as prev_residential_state_nm\n    , ht.change_from_gender_desc as prev_gender_desc\n\n    , ht.change_to_office_desc as next_office_desc\n    , ht.change_to_residential_state_nm as next_residential_state_nm\n    , ht.change_to_gender_desc as next_gender_desc\n\n    , CASE \n            WHEN ht.change_from_office_flg = 1 \n              OR ht.change_from_residential_state_flg = 1 \n              OR ht.change_from_active_type_flg = 1 \n              OR ht.change_from_legal_employee_flg = 1 \n              OR ht.change_from_experience_group_nm_flg = 1 \n              OR ht.change_from_experience_detail_group_nm_flg = 1 \n              OR ht.change_from_gender_desc_flg = 1\n            THEN 1\n            ELSE 0\n        END as is_transfer_out_emp_flg\n\nfrom prod_v_sse_crossdata.mdm_employee_common_attr_change_d ht\n\nwhere 1=1\n    --and ht.change_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n\ndistributed by (mdm_employee_rk, business_dt)\n;\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7399-8f7d-6a61bea1b9bf
+    title: "Достаем даты, где есть переводы УС, ЮС"
+    shebang: gp
+    code: "drop table if exists employee_transfer_ms_ls;\ncreate table employee_transfer_ms_ls as\n\nselect e.business_dt\n, e.mdm_employee_rk\n\nfrom all_employee_new e\n\nleft join management_transfer mt\n    on e.business_dt=mt.change_dt\n    and e.mdm_employee_rk=mt.mdm_employee_rk\n\nleft join legal_transfer lt\n    on e.business_dt=lt.change_dt\n    and e.mdm_employee_rk=lt.mdm_employee_rk\n\nleft join mdm_emp_transfer ht\n    on e.business_dt=ht.business_dt\n    and e.mdm_employee_rk=ht.mdm_employee_rk\n\n-- left join mdm_other_transfer ot\n--     on e.business_dt=ot.business_dt\n--     and e.mdm_employee_rk=ot.mdm_employee_rk\n\n-- left join employee_turnover et\n--     on e.business_dt=et.calendar_dt\n--     and e.mdm_employee_rk=et.mdm_employee_rk\n\nwhere 1=1\n    and \n    (\n    e.last_day_flg=1\n    or e.last_day_of_month_flg=1\n    or e.company_hire_flg=1\n    or e.company_fire_flg=1\n    or e.transfer_candidate_flg=1\n    or e.transfer_internal_flg=1\n    or mt.mdm_employee_rk is not null\n    or lt.mdm_employee_rk is not null\n    or ht.mdm_employee_rk is not null\n    -- or ot.mdm_employee_rk is not null\n    )\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-739d-a8fa-9b7560d026fe
+    title: Уровень 1 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl1;\n\ncreate table  pre_functional_lvl1 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl1_functional_unit_nm),'-') as lvl1_functional_unit_nm\n    , coalesce(trim(f.lvl1_functional_unit_rk),'-') as lvl1_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-73a6-8168-91f70a3f4a3e
+    title: Уровень 2 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl2;\n\ncreate table  pre_functional_lvl2 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl2_functional_unit_nm),'-') as lvl2_functional_unit_nm\n    , coalesce(trim(f.lvl2_functional_unit_rk),'-') as lvl2_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-73a9-95c4-e07bb27c8512
+    title: Уровень 3 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl3;\n\ncreate table  pre_functional_lvl3 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl3_functional_unit_nm),'-') as lvl3_functional_unit_nm\n    , coalesce(trim(f.lvl3_functional_unit_rk),'-') as lvl3_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-73f5-8709-f6cab022f790
+    title: Уровень 4 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl4;\n\ncreate table  pre_functional_lvl4 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl4_functional_unit_nm),'-') as lvl4_functional_unit_nm\n    , coalesce(trim(f.lvl4_functional_unit_rk),'-') as lvl4_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-73fc-a9d6-8f82573f7c20
+    title: Уровень 5 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl5;\n\ncreate table  pre_functional_lvl5 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl5_functional_unit_nm),'-') as lvl5_functional_unit_nm\n    , coalesce(trim(f.lvl5_functional_unit_rk),'-') as lvl5_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-740d-8881-b40f8f87b967
+    title: Уровень 6 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl6;\n\ncreate table  pre_functional_lvl6 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl6_functional_unit_nm),'-') as lvl6_functional_unit_nm\n    , coalesce(trim(f.lvl6_functional_unit_rk),'-') as lvl6_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7412-a0a7-d4bd62e8fecd
+    title: Уровень 7 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl7;\n\ncreate table  pre_functional_lvl7 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl7_functional_unit_nm),'-') as lvl7_functional_unit_nm\n    , coalesce(trim(f.lvl7_functional_unit_rk),'-') as lvl7_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7417-ac4c-6a91581ed2bd
+    title: Уровень 8 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl8;\n\ncreate table  pre_functional_lvl8 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl8_functional_unit_nm),'-') as lvl8_functional_unit_nm\n    , coalesce(trim(f.lvl8_functional_unit_rk),'-') as lvl8_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-741e-a514-2006ad08d91a
+    title: Уровень 9 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl9;\n\ncreate table  pre_functional_lvl9 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl9_functional_unit_nm),'-') as lvl9_functional_unit_nm\n    , coalesce(trim(f.lvl9_functional_unit_rk),'-') as lvl9_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7429-bafd-28352b3b4e91
+    title: Уровень 10 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl10;\n\ncreate table  pre_functional_lvl10 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl10_functional_unit_nm),'-') as lvl10_functional_unit_nm\n    , coalesce(trim(f.lvl10_functional_unit_rk),'-') as lvl10_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7430-9b9b-51fff3be624a
+    title: Уровень 11 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl11;\n\ncreate table  pre_functional_lvl11 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl11_functional_unit_nm),'-') as lvl11_functional_unit_nm\n    , coalesce(trim(f.lvl11_functional_unit_rk),'-') as lvl11_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7435-ab05-f2721081395b
+    title: Уровень 12 КП - подготавливаем
+    shebang: gp
+    code: "drop table if exists pre_functional_lvl12;\n\ncreate table  pre_functional_lvl12 as \n\nselect f.mdm_employee_rk\n    , f.business_dt\n    , coalesce(trim(f.lvl12_functional_unit_nm),'-') as lvl12_functional_unit_nm\n    , coalesce(trim(f.lvl12_functional_unit_rk),'-') as lvl12_functional_unit_rk\n    , sum(coalesce(f.allocation_prt_norm,0)) as allocation_prt_norm\n\nfrom usr_cross_data.functional_role_d_br f \n\ninner join mdm_employee_d m\non f.business_dt = m.business_dt\nand f.mdm_employee_rk = m.mdm_employee_rk\n\nwhere 1=1\n    and f.business_dt >= date_trunc('year', current_date - interval '1 day') - interval '2 year'\n    and f.mdm_employee_rk is not null\n\ngroup by 1,2,3,4\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-737e-8260-3855ab50c1de
+    title: Собираем облегченную версию без переводов
+    shebang: gp
+    code: "drop table if exists all_employee_add_flags_light;\n\ncreate table all_employee_add_flags_light as\n\nselect e.*\n                    \n    , case  when last_day_flg=1 then 1 else last_day_of_month_flg end as last_day_of_month_flg_new\n    , case  when last_day_flg=1 then 1 else last_day_of_quarter_flg end as last_day_of_quarter_flg_new\n    , case  when last_day_flg=1 then 1 else last_day_of_year_flg end as last_day_of_year_flg_new\n    , f.functional_lvl_all_array\n    , f.array_lvl1_functional_unit_nm\n    , f.array_lvl2_functional_unit_nm\n    , f.array_lvl3_functional_unit_nm\n    , f.array_functional_unit_rk\n    --, wf.functional_unit_rk_array_new\n\nfrom all_employee e\n\nleft join functional_array f\n    on e.business_dt=f.business_dt\n    and e.mdm_employee_rk=f.mdm_employee_rk\n\n-- left join warden_functional_array wf\n--     on e.business_dt=wf.business_dt\n--     and e.mdm_employee_rk=wf.mdm_employee_rk\n\nwhere 1=1\n    and \n    (\n    e.last_day_flg=1\n    or e.last_day_of_month_flg=1\n    or e.company_hire_flg=1\n    or e.company_fire_flg=1\n    or e.transfer_candidate_flg=1\n    or e.transfer_internal_flg=1\n    )\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7381-85bc-7b7ff27a2486
+    title: Приземляем в лабу
+    shebang: gp
+    code: |-
+      drop table if exists usr_cross_data.mdm_employee_d_light;
+      create table usr_cross_data.mdm_employee_d_light as
+
+      select *
+      from all_employee_add_flags_light;
+
+      select public.tcs_harmonize_grants('usr_cross_data.mdm_employee_d_light');
+
+      -- drop table if exists usr_cross_data.warden_access_array;
+      -- create table usr_cross_data.warden_access_array as
+
+      -- select business_dt
+      -- , mdm_employee_rk
+      -- --массивы для вардена
+      -- , mapped_management_unit_rk_array
+      -- , legal_unit_rk_array
+      -- , mdm_employee_rk_array
+      -- , functional_unit_rk_array_new
+      -- , profession_nm_array_new
+      -- from all_employee_add_flags_light;
+
+      -- select public.tcs_harmonize_grants('usr_cross_data.warden_access_array');
+    isEnabled: true
+  - sid: 019b12c0-c1c6-743b-97b0-62e6db7a6b25
+    title: Уровень 1 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl1;\n\ncreate table  pre_transfer_functional_lvl1 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl1_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl1_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl1_fucntional_flg\n    , case \n        when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl1_functional_unit_rk) = f.business_dt then 1\n        when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl1_functional_unit_rk order by f.business_dt) != f.business_dt - 1 then 1\n        else 0\n        end as transfer_in_lvl1_fucntional_flg\n\nfrom pre_functional_lvl1 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7449-9fb1-da461c7494ab
+    title: Уровень 2 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl2;\n\ncreate table  pre_transfer_functional_lvl2 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl2_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl2_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl2_fucntional_flg\n    , case \n        when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl2_functional_unit_rk) = f.business_dt then 1\n        when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl2_functional_unit_rk order by f.business_dt) != f.business_dt - 1 then 1\n        else 0\n        end as transfer_in_lvl2_fucntional_flg\n\nfrom pre_functional_lvl2 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-744e-ad41-ff1d692e90cb
+    title: Уровень 3 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl3;\n\ncreate table  pre_transfer_functional_lvl3 as \n\nselect f.*\n    ,case \n        when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl3_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1 then 1\n        when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl3_functional_unit_rk order by f.business_dt) != f.business_dt + 1  then 1\n        else 0\n        end as transfer_out_lvl3_fucntional_flg\n    , case \n        when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl3_functional_unit_rk) = f.business_dt then 1\n        when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl3_functional_unit_rk order by f.business_dt) != f.business_dt - 1 then 1\n        else 0\n        end as transfer_in_lvl3_fucntional_flg\n\nfrom pre_functional_lvl3 f \n\nwhere 1=1\n\n-- select mdm_employee_rk\n--     , business_dt\n--     , lvl3_functional_unit_nm\n--     , lvl3_functional_unit_rk\n--     , allocation_prt_norm\n--     --, case when company_hire_flg = 1 or transfer_candidate_flg = 1 or transfer_internal_flg = 1 then 0 else  transfer_in_lvl3_fucntional_flg end as active_transfer_in_lvl3_fucntional_flg\n--     --, case when company_hire_flg = 1 then 0 else transfer_in_lvl3_fucntional_flg end as legal_transfer_in_lvl3_fucntional_flg\n--     --, case when company_fire_flg = 1 then 0 else transfer_out_lvl3_fucntional_flg end as transfer_out_lvl3_fucntional_flg\n--     , transfer_in_lvl3_fucntional_flg\n-- from pre\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7455-a7fb-c7d2b2d1501e
+    title: Уровень 4 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl4;\n\ncreate table  pre_transfer_functional_lvl4 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl4_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl4_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl4_fucntional_flg\n    , case \n        when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl4_functional_unit_rk) = f.business_dt then 1\n        when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl4_functional_unit_rk order by f.business_dt) != f.business_dt - 1 then 1\n        else 0\n        end as transfer_in_lvl4_fucntional_flg\n\nfrom pre_functional_lvl4 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7459-933a-cb67b086e560
+    title: Уровень 5 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl5;\n\ncreate table  pre_transfer_functional_lvl5 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl5_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl5_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl5_fucntional_flg\n    , case \n        when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl5_functional_unit_rk) = f.business_dt then 1\n        when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl5_functional_unit_rk order by f.business_dt) != f.business_dt - 1 then 1\n        else 0\n        end as transfer_in_lvl5_fucntional_flg\n\nfrom pre_functional_lvl5 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7465-8f68-bacf361b51d0
+    title: Уровень 6 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl6;\n\ncreate table  pre_transfer_functional_lvl6 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl6_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl6_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl6_fucntional_flg\n    , case when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl6_functional_unit_rk) = f.business_dt\n           then 1\n       when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl6_functional_unit_rk order by f.business_dt) != f.business_dt - 1\n       then 1\n        else 0\n        end as transfer_in_lvl6_fucntional_flg\n\nfrom pre_functional_lvl6 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-746c-926c-a7f7b988fa09
+    title: Уровень 7 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl7;\n\ncreate table  pre_transfer_functional_lvl7 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl7_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl7_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl7_fucntional_flg\n    , case when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl7_functional_unit_rk) = f.business_dt\n           then 1\n       when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl7_functional_unit_rk order by f.business_dt) != f.business_dt - 1\n       then 1\n        else 0\n        end as transfer_in_lvl7_fucntional_flg\n\nfrom pre_functional_lvl7 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7471-9125-49941ceef2a4
+    title: Уровень 8 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl8;\n\ncreate table  pre_transfer_functional_lvl8 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl8_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl8_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl8_fucntional_flg\n    , case when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl8_functional_unit_rk) = f.business_dt\n           then 1\n       when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl8_functional_unit_rk order by f.business_dt) != f.business_dt - 1\n       then 1\n        else 0\n        end as transfer_in_lvl8_fucntional_flg\n\nfrom pre_functional_lvl8 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7478-9de7-0bdd2e416043
+    title: Уровень 9 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl9;\n\ncreate table  pre_transfer_functional_lvl9 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl9_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl9_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl9_fucntional_flg\n    , case when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl9_functional_unit_rk) = f.business_dt\n           then 1\n       when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl9_functional_unit_rk order by f.business_dt) != f.business_dt - 1\n       then 1\n        else 0\n        end as transfer_in_lvl9_fucntional_flg\n\nfrom pre_functional_lvl9 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7484-9e9a-ccc9ba36167c
+    title: Уровень 10 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl10;\n\ncreate table  pre_transfer_functional_lvl10 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl10_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl10_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl10_fucntional_flg\n    , case when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl10_functional_unit_rk) = f.business_dt\n           then 1\n       when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl10_functional_unit_rk order by f.business_dt) != f.business_dt - 1\n       then 1\n        else 0\n        end as transfer_in_lvl10_fucntional_flg\n\nfrom pre_functional_lvl10 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7489-bb33-77a6e33dcb29
+    title: Уровень 11 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl11;\n\ncreate table  pre_transfer_functional_lvl11 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl11_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl11_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl11_fucntional_flg\n    , case when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl11_functional_unit_rk) = f.business_dt\n           then 1\n       when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl11_functional_unit_rk order by f.business_dt) != f.business_dt - 1\n       then 1\n        else 0\n        end as transfer_in_lvl11_fucntional_flg\n\nfrom pre_functional_lvl11 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7491-a7ae-f96064aeb6b9
+    title: Уровень 12 КП - считаем флаги переводов
+    shebang: gp
+    code: "drop table if exists pre_transfer_functional_lvl12;\n\ncreate table  pre_transfer_functional_lvl12 as \n\nselect f.*\n    ,case when max(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl12_functional_unit_rk) = f.business_dt and f.business_dt != current_date - 1\n            then 1\n     when lead(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl12_functional_unit_rk order by f.business_dt) != f.business_dt + 1 \n       then 1\n        else 0\n        end as transfer_out_lvl12_fucntional_flg\n    , case when min(f.business_dt) over (partition by f.mdm_employee_rk, f.lvl12_functional_unit_rk) = f.business_dt\n           then 1\n       when lag(f.business_dt) over  (partition by f.mdm_employee_rk, f.lvl12_functional_unit_rk order by f.business_dt) != f.business_dt - 1\n       then 1\n        else 0\n        end as transfer_in_lvl12_fucntional_flg\n\nfrom pre_functional_lvl12 f \n\nwhere 1=1\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7497-8ab3-f7e2545a35d9
+    title: Достаем общие периоды дат
+    shebang: gp
+    code: "drop table if exists pre_business_period;\n\ncreate table  pre_business_period as \n\nselect business_dt, mdm_employee_rk\nfrom employee_transfer_ms_ls\n\nunion\n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl1\nwhere 1=1\nand \n    (\n        transfer_out_lvl1_fucntional_flg = 1 \n    or transfer_in_lvl1_fucntional_flg = 1\n    )\n\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl2\nwhere 1=1\nand \n    (\n        transfer_out_lvl2_fucntional_flg = 1 \n    or transfer_in_lvl2_fucntional_flg = 1\n    )\n\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl3\nwhere 1=1\nand \n    (\n        transfer_in_lvl3_fucntional_flg = 1 \n    or transfer_out_lvl3_fucntional_flg = 1\n    )\n\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl4\nwhere 1=1\nand \n    (\n        transfer_in_lvl4_fucntional_flg = 1 \n    or transfer_out_lvl4_fucntional_flg = 1\n    )\n\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl5\nwhere 1=1\nand \n    (\n        transfer_in_lvl5_fucntional_flg = 1 \n    or transfer_out_lvl5_fucntional_flg = 1\n    )\n\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl6\nwhere 1=1\nand \n    (\n        transfer_in_lvl6_fucntional_flg = 1 \n    or transfer_out_lvl6_fucntional_flg = 1\n    )\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl7\nwhere 1=1\nand \n    (\n        transfer_in_lvl7_fucntional_flg = 1 \n    or transfer_out_lvl7_fucntional_flg = 1\n    )\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl8\nwhere 1=1\nand \n    (\n        transfer_in_lvl8_fucntional_flg = 1 \n    or transfer_out_lvl8_fucntional_flg = 1\n    )\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl9\nwhere 1=1\nand \n    (\n        transfer_in_lvl9_fucntional_flg = 1 \n    or transfer_out_lvl9_fucntional_flg = 1\n    )\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl10\nwhere 1=1\nand \n    (\n        transfer_in_lvl10_fucntional_flg = 1 \n    or transfer_out_lvl10_fucntional_flg = 1\n    )\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl11\nwhere 1=1\nand \n    (\n        transfer_in_lvl11_fucntional_flg = 1 \n    or transfer_out_lvl11_fucntional_flg = 1\n    )\nunion \n\nselect business_dt, mdm_employee_rk\nfrom  pre_transfer_functional_lvl12\nwhere 1=1\nand \n    (\n        transfer_in_lvl12_fucntional_flg = 1 \n    or transfer_out_lvl12_fucntional_flg = 1\n    )\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-74a6-9fc6-74b67bed418a
+    title: Готовим таблицу по сотрудникам для джоина
+    shebang: gp
+    code: "drop table if exists pre_join_employee;\n\ncreate table  pre_join_employee as \n\nselect m.*\nfrom pre_business_period e\n\ninner join all_employee_new m\n    on e.business_dt=m.business_dt\n    and e.mdm_employee_rk=m.mdm_employee_rk\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-74ac-bf1d-bbb10927ff59
+    title: Добавляем переводы
+    shebang: gp
+    code: "/*  Оптимизация.\n    На этом шаге не джойним functional_array, создаём временную таблицу all_employee_add_flags_pre без этих данных\n    Далее будет обьяснение почему так\n*/\n\ndrop table if exists all_employee_add_flags_pre;\ncreate table all_employee_add_flags_pre as\n\nselect e.*\n    \n    --Уровни УС\n    , coalesce(mt.transfer_out_lvl3_management_flg, 0) as transfer_out_lvl3_management_flg\n    , coalesce(mt.transfer_out_lvl4_management_flg, 0) as transfer_out_lvl4_management_flg\n    , coalesce(mt.transfer_out_lvl5_management_flg, 0) as transfer_out_lvl5_management_flg\n    , coalesce(mt.transfer_out_lvl6_management_flg, 0) as transfer_out_lvl6_management_flg\n    , coalesce(mt.transfer_out_lvl7_management_flg, 0) as transfer_out_lvl7_management_flg\n    , coalesce(mt.transfer_out_lvl8_management_flg, 0) as transfer_out_lvl8_management_flg\n    , coalesce(mt.transfer_out_lvl9_management_flg, 0) as transfer_out_lvl9_management_flg\n    , coalesce(mt.transfer_out_lvl10_management_flg, 0) as transfer_out_lvl10_management_flg\n    , coalesce(mt.transfer_out_lvl11_management_flg, 0) as transfer_out_lvl11_management_flg\n    , coalesce(mt.transfer_out_lvl12_management_flg, 0) as transfer_out_lvl12_management_flg\n    \n    , coalesce(mt.transfer_to_lvl3_management_flg, 0) as transfer_to_lvl3_management_flg\n    , coalesce(mt.transfer_to_lvl4_management_flg, 0) as transfer_to_lvl4_management_flg\n    , coalesce(mt.transfer_to_lvl5_management_flg, 0) as transfer_to_lvl5_management_flg\n    , coalesce(mt.transfer_to_lvl6_management_flg, 0) as transfer_to_lvl6_management_flg\n    , coalesce(mt.transfer_to_lvl7_management_flg, 0) as transfer_to_lvl7_management_flg\n    , coalesce(mt.transfer_to_lvl8_management_flg, 0) as transfer_to_lvl8_management_flg\n    , coalesce(mt.transfer_to_lvl9_management_flg, 0) as transfer_to_lvl9_management_flg\n    , coalesce(mt.transfer_to_lvl10_management_flg, 0) as transfer_to_lvl10_management_flg\n    , coalesce(mt.transfer_to_lvl11_management_flg, 0) as transfer_to_lvl11_management_flg\n    , coalesce(mt.transfer_to_lvl12_management_flg, 0) as transfer_to_lvl12_management_flg\n    \n    -- , coalesce(mt.next_lvl3_management_unit_nm, '-') as next_lvl3_management_unit_nm\n    -- , coalesce(mt.next_lvl4_management_unit_nm, '-') as next_lvl4_management_unit_nm\n    -- , coalesce(mt.next_lvl5_management_unit_nm, '-') as next_lvl5_management_unit_nm\n    -- , coalesce(mt.next_lvl6_management_unit_nm, '-') as next_lvl6_management_unit_nm\n    -- , coalesce(mt.next_lvl7_management_unit_nm, '-') as next_lvl7_management_unit_nm\n    -- , coalesce(mt.next_lvl8_management_unit_nm, '-') as next_lvl8_management_unit_nm\n    -- , coalesce(mt.next_lvl9_management_unit_nm, '-') as next_lvl9_management_unit_nm\n    -- , coalesce(mt.next_lvl10_management_unit_nm, '-') as next_lvl10_management_unit_nm\n    -- , coalesce(mt.next_lvl11_management_unit_nm, '-') as next_lvl11_management_unit_nm\n    -- , coalesce(mt.next_lvl12_management_unit_nm, '-') as next_lvl12_management_unit_nm\n    \n    -- , coalesce(mt.prev_lvl3_management_unit_nm, '-') as prev_lvl3_management_unit_nm\n    -- , coalesce(mt.prev_lvl4_management_unit_nm, '-') as prev_lvl4_management_unit_nm\n    -- , coalesce(mt.prev_lvl5_management_unit_nm, '-') as prev_lvl5_management_unit_nm\n    -- , coalesce(mt.prev_lvl6_management_unit_nm, '-') as prev_lvl6_management_unit_nm\n    -- , coalesce(mt.prev_lvl7_management_unit_nm, '-') as prev_lvl7_management_unit_nm\n    -- , coalesce(mt.prev_lvl8_management_unit_nm, '-') as prev_lvl8_management_unit_nm\n    -- , coalesce(mt.prev_lvl9_management_unit_nm, '-') as prev_lvl9_management_unit_nm\n    -- , coalesce(mt.prev_lvl10_management_unit_nm, '-') as prev_lvl10_management_unit_nm\n    -- , coalesce(mt.prev_lvl11_management_unit_nm, '-') as prev_lvl11_management_unit_nm\n    -- , coalesce(mt.prev_lvl12_management_unit_nm, '-') as prev_lvl12_management_unit_nm\n\n    \n    \n    -- , coalesce(mt.next_emp_specialization_desc, '-') as next_emp_specialization_desc\n    -- , coalesce(mt.next_emp_stream_desc, '-') as next_emp_stream_desc\n    -- , coalesce(mt.next_seniority, '-') as next_seniority\n    \n    \n    \n    -- , coalesce(mt.prev_emp_specialization_desc, '-') as prev_emp_specialization_desc\n    -- , coalesce(mt.prev_emp_stream_desc, '-') as prev_emp_stream_desc\n    -- , coalesce(mt.prev_seniority, '-') as prev_seniority\n    \n    \n    --Покраска\n    , coalesce(mt.transfer_out_hq_flg, 0) as transfer_out_hq_flg\n    , coalesce(mt.transfer_to_hq_flg, 0) as transfer_to_hq_flg\n    -- , coalesce(mt.next_emp_specialization_oper_code, '-') as next_emp_specialization_oper_code\n    -- , coalesce(mt.prev_emp_specialization_oper_code, '-') as prev_emp_specialization_oper_code\n\n    --Флаг ИТ\n    , coalesce(mt.transfer_out_it_flg, 0) as transfer_out_it_flg\n    , coalesce(mt.transfer_to_it_flg, 0) as transfer_to_it_flg\n    -- , coalesce(mt.next_emp_specialization_it_code, '-') as next_emp_specialization_it_code\n    -- , coalesce(mt.prev_emp_specialization_it_code, '-') as prev_emp_specialization_it_code\n    \n    --Тип численности\n    , coalesce(ht.transfer_out_active_type_flg, 0) as transfer_out_active_type_flg\n    , coalesce(ht.transfer_to_active_type_flg, 0) as transfer_to_active_type_flg\n    \n    --Специализация\n    , coalesce(mt.transfer_out_specialization_flg, 0) as transfer_out_specialization_flg\n    , coalesce(mt.transfer_to_specialization_flg, 0) as transfer_to_specialization_flg\n    , coalesce(mt.transfer_out_stream_flg, 0) as transfer_out_stream_flg\n    , coalesce(mt.transfer_to_stream_flg, 0) as transfer_to_stream_flg\n    --, (case when w.prev_active_type_nm = 'Кандидат' and e.active_type_nm <> 'Кандидат' then 1 else 0 end)::smallint as transfer_to_business_hire_flg\n\n    --Уровни ЮС\n    , coalesce(lt.transfer_out_lvl1_legal_flg, 0) as transfer_out_lvl1_legal_flg\n    , coalesce(lt.transfer_out_lvl2_legal_flg, 0) as transfer_out_lvl2_legal_flg\n    , coalesce(lt.transfer_out_lvl3_legal_flg, 0) as transfer_out_lvl3_legal_flg\n    , coalesce(lt.transfer_out_lvl4_legal_flg, 0) as transfer_out_lvl4_legal_flg\n    , coalesce(lt.transfer_out_lvl5_legal_flg, 0) as transfer_out_lvl5_legal_flg\n    , coalesce(lt.transfer_out_lvl6_legal_flg, 0) as transfer_out_lvl6_legal_flg\n    , coalesce(lt.transfer_out_lvl7_legal_flg, 0) as transfer_out_lvl7_legal_flg\n    \n    , coalesce(lt.transfer_to_lvl1_legal_flg, 0) as transfer_to_lvl1_legal_flg\n    , coalesce(lt.transfer_to_lvl2_legal_flg, 0) as transfer_to_lvl2_legal_flg\n    , coalesce(lt.transfer_to_lvl3_legal_flg, 0) as transfer_to_lvl3_legal_flg\n    , coalesce(lt.transfer_to_lvl4_legal_flg, 0) as transfer_to_lvl4_legal_flg\n    , coalesce(lt.transfer_to_lvl5_legal_flg, 0) as transfer_to_lvl5_legal_flg\n    , coalesce(lt.transfer_to_lvl6_legal_flg, 0) as transfer_to_lvl6_legal_flg\n    , coalesce(lt.transfer_to_lvl7_legal_flg, 0) as transfer_to_lvl7_legal_flg\n\n    -- , coalesce(lt.next_lvl1_legal_unit_nm, '-' ) as next_lvl1_legal_unit_nm\n    -- , coalesce(lt.next_lvl2_legal_unit_nm, '-' ) as next_lvl2_legal_unit_nm\n    -- , coalesce(lt.next_lvl3_legal_unit_nm, '-' ) as next_lvl3_legal_unit_nm\n    -- , coalesce(lt.next_lvl4_legal_unit_nm, '-' ) as next_lvl4_legal_unit_nm\n    -- , coalesce(lt.next_lvl5_legal_unit_nm, '-' ) as next_lvl5_legal_unit_nm\n    -- , coalesce(lt.next_lvl6_legal_unit_nm, '-' ) as next_lvl6_legal_unit_nm\n    -- , coalesce(lt.next_lvl7_legal_unit_nm, '-' ) as next_lvl7_legal_unit_nm\n\n    -- , coalesce(lt.prev_lvl1_legal_unit_nm, '-' ) as prev_lvl1_legal_unit_nm\n    -- , coalesce(lt.prev_lvl2_legal_unit_nm, '-' ) as prev_lvl2_legal_unit_nm\n    -- , coalesce(lt.prev_lvl3_legal_unit_nm, '-' ) as prev_lvl3_legal_unit_nm\n    -- , coalesce(lt.prev_lvl4_legal_unit_nm, '-' ) as prev_lvl4_legal_unit_nm\n    -- , coalesce(lt.prev_lvl5_legal_unit_nm, '-' ) as prev_lvl5_legal_unit_nm\n    -- , coalesce(lt.prev_lvl6_legal_unit_nm, '-' ) as prev_lvl6_legal_unit_nm\n    -- , coalesce(lt.prev_lvl7_legal_unit_nm, '-' ) as prev_lvl7_legal_unit_nm\n\n    --Атрибуты ЮС\n    , coalesce(lt.transfer_out_employment_relation_type_flg, 0) as transfer_out_employment_relation_type_flg\n    , coalesce(lt.transfer_to_employment_relation_type_flg, 0) as transfer_to_employment_relation_type_flg\n    , coalesce(lt.transfer_out_employee_contract_type_flg, 0) as transfer_out_employee_contract_type_flg\n    , coalesce(lt.transfer_to_employee_contract_type_flg, 0) as transfer_to_employee_contract_type_flg\n    \n    , coalesce(lt.transfer_out_legal_position_flg, 0) as transfer_out_legal_position_flg\n    , coalesce(lt.transfer_to_legal_position_flg , 0) as transfer_to_legal_position_flg\n    \n    , coalesce(ht.transfer_out_legal_employee_flg, 0) as transfer_out_legal_employee_flg\n    , coalesce(ht.transfer_to_legal_employee_flg, 0) as transfer_to_legal_employee_flg\n\n    -- , coalesce(lt.next_employment_relation_type_desc, '-' ) as next_employment_relation_type_desc\n    -- , coalesce(lt.next_employee_contract_type_desc, '-' ) as next_employee_contract_type_desc\n    -- , coalesce(lt.next_legal_position_nm, '-' ) as next_legal_position_nm\n\n    -- , coalesce(lt.prev_employment_relation_type_desc, '-' ) as prev_employment_relation_type_desc\n    -- , coalesce(lt.prev_employee_contract_type_desc, '-' ) as prev_employee_contract_type_desc\n    -- , coalesce(lt.prev_legal_position_nm, '-' ) as prev_legal_position_nm\n    \n    --Остальные атрибуты\n    , coalesce(mt.transfer_out_management_head_flg, 0) as transfer_out_management_head_flg\n    , coalesce(mt.transfer_to_management_head_flg, 0) as transfer_to_management_head_flg    \n    , coalesce(ht.transfer_out_office_flg, 0) as transfer_out_office_flg\n    , coalesce(ht.transfer_to_office_flg, 0) as transfer_to_office_flg\n    , coalesce(ht.transfer_out_residential_state_flg, 0) as transfer_out_residential_state_flg\n    , coalesce(ht.transfer_to_residential_state_flg, 0) as transfer_to_residential_state_flg \n    , coalesce(mt.transfer_out_seniority_flg, 0) as transfer_out_seniority_flg\n    , coalesce(mt.transfer_to_seniority_flg, 0) as transfer_to_seniority_flg  \n    , coalesce(mt.transfer_out_grade_flg, 0) as transfer_out_grade_flg\n    , coalesce(mt.transfer_to_grade_flg, 0) as transfer_to_grade_flg  \n    , coalesce(ht.transfer_out_gender_desc_flg, 0) as transfer_out_gender_desc_flg\n    , coalesce(ht.transfer_to_gender_desc_flg, 0) as transfer_to_gender_desc_flg       \n    --Стаж\n    , coalesce(ht.transfer_out_experience_group_flg, 0) as transfer_out_experience_group_flg\n    , coalesce(ht.transfer_to_experience_group_flg, 0) as transfer_to_experience_group_flg\n    , coalesce(ht.transfer_out_experience_detail_group_flg, 0) as transfer_out_experience_detail_group_flg\n    , coalesce(ht.transfer_to_experience_detail_group_flg, 0) as transfer_to_experience_detail_group_flg \n\n    -- , coalesce(ht.prev_active_type_nm, '-' ) as prev_active_type_nm\n    -- , coalesce(ht.prev_legal_employee_flg, 0) as prev_legal_employee_flg\n    -- , coalesce(ht.prev_experience_group_nm, '-' ) as prev_experience_group_nm\n    -- , coalesce(ht.prev_experience_detail_group_nm, '-' ) as prev_experience_detail_group_nm\n\n    -- , coalesce(ht.next_active_type_nm, '-' ) as next_active_type_nm\n    -- , coalesce(ht.next_legal_employee_flg, 0) as next_legal_employee_flg\n    -- , coalesce(ht.next_experience_group_nm, '-' ) as next_experience_group_nm\n    -- , coalesce(ht.next_experience_detail_group_nm, '-' ) as next_experience_detail_group_nm\n\n    -- , coalesce(ht.prev_office_desc, '-' ) as prev_office_desc\n    -- , coalesce(ht.prev_residential_state_nm, '-' ) as prev_residential_state_nm\n    -- , coalesce(ht.prev_gender_desc, '-' ) as prev_gender_desc\n\n    -- , coalesce(ht.next_office_desc, '-' ) as next_office_desc\n    -- , coalesce(ht.next_residential_state_nm, '-' ) as next_residential_state_nm\n    -- , coalesce(ht.next_gender_desc, '-' ) as next_gender_desc\n                    \n    , case  when last_day_flg=1 then 1 else last_day_of_month_flg end as last_day_of_month_flg_new\n    , case  when last_day_flg=1 then 1 else last_day_of_quarter_flg end as last_day_of_quarter_flg_new\n    , case  when last_day_flg=1 then 1 else last_day_of_year_flg end as last_day_of_year_flg_new\n    -- , f.functional_lvl_all_array\n    -- , f.array_lvl1_functional_unit_nm\n    -- , f.array_lvl2_functional_unit_nm\n    -- , f.array_lvl3_functional_unit_nm\n    -- , f.array_functional_unit_rk\n    -- , et.avg_headcount\n    -- , et.avg_headcount_active\n\n        -- Нормализуем дату: если это перевод и последний день месяца, переносим на 1-е следующего месяца\n    , CASE \n        WHEN (mt.is_transfer_out_management_flg = 1 or lt.is_transfer_out_legal_flg = 1 or ht.is_transfer_out_emp_flg = 1)\n             AND e.last_day_of_month_flg = 1\n        THEN (date_trunc('month', e.business_dt) + interval '1 month')::date\n        ELSE e.business_dt\n    END as business_dt_new_transfer\n\nfrom pre_join_employee e\n\nleft join management_transfer mt\n    on e.business_dt=mt.change_dt\n    and e.mdm_employee_rk=mt.mdm_employee_rk\n\nleft join legal_transfer lt\n    on e.business_dt=lt.change_dt\n    and e.mdm_employee_rk=lt.mdm_employee_rk\n\nleft join mdm_emp_transfer ht\n    on e.business_dt=ht.business_dt\n    and e.mdm_employee_rk=ht.mdm_employee_rk\n\n-- left join mdm_other_transfer ot\n--     on e.business_dt=ot.business_dt\n--     and e.mdm_employee_rk=ot.mdm_employee_rk\n\n-- left join functional_array f\n--     on e.business_dt=f.business_dt\n--     and e.mdm_employee_rk=f.mdm_employee_rk\n\n-- left join employee_turnover et\n--     on e.business_dt=et.calendar_dt\n--     and e.mdm_employee_rk=et.mdm_employee_rk\n    \n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-74b2-b0fe-f349c7b85a0a
+    title: Добавляем КП
+    shebang: gp
+    code: |-
+      /*  Оптимизация.
+          Приходится делать left join к огромной таблице functional_array ~66 млн строк, при таком джойне возникают спиллы.
+          Поэтому вначале находим через inner join пересекающиеся с основной таблицей строки, таких получается ~3.5 млн и материализуем их в pre_join
+          Далее джойним этот уменьшеный объём данных через left join к основной таблице
+          (Пробовал без материализации, через with - возникают спиллы, поэтому делаем оптимизацию в 2 этапа - материализация + join)
+      */
+
+      drop table if exists pre_join;
+      create table pre_join as
+
+      select
+              f.mdm_employee_rk
+            , f.business_dt
+            , f.functional_lvl_all_array
+            , f.array_lvl1_functional_unit_nm
+            , f.array_lvl2_functional_unit_nm
+            , f.array_lvl3_functional_unit_nm
+            , f.array_functional_unit_rk
+        from
+          functional_array f
+        inner join
+          all_employee_add_flags_pre a on f.business_dt = a.business_dt and f.mdm_employee_rk = a.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+
+      -------------------------------------------------------------
+
+      drop table if exists all_employee_add_flags;
+      create table all_employee_add_flags as
+      select
+          e. *
+        , f.functional_lvl_all_array
+        , f.array_lvl1_functional_unit_nm
+        , f.array_lvl2_functional_unit_nm
+        , f.array_lvl3_functional_unit_nm
+        , f.array_functional_unit_rk
+      from
+        all_employee_add_flags_pre e
+      left join
+        pre_join f on e.business_dt = f.business_dt and e.mdm_employee_rk = f.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-74d2-830b-4bd2d054749d
+    title: Проверка на дубли
+    shebang: gp
+    code: "with pre as (\r\nselect \r\n    mdm_employee_rk\r\n    , business_dt\r\n    , count(*) as cnt\r\n    , case when count(*)>1\r\n    then 0\r\n    else 1\r\n    end as div\r\nfrom all_employee_add_flags\r\ngroup by 1,2\r\nhaving count(*) > 1\r\n)\r\nselect\r\n    1/div as quality_check\r\nfrom pre;\r\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-74ce-8338-089aba3b5c77
+    title: Источник для дайджеста
+    shebang: gp
+    code: "drop table if exists usr_cross_data.hr_executive_proteus;\ncreate table usr_cross_data.hr_executive_proteus as\n\nselect a.mdm_employee_rk\n    , a.mdm_employee_rk as fr_employee_rk\n    , a.business_dt as calendar_dt\n    , a.company_hire_dt as hire_dt\n    , a.company_fire_dt as fire_dt\n    , a.company_hire_flg as hire_flg\n    , a.company_fire_flg as fire_flg\n    , (a.work_experience_day_cnt/365.0)::numeric(23,3) as experience_year_amt\n    , a.experience_group_nm\n    , a.experience_detail_group_nm\n    , a.last_nm\n    , a.first_nm\n    , a.gender_desc as gender\n    , a.residential_state_nm\n    , a.city_nm \n    , a.doc_city_nm as city_doc\n    , a.legal_position_nm\n    , a.employment_relation_type_desc\n    , a.lvl1_legal_unit_rk\n    , a.lvl1_legal_unit_nm\n    , a.lvl2_legal_unit_rk\n    , a.lvl2_legal_unit_nm\n    , a.lvl3_legal_unit_rk\n    , a.lvl3_legal_unit_nm\n    , a.lvl4_legal_unit_rk\n    , a.lvl4_legal_unit_nm\n    , a.lvl5_legal_unit_rk\n    , a.lvl5_legal_unit_nm\n    , a.lvl6_legal_unit_rk\n    , a.lvl6_legal_unit_nm\n    , a.lvl7_legal_unit_rk\n    , a.lvl7_legal_unit_nm\n    , a.rus_tcr_flg\n    , a.foreign_tcr_flg\n    , a.tcr_flg\n    , a.employee_contract_type_desc\n    -- , e.pos_agent_flg\n    -- , e.management_position_rk\n    -- , e.management_position_id\n    , a.management_position_nm\n    , a.emp_stream_desc as employee_stream_desc\n    , a.emp_specialization_desc as employee_specialization_desc\n    , a.emp_specialization_oper_code\n    , a.emp_specialization_it_code\n    , a.emp_specialization_dk\n    , a.emp_stream_dk\n    , a.transfer_out_it_flg as emp_specialization_change_to_it\n    , a.transfer_to_it_flg as emp_specialization_change_to_non_it\n    , a.next_emp_specialization_it_code\n    , a.prev_emp_specialization_it_code\n    , a.management_head_flg\n    , a.management_unit_nm\n    , a.management_unit_rk\n    , a.lvl1_management_unit_rk as lvl1_mngt_unit_rk\n    , a.lvl1_management_unit_nm as lvl1_mngt_unit_nm\n    , a.lvl2_management_unit_rk as lvl2_mngt_unit_rk\n    , a.lvl2_management_unit_nm as lvl2_mngt_unit_nm\n    , a.lvl3_management_unit_rk as lvl3_mngt_unit_rk\n    , a.lvl3_management_unit_nm as lvl3_mngt_unit_nm\n    , a.lvl4_management_unit_rk as lvl4_mngt_unit_rk\n    , a.lvl4_management_unit_nm as lvl4_mngt_unit_nm\n    , a.lvl5_management_unit_rk as lvl5_mngt_unit_rk\n    , a.lvl5_management_unit_nm as lvl5_mngt_unit_nm\n    , a.lvl6_management_unit_rk as lvl6_mngt_unit_rk\n    , a.lvl6_management_unit_nm as lvl6_mngt_unit_nm\n    , a.lvl7_management_unit_rk as lvl7_mngt_unit_rk\n    , a.lvl7_management_unit_nm as lvl7_mngt_unit_nm\n    , a.lvl8_management_unit_rk as lvl8_mngt_unit_rk\n    , a.lvl8_management_unit_nm as lvl8_mngt_unit_nm\n    , a.lvl9_management_unit_rk as lvl9_mngt_unit_rk\n    , a.lvl9_management_unit_nm as lvl9_mngt_unit_nm\n    , a.lvl10_management_unit_rk as lvl10_mngt_unit_rk\n    , a.lvl10_management_unit_nm as lvl10_mngt_unit_nm\n    , a.lvl11_management_unit_rk as lvl11_mngt_unit_rk\n    , a.lvl11_management_unit_nm as lvl11_mngt_unit_nm\n    , a.lvl12_management_unit_rk as lvl12_mngt_unit_rk\n    , a.lvl12_management_unit_nm as lvl12_mngt_unit_nm\n    , a.active_type_nm\n    , a.active_employee_flg as active_count_flg\n    , a.legal_employee_flg\n    , case when a.prev_active_type_nm='Активная' then 1 else 0 end::smallint as prev_active_count_flg\n    , case when a.active_type_nm='Стажеры' then 1 else 0 end::smallint as internal_flg\n    , case when a.active_type_nm='Декрет' then 1 else 0 end::smallint as maternity_flg\n    , case when a.active_type_nm='Прогульщики' then 1 else 0 end::smallint as absent_flg\n    --, a.avg_headcount as monthly_avg_running_num_of_emp\n    , a.fire_reason\n    , a.fire_reason_group\n    , a.fire_initiative\n    , a.lose_talent_txt as lose_talent\n    , a.head_exit_company_info\n    , a.mapping_channel_name as source_type_nm\n    , a.respond_source_nm\n    , case when a.recruitmenttype='HQ' then 1 else 0 end::smallint as rayisa_hire_flg\n    , a.seniority\n    , a.grade\n    , a.regrettable_fire_flg\n    , a.potential_regrettable_flg\n    , a.potential_non_regrettable_flg\n    , a.non_regrettable_fire_flg\n\n    , a.transfer_out_lvl3_management_flg as lvl3_mngt_unit_out_trsf_flg\n    , a.transfer_to_lvl3_management_flg as lvl3_mngt_unit_in_trsf_flg\n    , a.transfer_out_lvl4_management_flg as lvl4_mngt_unit_out_trsf_flg\n    , a.transfer_to_lvl4_management_flg as lvl4_mngt_unit_in_trsf_flg\n    , a.transfer_out_lvl5_management_flg as lvl5_mngt_unit_out_trsf_flg\n    , a.transfer_to_lvl5_management_flg as lvl5_mngt_unit_in_trsf_flg\n    , a.transfer_out_lvl6_management_flg as lvl6_mngt_unit_out_trsf_flg\n    , a.transfer_to_lvl6_management_flg as lvl6_mngt_unit_in_trsf_flg\n    , a.transfer_out_lvl7_management_flg as lvl7_mngt_unit_out_trsf_flg\n    , a.transfer_to_lvl7_management_flg as lvl7_mngt_unit_in_trsf_flg\n    , a.transfer_out_lvl8_management_flg as lvl8_mngt_unit_out_trsf_flg\n    , a.transfer_to_lvl8_management_flg as lvl8_mngt_unit_in_trsf_flg\n    , a.transfer_out_lvl9_management_flg as lvl9_mngt_unit_out_trsf_flg\n    , a.transfer_to_lvl9_management_flg as lvl9_mngt_unit_in_trsf_flg\n    , a.transfer_out_lvl10_management_flg as lvl10_mngt_unit_out_trsf_flg\n    , a.transfer_to_lvl10_management_flg as lvl10_mngt_unit_in_trsf_flg\n    , a.transfer_out_lvl11_management_flg as lvl11_mngt_unit_out_trsf_flg\n    , a.transfer_to_lvl11_management_flg as lvl11_mngt_unit_in_trsf_flg\n    , a.transfer_out_lvl12_management_flg as lvl12_mngt_unit_out_trsf_flg\n    , a.transfer_to_lvl12_management_flg as lvl12_mngt_unit_in_trsf_flg\n    , a.transfer_out_lvl1_legal_flg as lvl1_legal_unit_out_trsf_flg\n    , a.transfer_to_lvl1_legal_flg as lvl1_legal_unit_in_trsf_flg\n    , a.last_day_of_month_flg_new as last_day_of_month_flg\n    --, rm.retention_month as monthly_retention\n    , ((a.business_dt - a.birth_dt)::numeric(23,0) / 365.0)::numeric(23,0) as age\n    , '-'::varchar(2) as fin_source_code\n    , '-'::varchar(2) as job_group_nm\n    , '-'::varchar(2) as lvl1_mngt_unit_out_trsf_flg\n    , '-'::varchar(2) as lvl1_mngt_unit_in_trsf_flg\n    , '-'::varchar(2) as lvl2_mngt_unit_out_trsf_flg\n    , '-'::varchar(2) as lvl2_mngt_unit_in_trsf_flg\n    , '-'::varchar(2) as legal_unit_id\n    , '-'::varchar(2) as management_unit_id\n    , a.type_create_company\n    , a.rb_flg\n    , a.rb_migration_flg\n    , a.transfer_to_active_type_flg\n    , a.transfer_out_active_type_flg\n    , a.transfer_candidate_flg\n    , a.transfer_internal_flg\n    , a.mdm_employee_age\n    , a.transfer_out_hq_flg\n    , a.transfer_out_it_flg\n    , a.transfer_out_specialization_flg\n    , a.transfer_out_stream_flg\n    , a.transfer_out_employment_relation_type_flg\n    , a.transfer_to_hq_flg\n    , a.transfer_to_it_flg\n    , a.transfer_to_specialization_flg\n    , a.transfer_to_stream_flg\n    , a.transfer_to_employment_relation_type_flg\n    , case when a.employment_relation_type_desc = 'Штатный сотрудник' THEN 'Штат' ELSE 'Не штат' END as staff_flg\n    , case\n        when rus_tcr_flg = 1 then  'ТЦР РФ'\n        when foreign_tcr_flg = 1 then  'ТЦР СНГ'\n        when lvl1_legal_unit_rk = '213f29bf7de4576e6d1682ae8132a400' then 'Банк'\n      else 'Другие юр. лица' end as  type_company\n    --, case when employee_contract_type_desc in  ('Временно дистанционный', 'Дистанционный') then 'Удаленный тип' else 'Офис' end as type_of_work\n    , employee_contract_type_desc as type_of_work\n    , a.transfer_out_legal_position_flg\n    , a.transfer_to_legal_position_flg\n    , a.active_hire_dt \n    , a.probation_flg\n    , a.hr_dismissal_comment_txt as fire_dismissal_comment_txt\n    , a.employee_dismissal_reason_desc\n    , a.t_education_desc\n    , a.summary_score\n    , a.office_desc\n    , case \n        when mdm_employee_age < 25 then 'до 25'\n        when mdm_employee_age >= 25 and mdm_employee_age < 30 then 'от 25 до 30'\n        when  mdm_employee_age >= 30  then '30+' end::varchar(512) as type_age\n    , a.transfer_to_lvl1_legal_flg\n, a.transfer_to_lvl3_legal_flg\n\n, a.transfer_out_lvl1_legal_flg\n, a.transfer_out_lvl3_legal_flg \n\n, a.lvl1_mapped_management_unit_rk  \n, a.lvl2_mapped_management_unit_rk  \n, a.lvl3_mapped_management_unit_rk  \n, a.lvl4_mapped_management_unit_rk  \n, a.lvl5_mapped_management_unit_rk \n, a.lvl6_mapped_management_unit_rk \n, a.lvl7_mapped_management_unit_rk \n, a.lvl8_mapped_management_unit_rk \n, a.lvl9_mapped_management_unit_rk \n, a.lvl10_mapped_management_unit_rk \n, a.lvl11_mapped_management_unit_rk \n, a.lvl12_mapped_management_unit_rk \n\n, a.lvl1_mapped_management_unit_nm\n, a.lvl2_mapped_management_unit_nm\n, a.lvl3_mapped_management_unit_nm\n, a.lvl4_mapped_management_unit_nm\n, a.lvl5_mapped_management_unit_nm\n, a.lvl6_mapped_management_unit_nm\n, a.lvl7_mapped_management_unit_nm\n, a.lvl8_mapped_management_unit_nm\n, a.lvl9_mapped_management_unit_nm\n, a.lvl10_mapped_management_unit_nm\n, a.lvl11_mapped_management_unit_nm\n, a.lvl12_mapped_management_unit_nm\n\nfrom all_employee_add_flags a\n\n\nwhere 1=1\n    and legal_employee_flg = 1\n  \ndistributed by (mdm_employee_rk, calendar_dt);\n\nselect public.tcs_harmonize_grants('usr_cross_data.hr_executive_proteus');"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7543-99a4-0936895e5b8d
+    title: Актуалайз
+    shebang: python
+    code: |
+      tf.object_actualize('usr_cross_data.hr_executive_proteus', source_name='cross');
+      tf.object_actualize('usr_cross_data.mdm_employee_d_light', source_name='cross');
+    isEnabled: true
+  - sid: 019b12c0-c1c6-755d-9448-393b7c405335
+    title: Протеус - ультраширокая лайт версия
+    shebang: python
+    code: |-
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('all_employee_add_flags_light', 'prod_proteus.mdm_employee_d_light',
+      gp_service = 'gp',
+      partition_by_columns = 'toYYYYMM(business_dt)',
+      order_by_columns='(business_dt,active_type_nm)',
+      upload_mode = 'replace',
+      array_type_cast=True);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7563-a6ed-1821acd098de
+    title: Протеус - ультраширокая
+    shebang: python
+    code: |-
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('all_employee_add_flags', 'prod_proteus.mdm_employee_d',
+          gp_service = 'gp',
+          partition_by_columns = 'toYYYYMM(business_dt)',
+          order_by_columns='(business_dt,active_type_nm)',
+          upload_mode = 'replace',
+          batch_count = 5,
+          array_type_cast=True);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-756f-9304-08127edd8dfa
+    title: Обрезаем ультраширокую для Наташи
+    shebang: gp
+    code: "drop table if exists pre_mdm_employee_d;\ncreate table pre_mdm_employee_d as \n\nselect *\nfrom all_employee_add_flags_light\nwhere 1=1   \n    and business_dt >= date_trunc('year', current_date - interval '1 day') - interval '1 year'"
+    isEnabled: false
+  - sid: 019a6d83-f4c4-7fd2-8fac-019f3fd8572e
+    title: Обрезаем ультраширокую для Наташи
+    shebang: gp
+    code: "drop table if exists pre_mdm_employee_dd;\ncreate table pre_mdm_employee_dd as \n\nselect *\nfrom all_employee_add_flags_light\nwhere 1=1   \n    --and business_dt >= date_trunc('year', current_date - interval '1 day') - interval '1 year'\n    and business_dt >= '2024-01-01'\n\n    -- создал Кавторин 10.11.2025, как времянка, данные не помещались в клик по системным требованиям, согласовал с Любимовой \n\ndistributed by (business_dt )\n;\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-757f-be9f-16e72434703a
+    title: Начало/конец периода
+    shebang: gp
+    code: "drop table if exists mdm_employee_d_business_dt;\ncreate table mdm_employee_d_business_dt as \n\nselect distinct date_trunc('month',business_dt)::date as business_dt_start\n, business_dt as business_dt_end\nfrom all_employee\nwhere last_day_flg=1 or last_day_of_month_flg=1"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7587-a279-08d4fdd842ca
+    title: Выгрузка в клик - начало/конец периода
+    shebang: python
+    code: |-
+      # tf.gp_to_proteus(gp_table = 'mdm_employee_d_business_dt'
+      # , clickhouse_table = 'prod_proteus.mdm_employee_d_business_dt', gp_service = 'gp')
+
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('mdm_employee_d_business_dt', 'prod_proteus.mdm_employee_d_business_dt',
+          gp_service = 'gp',
+          upload_mode = 'replace');
+    isEnabled: true
+  - sid: 019b12c0-c1c6-758c-ba38-42fa30fc9327
+    title: Данные по образованию
+    shebang: gp
+    code: "drop table if exists mdm_employee_education;\ncreate table mdm_employee_education as\n\nwith pre as (\n    select mdm_employee_rk\n, okso\n, education_level_nm\n, e.graduation_year\n, e.education_spec_nm\n, case \n          when education_level_nm ilike '%Докторантура%' then 'Докторантура'\n          when education_level_nm ilike '%Аспирантура%' then 'Аспирантура'\n          when education_level_nm ilike '%Ординатура%' then 'Ординатура'\n          when education_level_nm ilike '%Адъюнктура%' then 'Адъюнктура'\n          when education_level_nm ilike '%Магистратура%' then 'Магистратура'\n          when education_level_nm ilike '%Специалитет%' then 'Специалитет'\n          when education_level_nm ilike '%Бакалав%' then 'Бакалавриат'\n          when education_level_nm ilike '%Высшее образование%' and  not\n          \n          (education_level_nm ilike '%неоконченное высшее%' \n          or \n          education_level_nm ilike '%неполное высшее%'\n          )\n           then 'Высшее образование'\n          when education_level_nm ilike '%Подготовка кадров высшей категории%' then 'Подготовка кадров высшей категории'\n          when \n                education_level_nm ilike '%неоконченное высшее%'\n                or education_level_nm ilike '%Неполное высшее%'\n                \n          /* and not education_level_nm ilike '%Высшее образование%' */ then 'Неполное высшее образование'\n          when education_level_nm ilike '%профессионал%' then 'Среднее профессиональное'\n          when education_level_nm ilike '%Студент%' then 'Студент'\n          when education_level_nm ilike '%11 класс%' then 'Среднее общее образование (11 класс)'\n          when education_level_nm ilike '%9 класс%' then 'Среднее общее образование (9 класс)'\n          when education_level_nm ilike '%в академическом отпуске%' then 'В академическом отпуске'\n          when education_level_nm ilike '%Послевузовское образование%' then 'Повышение квалификации'\n          else education_level_nm\n     end as education_degree_unique_max\n, row_number() over (partition by mdm_employee_rk order by graduation_year desc /* Год выпуска*/) as rn_education\nfrom prod_v_hrmart.mdm_employee_education e\nwhere 1=1\n    and e.deleted_flg = 0\n    and e.valid_to_dttm = '5999-01-01')\n\nselect *\nfrom pre\nwhere 1=1\n    and rn_education=1\n"
+    isEnabled: false
+  - sid: 019b12c0-c1c6-7592-98d3-4e96142d2f44
+    title: Дата перехода в грейд
+    shebang: gp
+    code: |-
+      drop table if exists mdm_employee_change_grade;
+      create table mdm_employee_change_grade as
+
+      select distinct on (mdm_employee_rk) mdm_employee_rk
+      , change_dt as change_grade_dt
+      from prod_v_sse_crossdata.management_position_attr_chng
+
+      where 1=1
+          and change_to_grade_flg = 1
+      order by mdm_employee_rk, change_dt desc;
+    isEnabled: true
+  - sid: 019b12c0-c1c6-759e-8979-822882d6047f
+    title: Дата перехода в специализацию
+    shebang: gp
+    code: |-
+      drop table if exists mdm_employee_change_specialization;
+      create table mdm_employee_change_specialization as
+
+
+      select distinct on (mdm_employee_rk) mdm_employee_rk
+      , change_dt as change_specialization_dt
+      from prod_v_sse_crossdata.management_position_attr_chng
+
+      where 1=1
+          and change_to_specialization_flg = 1
+      order by mdm_employee_rk, change_dt desc
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75a2-b5d6-898acb07c2cb
+    title: Дата перехода в команду
+    shebang: gp
+    code: |-
+      drop table if exists mdm_employee_change_management_unit;
+      create table mdm_employee_change_management_unit as
+
+
+      select distinct on (mdm_employee_rk) mdm_employee_rk
+      , change_dt as change_management_unit_dt
+      from prod_v_sse_crossdata.management_position_attr_chng
+
+      where 1=1
+          and change_to_management_unit_nm_flg = 1
+      order by mdm_employee_rk, change_dt desc
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75a9-969b-3cbdc8190c07
+    title: Дата перехода в руководителя
+    shebang: gp
+    code: "drop table if exists mdm_employee_change_management_head;\ncreate table mdm_employee_change_management_head as\n\n\nwith pre as (select mdm_employee_rk\n, change_dt\nfrom prod_v_sse_crossdata.management_position_attr_chng\nwhere change_to_management_head_flg = 1\n\nunion all\n\nselect mdm_employee_rk\n, business_dt\nfrom prod_v_emart.mdm_employee_structure_d\nwhere 1=1\n    and company_hire_flg=1\n    and management_head_flg=1),\n\npre2 as (select distinct on (mdm_employee_rk) mdm_employee_rk\n, change_dt as change_management_head_dt\nfrom pre\norder by mdm_employee_rk, change_dt desc)\n\nselect pre2.mdm_employee_rk\n, change_management_head_dt\nfrom pre2\n\ninner join prod_v_emart.mdm_employee_structure_d m \n    on pre2.mdm_employee_rk = m.mdm_employee_rk\n    and m.last_day_flg=1\n    and m.management_head_flg=1\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75ae-822c-1ec1967d00ea
+    title: Ограничиваем источник для детальных списков
+    shebang: gp
+    code: "drop table if exists mdm_employee_d_detail;\n\ncreate table mdm_employee_d_detail as\n\nselect e.*\n    , e.birth_dt::varchar(512) as birth_dt_text\n    , f.functional_lvl_all_array\n    , f.array_functional_unit_rk\n    -- , ed.education_degree_unique_max\n    -- , ed.education_spec_nm\n    , hs.head_lvl_segment\n    --, cg.change_grade_dt::varchar(512) as change_grade_dt_text\n    , coalesce(cg.change_grade_dt, e.company_hire_dt)::varchar(512) as change_grade_dt_text\n    , coalesce(cs.change_specialization_dt, e.company_hire_dt)::varchar(512) as change_specialization_dt_text\n    , coalesce(cmu.change_management_unit_dt, e.company_hire_dt)::varchar(512) as change_management_unit_dt_text\n    -- , coalesce(cmh.change_management_head_dt, e.company_hire_dt)::varchar(512) as change_management_head_dt\n    , cmh.change_management_head_dt::varchar(512) as change_management_head_dt\nfrom all_employee e\n\nleft join functional_array f\n    on e.business_dt=f.business_dt\n    and e.mdm_employee_rk=f.mdm_employee_rk\n\nleft join usr_cross_data.head_segments_versions hs\n    on e.mdm_employee_rk=hs.mdm_employee_rk\n    and hs.valid_to_dttm = '5999-01-01 00:00:00'\n\nleft join mdm_employee_change_grade cg\n    on e.mdm_employee_rk=cg.mdm_employee_rk\n\nleft join mdm_employee_change_specialization cs\n    on e.mdm_employee_rk=cs.mdm_employee_rk\n\nleft join mdm_employee_change_management_unit cmu\n    on e.mdm_employee_rk=cmu.mdm_employee_rk\n\nleft join mdm_employee_change_management_head cmh\n    on e.mdm_employee_rk=cmh.mdm_employee_rk\n    \nwhere 1=1\n    and e.business_dt >= (current_date - interval '1 day') - interval '3 month'\n\ndistributed by (mdm_employee_rk, business_dt);"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75bb-bb21-efe4af898040
+    title: Собираем отдельные источники для детальных списков
+    shebang: gp
+    code: |-
+      --Данные на вчера
+      drop table if exists mdm_employee_d_detail_last_day;
+      create table mdm_employee_d_detail_last_day as
+
+      select *
+      from mdm_employee_d_detail
+      where 1=1
+          and last_day_flg = 1;
+
+
+      --Данные за последние 3 месяца
+      drop table if exists mdm_employee_d_detail_period;
+      create table mdm_employee_d_detail_period as
+
+      select *
+      from mdm_employee_d_detail
+      where 1=1
+          and last_day_flg = 0;
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75c0-addf-876900e0b94d
+    title: Начало/конец периода
+    shebang: gp
+    code: "drop table if exists mdm_employee_d_business_dt_detail;\ncreate table mdm_employee_d_business_dt_detail as \n\nselect distinct business_dt as business_dt_detail\nfrom mdm_employee_d_detail"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75c6-960d-97caf6aa271c
+    title: Протеус - источники для детальных списков
+    shebang: python
+    code: |-
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('mdm_employee_d_detail_last_day', 'prod_proteus.mdm_employee_d_detail_last_day',
+      gp_service = 'gp',
+      upload_mode = 'replace',
+      array_type_cast=True);
+
+      gp_to_click('mdm_employee_d_detail_period', 'prod_proteus.mdm_employee_d_detail_period',
+      gp_service = 'gp',
+      upload_mode = 'replace',
+      array_type_cast=True);
+
+      gp_to_click('mdm_employee_d_business_dt_detail', 'prod_proteus.mdm_employee_d_business_dt_detail',
+      gp_service = 'gp',
+      upload_mode = 'replace');
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75d9-9320-b4294519ccb2
+    title: Детальные списки - КП
+    shebang: gp
+    code: "drop table if exists mdm_employee_d_detail_functional;\n\ncreate table mdm_employee_d_detail_functional as\n\nselect e.*\n    , coalesce(trim(f.lvl1_functional_unit_nm), '-') as lvl1_functional_unit_nm\n    , coalesce(trim(f.lvl2_functional_unit_nm), '-') as lvl2_functional_unit_nm\n    , coalesce(trim(f.lvl3_functional_unit_nm), '-') as lvl3_functional_unit_nm\n    , coalesce(trim(replace(f.lvl4_functional_unit_nm,'\\t', '')), '-') as lvl4_functional_unit_nm\n    , coalesce(trim(f.lvl5_functional_unit_nm), '-') as lvl5_functional_unit_nm\n    , coalesce(trim(f.lvl6_functional_unit_nm), '-') as lvl6_functional_unit_nm\n    , coalesce(trim(f.lvl7_functional_unit_nm), '-') as lvl7_functional_unit_nm\n    , coalesce(trim(f.lvl8_functional_unit_nm), '-') as lvl8_functional_unit_nm\n    , coalesce(trim(f.lvl9_functional_unit_nm), '-') as lvl9_functional_unit_nm\n    , coalesce(trim(f.lvl10_functional_unit_nm), '-') as lvl10_functional_unit_nm\n    , coalesce(trim(f.lvl11_functional_unit_nm), '-') as lvl11_functional_unit_nm\n    , coalesce(trim(f.lvl12_functional_unit_nm), '-') as lvl12_functional_unit_nm\n    , coalesce(f.lvl1_functional_unit_rk, '-') as lvl1_functional_unit_rk\n    , coalesce(f.lvl2_functional_unit_rk, '-') as lvl2_functional_unit_rk\n    , coalesce(f.lvl3_functional_unit_rk, '-') as lvl3_functional_unit_rk\n    , coalesce(f.lvl4_functional_unit_rk, '-') as lvl4_functional_unit_rk\n    , coalesce(f.lvl5_functional_unit_rk, '-') as lvl5_functional_unit_rk\n    , coalesce(f.lvl6_functional_unit_rk, '-') as lvl6_functional_unit_rk\n    , coalesce(f.lvl7_functional_unit_rk, '-') as lvl7_functional_unit_rk\n    , coalesce(f.lvl8_functional_unit_rk, '-') as lvl8_functional_unit_rk\n    , coalesce(f.lvl9_functional_unit_rk, '-') as lvl9_functional_unit_rk\n    , coalesce(f.lvl10_functional_unit_rk, '-') as lvl10_functional_unit_rk\n    , coalesce(f.lvl11_functional_unit_rk, '-') as lvl11_functional_unit_rk\n    , coalesce(f.lvl12_functional_unit_rk, '-') as lvl12_functional_unit_rk\n    , coalesce(f.allocation_prt_norm, 0) as allocation_prt_norm\n    , f.business_head_mdm_employee_rk\n    , f.business_head_full_nm\n    , f.technical_head_mdm_employee_rk\n    , f.technical_head_full_nm\n    , f.service_head_mdm_employee_rk\n    , f.service_head_full_nm\n    , f.product_type\n    , f.unit_type_nm\nfrom mdm_employee_d_detail e \n\n-- inner join usr_cross_data.functional_role_d_br f \n\nleft join usr_cross_data.functional_role_d_br f \n    on e.mdm_employee_rk = f.mdm_employee_rk\n    and e.business_dt = f.business_dt\n    \nwhere 1=1\n    and date_trunc('month', e.business_dt) >= (current_date - interval '1 day') - interval '1 month'"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75df-908f-bde03a6da91d
+    title: Собираем отдельные источники для детальных списков КП
+    shebang: gp
+    code: |-
+      --Данные на вчера
+      drop table if exists mdm_employee_d_detail_last_day_functional;
+      create table mdm_employee_d_detail_last_day_functional as
+
+      select *
+      from mdm_employee_d_detail_functional
+      where 1=1
+          and last_day_flg = 1;
+
+
+      --Данные за последние 3 месяца
+      drop table if exists mdm_employee_d_detail_period_functional;
+      create table mdm_employee_d_detail_period_functional as
+
+      select *
+      from mdm_employee_d_detail_functional
+      where 1=1
+          and last_day_flg = 0;
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75e4-a540-c10a40ab092a
+    title: Протеус - источники для детальных списков КП
+    shebang: python
+    code: |-
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('mdm_employee_d_detail_last_day_functional', 'prod_proteus.mdm_employee_d_detail_last_day_functional',
+      gp_service = 'gp',
+      upload_mode = 'replace',
+      array_type_cast=True)
+    isEnabled: true
+  - sid: 01a08aa4-32f8-7ff3-8544-4d4ee4016599
+    title: Copy Протеус - источники для детальных списков КП
+    shebang: python
+    code: |-
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('mdm_employee_d_detail_period_functional', 'prod_proteus.mdm_employee_d_detail_period_functional',
+      gp_service = 'gp',
+      upload_mode = 'replace',
+      array_type_cast=True);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75f5-b84a-932e26b24caa
+    title: Ограничиваем КП на последний день (для Наташи)
+    shebang: gp
+    code: |-
+      drop table if exists pre_mdm_employee_d_functional;
+      create table pre_mdm_employee_d_functional as
+
+      select *
+      from mdm_employee_d_detail_functional
+      where last_day_flg=1
+    isEnabled: true
+  - sid: 019b12c0-c1c6-75fb-9078-8cd998d31b46
+    title: Источник для фильтров
+    shebang: gp
+    code: "drop table if exists mdm_employee_d_filter;\ncreate table mdm_employee_d_filter as \n\nselect distinct active_type_nm\n    , employment_relation_type_desc\n    , employee_status_desc\n    , employee_contract_type_desc\n    , emp_specialization_oper_code\n    , emp_specialization_it_code\n    , emp_stream_desc\n    , emp_specialization_desc\n    , group_specialization_nm\n    , experience_group_nm\n    , experience_detail_group_nm\n    , residential_state_nm\n    , city_nm\n    , macroregion_nm\n    , location_type\n    , tcr_exist_flg\n    , office_desc\n    , lvl3_management_unit_nm\n    , lvl4_management_unit_nm\n    , lvl5_management_unit_nm\n    , lvl6_management_unit_nm\n    , lvl7_management_unit_nm\n    , lvl8_management_unit_nm\n    , lvl9_management_unit_nm\n    , lvl10_management_unit_nm\n    , lvl11_management_unit_nm\n    , lvl12_management_unit_nm\n    , lvl3_management_unit_rk\n    , lvl4_management_unit_rk\n    , lvl5_management_unit_rk\n    , lvl6_management_unit_rk\n    , lvl7_management_unit_rk\n    , lvl8_management_unit_rk\n    , lvl9_management_unit_rk\n    , lvl10_management_unit_rk\n    , lvl11_management_unit_rk\n    , lvl12_management_unit_rk\n    , lvl13_management_unit_rk\n    , lvl3_mapped_management_unit_nm\n    , lvl4_mapped_management_unit_nm\n    , lvl5_mapped_management_unit_nm\n    , lvl6_mapped_management_unit_nm\n    , lvl7_mapped_management_unit_nm\n    , lvl8_mapped_management_unit_nm\n    , lvl9_mapped_management_unit_nm\n    , lvl10_mapped_management_unit_nm\n    , lvl11_mapped_management_unit_nm\n    , lvl12_mapped_management_unit_nm\n    , lvl13_mapped_management_unit_nm\n    , lvl3_mapped_management_unit_rk\n    , lvl4_mapped_management_unit_rk\n    , lvl5_mapped_management_unit_rk\n    , lvl6_mapped_management_unit_rk\n    , lvl7_mapped_management_unit_rk\n    , lvl8_mapped_management_unit_rk\n    , lvl9_mapped_management_unit_rk\n    , lvl10_mapped_management_unit_rk\n    , lvl11_mapped_management_unit_rk\n    , lvl12_mapped_management_unit_rk\n    , lvl13_mapped_management_unit_rk\n    , management_head_flg\n    , hrbp_login\n    , head_login\n    , lvl1_legal_unit_nm\n    , lvl2_legal_unit_nm\n    , lvl3_legal_unit_nm\n    , lvl4_legal_unit_nm\n    , lvl5_legal_unit_nm\n    , lvl6_legal_unit_nm\n    , lvl7_legal_unit_nm\n    , regional_hr_login\n    , employee_main_contract_type_nm\n    , rus_tcr_flg\n    , foreign_tcr_flg\n    , tcr_flg\n    , recruitmenttype\n    , mapping_channel_name\n    , respond_source_nm\n    , recruiter_ad_login\n    , recruiter_group_nm\n    , recruiter_lvl1_legal_unit_nm\n    -- , fire_initiative\n    -- , fire_reason_group\n    -- , fire_reason\n    -- , lose_talent_txt\n    --, fire_dismissal_comment_txt\n    , type_create_company\n    , legal_position_nm\n    , probation_flg\n    , probation_dt\n    , hrap_login\n    , t_education_desc\n    , company_fire_flg\n    , rb_flg\n    , rb_migration_flg\n    , subordination_lvl\n    , is_in_wt_bot_segment_flg\n    , tgrowth_flg\n  \nfrom all_employee e\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7601-8ab8-151afbf2e303
+    title: Протеус - фильтры
+    shebang: python
+    code: |-
+      # tf.gp_to_proteus('mdm_employee_d_filter', 'prod_proteus.mdm_employee_d_filter',
+      #     upload_mode = 'replace');
+
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('mdm_employee_d_filter', 'prod_proteus.mdm_employee_d_filter',
+          gp_service = 'gp',
+          upload_mode = 'replace');
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7605-9f7a-71a3415afe18
+    title: Источник для фильтров с ЧД
+    shebang: gp
+    code: "drop table if exists mdm_employee_d_filter_sens;\ncreate table mdm_employee_d_filter_sens as \n\nselect distinct emp_specialization_desc\n    , tcr_flg\n    , mdm_employee_rk\n\n    , lvl1_legal_unit_rk\n    , lvl2_legal_unit_rk\n    , lvl3_legal_unit_rk\n    , lvl4_legal_unit_rk\n    , lvl5_legal_unit_rk\n    , lvl6_legal_unit_rk\n    , lvl7_legal_unit_rk\n\n    , lvl1_management_unit_rk\n    , lvl2_management_unit_rk\n    , lvl3_management_unit_rk\n    , lvl4_management_unit_rk\n    , lvl5_management_unit_rk\n    , lvl6_management_unit_rk\n    , lvl7_management_unit_rk\n    , lvl8_management_unit_rk\n    , lvl9_management_unit_rk\n    , lvl10_management_unit_rk\n    , lvl11_management_unit_rk\n    , lvl12_management_unit_rk\n\n    , fire_initiative\n    , fire_reason_group\n    , fire_reason\n    , seniority\n    , grade\n\n    , profession_array_nm\n    , lvl3_mapped_management_unit_rk\n    , mapped_management_unit_rk_list\n    , legal_unit_rk_list\n    , mdm_employee_rk_list\n    , functional_unit_rk_list\n    , profession_nm_array_new\n    , v_poljakov_access_flg\n    , login_reg_hr_list\n    , performer_fire_type\n\n\n  \nfrom all_employee_add_flags_light e\n-- all_employee e\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7611-9490-6eaebfcd5497
+    title: Протеус - фильтры ЧД
+    shebang: python
+    code: |-
+      # tf.gp_to_proteus('mdm_employee_d_filter_sens', 'prod_proteus.mdm_employee_d_filter_sens',
+      #     upload_mode = 'replace');
+
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('mdm_employee_d_filter_sens', 'prod_proteus.mdm_employee_d_filter_sens',
+          gp_service = 'gp',
+          upload_mode = 'replace',
+          array_type_cast=True);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7619-8560-b7256d9fcf36
+    title: Источник для гайд бука
+    shebang: gp
+    code: "drop table if exists guide_book;\ncreate table guide_book as \n\nselect business_dt\n    , emp_specialization_oper_code\n    , emp_specialization_it_code\n    , emp_stream_desc\n    , emp_specialization_desc\n    , mdm_employee_rk\n    , active_type_nm\n    , company_hire_dt\n    , company_fire_dt\n    , company_hire_flg\n    , company_fire_flg\n    , last_day_of_month_flg_new\n    , last_day_of_quarter_flg_new\n    , last_day_of_year_flg_new\n    , transfer_out_hq_flg\n    , transfer_to_hq_flg\nfrom all_employee_add_flags e\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-761d-af9a-212f64af7ba5
+    title: Протеус - гайд бук
+    shebang: python
+    code: |-
+      # tf.gp_to_proteus('guide_book', 'prod_proteus.crossdata_guide_book',
+      #     upload_mode = 'replace');
+
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('guide_book', 'prod_proteus.crossdata_guide_book',
+          gp_service = 'gp',
+          upload_mode = 'replace');
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7655-b2c6-253c4d5c11f8
+    title: КП уровень 1 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl1;
+
+      create table  transfer_functional_lvl1 as
+
+      select f.*
+      from pre_transfer_functional_lvl1 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-765a-a850-f8ff4a40b112
+    title: КП уровень 2 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl2;
+
+      create table  transfer_functional_lvl2 as
+
+      select f.*
+      from pre_transfer_functional_lvl2 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7660-be75-ab17d868184c
+    title: КП уровень 3 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl3;
+
+      create table  transfer_functional_lvl3 as
+
+      select f.*
+      from pre_transfer_functional_lvl3 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7667-91da-8525b98fd70a
+    title: КП уровень 4 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl4;
+
+      create table  transfer_functional_lvl4 as
+
+      select f.*
+      from pre_transfer_functional_lvl4 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7675-815a-37bd24b760d1
+    title: КП уровень 5 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl5;
+
+      create table  transfer_functional_lvl5 as
+
+      select f.*
+      from pre_transfer_functional_lvl5 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-767c-a9a5-614f3074f047
+    title: КП уровень 6 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl6;
+
+      create table  transfer_functional_lvl6 as
+
+      select f.*
+      from pre_transfer_functional_lvl6 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7682-9265-86ba02710e3d
+    title: КП уровень 7 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl7;
+
+      create table  transfer_functional_lvl7 as
+
+      select f.*
+      from pre_transfer_functional_lvl7 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7687-bd07-28544862fac2
+    title: КП уровень 8 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl8;
+
+      create table  transfer_functional_lvl8 as
+
+      select f.*
+      from pre_transfer_functional_lvl8 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7695-ab17-8601c5545187
+    title: КП уровень 9 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl9;
+
+      create table  transfer_functional_lvl9 as
+
+      select f.*
+      from pre_transfer_functional_lvl9 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-769a-86fd-f2c25607759e
+    title: КП уровень 10 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl10;
+
+      create table  transfer_functional_lvl10 as
+
+      select f.*
+      from pre_transfer_functional_lvl10 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76a1-9b64-ef5ad35d7c63
+    title: КП уровень 11 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl11;
+
+      create table  transfer_functional_lvl11 as
+
+      select f.*
+      from pre_transfer_functional_lvl11 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76a7-9d0d-87c65460dd2e
+    title: КП уровень 12 - итог
+    shebang: gp
+    code: |-
+      drop table if exists transfer_functional_lvl12;
+
+      create table  transfer_functional_lvl12 as
+
+      select f.*
+      from pre_transfer_functional_lvl12 f
+
+      inner join pre_business_period p
+          on f.business_dt = p.business_dt
+          and f.mdm_employee_rk = p.mdm_employee_rk
+
+      distributed by (mdm_employee_rk, business_dt);
+    isEnabled: true
+  - sid: 019afdef-8404-7037-aa42-346f75cf61b0
+    title: Собираем КП для дайджеста
+    shebang: gp
+    code: |-
+      drop table if exists usr_cross_data.functional_structure_digest;
+      create table usr_cross_data.functional_structure_digest as
+
+      select mdm_employee_rk
+      , business_dt
+      , lvl1_functional_unit_nm as functional_unit_nm
+      , lvl1_functional_unit_rk as functional_unit_rk
+      , allocation_prt_norm
+      , transfer_out_lvl1_fucntional_flg as transfer_out_fucntional_flg
+      , transfer_in_lvl1_fucntional_flg as  transfer_in_fucntional_flg
+      , 1 as functional_lvl_number
+      from transfer_functional_lvl1
+
+      union
+
+      select *
+      , 2 as functional_lvl_number
+      from transfer_functional_lvl2
+
+      union
+
+      select mdm_employee_rk
+      , business_dt
+      , lvl3_functional_unit_nm as functional_unit_nm
+      , lvl3_functional_unit_rk as functional_unit_rk
+      , allocation_prt_norm
+      , transfer_out_lvl3_fucntional_flg as transfer_out_fucntional_flg
+      , transfer_in_lvl3_fucntional_flg as  transfer_in_fucntional_flg
+      , 3 as functional_lvl_number
+      from transfer_functional_lvl3
+
+      union
+
+      select *
+      , 4 as functional_lvl_number
+      from transfer_functional_lvl4
+
+      union
+
+      select *
+      , 5 as functional_lvl_number
+      from transfer_functional_lvl5
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76b7-9bce-4c7f3f3ff8a6
+    title: Актуалайз
+    shebang: python
+    code: |-
+      tf.object_actualize('usr_cross_data.functional_structure_digest', source_name='cross');
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76be-aa8d-374e48af61c5
+    title: КП уровень 1 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl1', 'prod_proteus.transfer_functional_lvl1',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err\n\n"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76c3-a945-88f98c63e292
+    title: КП уровень 2 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl2', 'prod_proteus.transfer_functional_lvl2',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76ca-b601-18b5fd9b0d31
+    title: КП уровень 3 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl3', 'prod_proteus.transfer_functional_lvl3',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76d5-82d9-4f1ec9b41022
+    title: КП уровень 4 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl4', 'prod_proteus.transfer_functional_lvl4',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76db-8b56-f4aaef621b45
+    title: КП уровень 5 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl5', 'prod_proteus.transfer_functional_lvl5',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76e2-a898-415beaef4dcb
+    title: КП уровень 6 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl6', 'prod_proteus.transfer_functional_lvl6',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76e7-b685-9d3daec0fcfb
+    title: КП уровень 7 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl7', 'prod_proteus.transfer_functional_lvl7',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76f5-adef-bd2c819e14c5
+    title: КП уровень 8 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl8', 'prod_proteus.transfer_functional_lvl8',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-76fa-acd7-0441e43c2dee
+    title: КП уровень 9 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl9', 'prod_proteus.transfer_functional_lvl9',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7700-9848-cc71465be35d
+    title: КП уровень 10 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl10', 'prod_proteus.transfer_functional_lvl10',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7707-97fc-f3a9a9c0d96f
+    title: КП уровень 11 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl11', 'prod_proteus.transfer_functional_lvl11',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7712-8a7a-3b120ed2228b
+    title: КП уровень 12 - протеус
+    shebang: python_condition
+    code: "#condition: max-retries = 4, iteration-max-time-seconds = 1200, retry-interval-seconds = 1200\nfrom proteus_py.database.clickhouse import gp_to_click\n \ntry:\n    gp_to_click('transfer_functional_lvl12', 'prod_proteus.transfer_functional_lvl12',\n    gp_service = 'gp',\n    upload_mode = 'replace'\n    )\nexcept tf.exceptions.OtherSystemTechnicalError:\n    sys.exit(100)\nexcept Exception as err:\n    raise err"
+    isEnabled: true
+  - sid: 019b12c0-c1c6-7718-a3ac-f33acbce8343
+    title: Создаем тестовую таблицу без ЧД
+    shebang: gp
+    code: |-
+      drop table if exists mdm_employee_d_optimization;
+      create table mdm_employee_d_optimization as
+
+      select business_dt
+      , business_dt_month
+      , business_year_nm
+      , business_quarter_nm
+      , business_month_nm
+      , mdm_employee_rk
+      , business_dt_transfer_out
+      , prev_business_dt
+      , company_hire_dt
+      , company_fire_dt
+      , company_hire_flg
+      , company_fire_flg
+      , last_work_experience_period_flg
+      , work_experience_day_cnt
+      , work_experience_year
+      , experience_group_nm
+      , experience_detail_group_nm
+      , null as last_nm
+      , null as first_nm
+      , null as mdm_employee_nm
+      , null as middle_nm
+      , null as full_nm
+      , null as last_eng_nm
+      , null as first_eng_nm
+      , null as middle_eng_nm
+      , null as birth_dt
+      , null as mdm_employee_age
+      , birth_day
+      , birth_month
+      , gender_desc
+      , null as disability_flg
+      , clothes_size_code
+      , marital_status_desc
+      , foreign_flg
+      , citizenship_country_desc
+      , office_desc
+      , ad_login
+      , wrk_email_address_txt
+      , null as snils
+      , null as inn
+      , null as employee_document_type_desc
+      , null as passport_no
+      , null as passport_issuer_nm
+      , null as passport_div_code
+      , null as passport_issue_dt
+      , null as birth_city_nm
+      , null as birth_region_nm
+      , null as birth_country_nm
+      , null as contact_main_phone_no
+      , null as prs_email_address_txt
+      , null as registration_postal_code
+      , null as registration_district_nm
+      , null as registration_city_nm
+      , null as registration_state_nm
+      , null as registration_settlement_nm
+      , null as registration_full_address_txt
+      , null as residential_postal_code
+      , null as residential_district_nm
+      , null as residential_city_nm
+      , null as residential_state_nm
+      , null as city_nm
+      , null as doc_city_nm
+      , null as residential_settlement_nm
+      , null as residential_full_address_txt
+      , legal_hire_dt
+      , legal_fire_dt
+      , legal_hire_flg
+      , legal_fire_flg
+      , legal_position_rk
+      , legal_position_id
+      , legal_position_nm
+      , legal_integration_source_system_code
+      , legal_head_flg
+      , employment_relation_type_desc
+      , employee_status_desc
+      , employment_type_desc
+      , legal_unit_rk
+      , legal_unit_nm
+      , legal_unit_type_desc
+      , legal_head_mdm_employee_rk
+      , legal_head_last_nm
+      , legal_head_first_nm
+      , null as legal_head_middle_nm
+      , null as legal_head_full_nm
+      , tsdc_head_mdm_employee_rk
+      , tsdc_head_last_nm
+      , tsdc_head_first_nm
+      , hr_head_mdm_employee_rk
+      , hr_head_last_nm
+      , hr_head_first_nm
+      , null as hr_head_nm
+      , lvl1_legal_unit_rk
+      , lvl1_legal_unit_nm
+      , lvl2_legal_unit_rk
+      , lvl2_legal_unit_nm
+      , lvl3_legal_unit_rk
+      , lvl3_legal_unit_nm
+      , lvl4_legal_unit_rk
+      , lvl4_legal_unit_nm
+      , lvl5_legal_unit_rk
+      , lvl5_legal_unit_nm
+      , lvl6_legal_unit_rk
+      , lvl6_legal_unit_nm
+      , lvl7_legal_unit_rk
+      , lvl7_legal_unit_nm
+      , probation_flg
+      , probation_dt
+      , employee_contract_type_desc
+      , management_position_rk
+      , management_position_id
+      , management_position_nm
+      , emp_stream_desc
+      , emp_specialization_desc
+      , emp_specialization_oper_code
+      , emp_specialization_it_code
+      , emp_specialization_dk
+      , emp_stream_dk
+      , management_head_flg
+      , management_unit_nm
+      , management_unit_rk
+      , management_head_mdm_employee_rk
+      , null as management_head_nm
+      , management_head_last_nm
+      , management_head_first_nm
+      , null as management_head_middle_nm
+      , null as management_head_full_nm
+      , hrbp_mdm_employee_rk
+      , hrbp_last_nm
+      , hrbp_first_nm
+      , null as hrbp_nm
+      , hrap_mdm_employee_rk
+      , hrap_last_nm
+      , hrap_first_nm
+      , null as hrap_nm
+      , lvl1_management_unit_rk
+      , lvl1_management_unit_nm
+      , lvl2_management_unit_rk
+      , lvl2_management_unit_nm
+      , lvl3_management_unit_rk
+      , lvl3_management_unit_nm
+      , lvl4_management_unit_rk
+      , lvl4_management_unit_nm
+      , lvl5_management_unit_rk
+      , lvl5_management_unit_nm
+      , lvl6_management_unit_rk
+      , lvl6_management_unit_nm
+      , lvl7_management_unit_rk
+      , lvl7_management_unit_nm
+      , lvl8_management_unit_rk
+      , lvl8_management_unit_nm
+      , lvl9_management_unit_rk
+      , lvl9_management_unit_nm
+      , lvl10_management_unit_rk
+      , lvl10_management_unit_nm
+      , lvl11_management_unit_rk
+      , lvl11_management_unit_nm
+      , lvl12_management_unit_rk
+      , lvl12_management_unit_nm
+      , learning_group_flg
+      , last_day_flg
+      , last_day_of_month_flg
+      , active_type_nm
+      , business_hire_dt
+      , legal_employee_flg
+      , active_employee_flg
+      , transfer_candidate_flg
+      , transfer_internal_flg
+      , employee_main_work_no
+      , null as party_id
+      , null as seniority
+      , null as grade
+      , last_day_of_quarter_flg
+      , last_day_of_year_flg
+      , last_state_flg
+      , employee_main_contract_end_dt
+      , employee_main_contract_type_nm
+      , active_hire_dt
+      , hrap_login
+      , head_login
+      , head_wrk_email_address_txt
+      , head_wo_employee_login
+      , hrbp_login
+      , regional_hr_login
+      , type_create_company
+      , rb_flg
+      , rb_migration_flg
+      , employee_link
+      , wo_employee_login
+      , null as summary_score
+      , 0 as regrettable_fire_flg
+      , 0 as potential_regrettable_flg
+      , 0 as potential_non_regrettable_flg
+      , 0 as non_regrettable_fire_flg
+      , emp_contract_no
+      , subordination_lvl
+      , profession_array_nm
+      , 0 as has_children_flg
+      , recruitmenttype
+      , mapping_channel_name
+      , respond_source_nm
+      , recruiter_ad_login
+      , recruiter_group_nm
+      , recruiter_lvl1_legal_unit_nm
+      , candy_link
+      , null as fire_initiative
+      , null as fire_reason_group
+      , null as fire_reason
+      , 0 as lose_talent_txt
+      , null as fire_dismissal_comment_txt
+      , null as head_exit_company_info
+      , null as employee_dismissal_reason_desc
+      , rotation_flg
+      , t_education_desc
+      , rus_tcr_flg
+      , foreign_tcr_flg
+      , tcr_flg
+      , emp_legal_unit_it_code
+      , code_1c
+      , rus_business_year_nm
+      , rus_business_quarter_nm
+      , rus_business_month_nm
+      , prev_lvl3_management_unit_nm
+      , prev_lvl4_management_unit_nm
+      , prev_lvl5_management_unit_nm
+      , prev_lvl6_management_unit_nm
+      , prev_lvl7_management_unit_nm
+      , prev_lvl8_management_unit_nm
+      , prev_lvl9_management_unit_nm
+      , prev_lvl10_management_unit_nm
+      , prev_lvl11_management_unit_nm
+      , prev_lvl12_management_unit_nm
+      , next_lvl3_management_unit_nm
+      , next_lvl4_management_unit_nm
+      , next_lvl5_management_unit_nm
+      , next_lvl6_management_unit_nm
+      , next_lvl7_management_unit_nm
+      , next_lvl8_management_unit_nm
+      , next_lvl9_management_unit_nm
+      , next_lvl10_management_unit_nm
+      , next_lvl11_management_unit_nm
+      , next_lvl12_management_unit_nm
+      , prev_emp_specialization_oper_code
+      , prev_emp_specialization_it_code
+      , prev_emp_specialization_desc
+      , prev_emp_stream_desc
+      , prev_management_head_nm
+      , next_emp_specialization_oper_code
+      , next_emp_specialization_it_code
+      , next_emp_specialization_desc
+      , next_emp_stream_desc
+      , next_management_head_nm
+      , prev_lvl1_legal_unit_nm
+      , prev_lvl2_legal_unit_nm
+      , prev_lvl3_legal_unit_nm
+      , prev_lvl4_legal_unit_nm
+      , prev_lvl5_legal_unit_nm
+      , prev_lvl6_legal_unit_nm
+      , prev_lvl7_legal_unit_nm
+      , next_lvl1_legal_unit_nm
+      , next_lvl2_legal_unit_nm
+      , next_lvl3_legal_unit_nm
+      , next_lvl4_legal_unit_nm
+      , next_lvl5_legal_unit_nm
+      , next_lvl6_legal_unit_nm
+      , next_lvl7_legal_unit_nm
+      , prev_employment_relation_type_desc
+      , prev_employee_contract_type_desc
+      , prev_active_type_nm
+      , prev_legal_employee_flg
+      , prev_experience_group_nm
+      , prev_experience_detail_group_nm
+      , prev_legal_position_nm
+      , next_employment_relation_type_desc
+      , next_employee_contract_type_desc
+      , next_active_type_nm
+      , next_legal_employee_flg
+      , next_experience_group_nm
+      , next_experience_detail_group_nm
+      , next_legal_position_nm
+      , prev_office_desc
+      , prev_residential_state_nm
+      , prev_gender_desc
+      , null as prev_seniority
+      , next_office_desc
+      , next_residential_state_nm
+      , next_gender_desc
+      , null as next_seniority
+      , transfer_out_lvl3_management_flg
+      , transfer_out_lvl4_management_flg
+      , transfer_out_lvl5_management_flg
+      , transfer_out_lvl6_management_flg
+      , transfer_out_lvl7_management_flg
+      , transfer_out_lvl8_management_flg
+      , transfer_out_lvl9_management_flg
+      , transfer_out_lvl10_management_flg
+      , transfer_out_lvl11_management_flg
+      , transfer_out_lvl12_management_flg
+      , transfer_to_lvl3_management_flg
+      , transfer_to_lvl4_management_flg
+      , transfer_to_lvl5_management_flg
+      , transfer_to_lvl6_management_flg
+      , transfer_to_lvl7_management_flg
+      , transfer_to_lvl8_management_flg
+      , transfer_to_lvl9_management_flg
+      , transfer_to_lvl10_management_flg
+      , transfer_to_lvl11_management_flg
+      , transfer_to_lvl12_management_flg
+      , transfer_out_hq_flg
+      , transfer_to_hq_flg
+      , transfer_out_it_flg
+      , transfer_to_it_flg
+      , transfer_out_active_type_flg
+      , transfer_to_active_type_flg
+      , transfer_out_specialization_flg
+      , transfer_to_specialization_flg
+      , transfer_out_stream_flg
+      , transfer_to_stream_flg
+      , transfer_out_lvl1_legal_flg
+      , transfer_out_lvl2_legal_flg
+      , transfer_out_lvl3_legal_flg
+      , transfer_out_lvl4_legal_flg
+      , transfer_out_lvl5_legal_flg
+      , transfer_out_lvl6_legal_flg
+      , transfer_out_lvl7_legal_flg
+      , transfer_to_lvl1_legal_flg
+      , transfer_to_lvl2_legal_flg
+      , transfer_to_lvl3_legal_flg
+      , transfer_to_lvl4_legal_flg
+      , transfer_to_lvl5_legal_flg
+      , transfer_to_lvl6_legal_flg
+      , transfer_to_lvl7_legal_flg
+      , transfer_out_employment_relation_type_flg
+      , transfer_to_employment_relation_type_flg
+      , transfer_out_employee_contract_type_flg
+      , transfer_to_employee_contract_type_flg
+      , transfer_out_legal_position_flg
+      , transfer_to_legal_position_flg
+      , transfer_out_legal_employee_flg
+      , transfer_to_legal_employee_flg
+      , transfer_out_management_head_flg
+      , transfer_to_management_head_flg
+      , transfer_out_office_flg
+      , transfer_to_office_flg
+      , transfer_out_residential_state_flg
+      , transfer_to_residential_state_flg
+      , transfer_out_seniority_flg
+      , transfer_to_seniority_flg
+      , transfer_out_gender_desc_flg
+      , transfer_to_gender_desc_flg
+      , transfer_out_experience_group_flg
+      , transfer_to_experience_group_flg
+      , transfer_out_experience_detail_group_flg
+      , transfer_to_experience_detail_group_flg
+      , last_day_of_month_flg_new
+      , last_day_of_quarter_flg_new
+      , last_day_of_year_flg_new
+      , functional_lvl_all_array
+      , array_lvl1_functional_unit_nm
+      , array_lvl2_functional_unit_nm
+      , array_lvl3_functional_unit_nm
+      , array_functional_unit_rk
+
+      from all_employee_add_flags
+    isEnabled: false
+  - sid: 019b12c0-c1c6-771d-95ba-d3118e025ea6
+    title: Протеус без ЧД - ультраширокая
+    shebang: python
+    code: |-
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('mdm_employee_d_optimization', 'prod_proteus.mdm_employee_d_optimization',
+          gp_service = 'gp',
+          partition_by_columns = 'toYYYYMM(business_dt)',
+          order_by_columns='(business_dt,active_type_nm)',
+          upload_mode = 'replace',
+          batch_count = 5);
+    isEnabled: false
+  - sid: 019b12c0-c1c6-7722-8f64-81b3244364c0
+    title: Выдаем доступа к таблицам в proteus
+    shebang: python
+    code: |-
+      from proteus_py.database.clickhouse import get_table_owners, set_table_owners, delete_table_owners
+
+      set_table_owners(database='prod_proteus',  table='mdm_employee_d_light', usernames=['m.khomullo','a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl1', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl2', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl3', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl4', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl5', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl6', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl7', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl8', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl9', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl10', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl11', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+      set_table_owners(database='prod_proteus',  table='transfer_functional_lvl12', usernames=['m.khomullo','i.rastokin', 'a.s.leporskaya'])
+
+      set_table_owners(database='prod_proteus',  table='mdm_employee_d_optimization', usernames=['m.a.pervushina'])
+
+      set_table_owners(database='prod_proteus',  table='mdm_employee_d_filter_sens', usernames=['r.kazantsev','a.kavtorin','v.slutskiy'])
+      set_table_owners(database='prod_proteus',  table='mdm_employee_d_light', usernames=['r.kazantsev','a.kavtorin','a.s.leporskaya','a.a.varnavskiy','v.slutskiy'])
+      set_table_owners(database='prod_proteus',  table='mdm_employee_d', usernames=['r.kazantsev','a.kavtorin','a.s.leporskaya','a.a.varnavskiy'])
+      set_table_owners(database='prod_proteus',  table='mdm_employee_d_detail_last_day', usernames=['dmi.belyaev','r.kazantsev'])
+    isEnabled: true
+  - sid: 019a6d82-cad0-72f5-a13c-4b1be5f4d3a4
+    title: Клик - ультраширокая (для Наташи)
+    shebang: python
+    code: "tf.gp_to_click('pre_mdm_employee_dd', 'prod_wrk.mdm_employee_d'\n            , partition_by_columns = 'toYYYYMM(business_dt)'\n            , upload_mode = 'replace' \n            , clickhouse_service = 'dwh'); "
+    isEnabled: true
+  - sid: 019d0abb-5d35-761b-b7a1-cb0baf1cae75
+    title: Клик - ультраширокая КП (для Наташи)
+    shebang: python
+    code: "tf.gp_to_click('pre_mdm_employee_d_functional', 'prod_wrk.mdm_employee_d_functional'\n            , upload_mode = 'replace' \n            , clickhouse_service = 'dwh');"
+    isEnabled: true
+  - sid: 019fc6ec-3b39-7df5-bf1f-10f5b1a42ff9
+    title: Untitled 19
+    shebang: gp
+    code: "drop table if exists functional_units_metric_aggerate;\ncreate table functional_units_metric_aggerate as \n\nwith pre as (select m.business_dt\n, m.mdm_employee_rk\n, m.emp_specialization_oper_code\n, m.active_type_nm\n, f.lvl1_functional_unit_nm\n, f.lvl2_functional_unit_nm\n, f.lvl3_functional_unit_nm\n, f.lvl4_functional_unit_nm\n, f.lvl5_functional_unit_nm\n, f.allocation_prt_norm\n, f.allocation_prt\nfrom prod_v_sse_crossdata.mdm_employee_d m\n\nleft join usr_cross_data.functional_role_d_br f \n    on m.mdm_employee_rk = f.mdm_employee_rk\n    and m.business_dt = f.business_dt\n\nwhere 1=1\n    and (m.last_day_of_month_flg = 1 or m.last_day_flg = 1)\n    and m.company_fire_flg = 0\n    and m.business_dt > '2026-01-01')\n\nselect business_dt\n, emp_specialization_oper_code\n, active_type_nm\n, lvl1_functional_unit_nm\n, lvl2_functional_unit_nm\n, lvl3_functional_unit_nm\n, lvl4_functional_unit_nm\n, lvl5_functional_unit_nm\n, count(distinct mdm_employee_rk) as employee_cnt\n, sum(allocation_prt_norm) as allocation_prt_norm\n, sum(allocation_prt) as allocation_prt\nfrom pre\ngroup by 1,2,3,4,5,6,7,8"
+    isEnabled: false
+  - sid: 019fc6ec-6a25-7a58-ac0d-359359211356
+    title: Untitled 20
+    shebang: python
+    code: "tf.gp_to_click('functional_units_metric_aggerate', 'prod_wrk.functional_units_metric_aggerate'\n            , upload_mode = 'replace' \n            , clickhouse_service = 'dwh'); "
+    isEnabled: false
+  - sid: 019b12c0-c1c6-7759-b140-ad714e4d35a1
+    title: Удаляем времянки
+    shebang: gp
+    code: |-
+      select public.clean_user_data();
+    isEnabled: false
