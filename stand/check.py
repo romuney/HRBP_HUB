@@ -12,8 +12,10 @@
    только зона и её предки, без роли — только meta.
 4. Устойчивость: AlwaysTrue при сохранении датасета, враждебный ввод, старый
    анализатор, prefer_column_name_to_alias = 1, join_use_nulls = 1, типы без Nullable.
-5. Глубина и масштаб: путь отчёта lvl1 + lvl3…lvl12, раскрытие узлов глубже −2
-   (exp_f) число в число, справочник большой зоны (путь + окрестность), поиск q_f.
+5. Глубина и масштаб: путь отчёта lvl1 + lvl3…lvl12; «Команды» на 3 уровня и все
+   уровни (depth_f) число в число, Σ детей == узел на каждом уровне, «Напрямую в …»
+   только рядом с подразделениями, порог «все уровни»; справочник большой зоны
+   (путь + дерево «Команд» + корни HRBP), поиск q_f, пути корней HRBP.
 """
 import hashlib
 import json
@@ -79,6 +81,33 @@ def compare(label, row, pred, cuts, grains=('m', 'w')):
     return good
 
 
+def tree_ok(rows, label):
+    """Дерево «Команд» в ответе: у каждого узла Σ строк детей == узел (месяцы и недели),
+    родитель каждой строки есть в ответе, «·» — только рядом с подразделениями."""
+    tree = [r for r in rows if r['role'] in ('c', 'g', 'x')]
+    # узел дерева — путь от −1 (pid строки + её id): реорганизованный юнит стоит в двух местах
+    nodes = {(r['pid'] + '/' if r['pid'] else '') + r['id']: r for r in tree if r['id'] != '·'}
+    kids = {}
+    for r in tree:
+        if r['role'] != 'c':
+            kids.setdefault(r['pid'], []).append(r)
+    good = True
+    for pid, ks in kids.items():
+        if pid not in nodes:
+            good = ok(False, '%s: строки без родителя в ответе (%s)' % (label, pid)) and good
+            continue
+        n = nodes[pid]
+        if vsum(ks, 'm') != arrs(n, 'm') or vsum(ks, 'w') != arrs(n, 'w'):
+            good = ok(False, '%s: Σ детей != узел %s' % (label, pid)) and good
+    for r in tree:
+        if r['id'] == '·':
+            sib = [q for q in tree if q['role'] == r['role'] and q['pid'] == r['pid'] and q['id'] != '·']
+            if not sib:
+                good = ok(False, '%s: «напрямую» без подразделений рядом (%s)' % (label, r['pid'])) and good
+    ok(good, label + ': Σ детей == узел на всех уровнях, «напрямую» только рядом с подразделениями')
+    return good
+
+
 def vsum(rows_, g):
     out = {c: [0] * 24 for c in COMP}
     for r in rows_:
@@ -134,10 +163,11 @@ def main():
         ok(vsum(by(rows, 'c'), 'm') == sc[0] and vsum(by(rows, 'c'), 'w') == sc[1], 'Σ команд −1 == область [%s %s]' % (user, flt))
         for c in by(rows, 'c'):
             gs = [g for g in by(rows, 'g') if g['pid'] == c['id']]
-            if c['id'] != '·':
+            if c['id'] != '·' and gs:     # у узла без подразделений строк −2 нет вовсе
                 ok(vsum(gs, 'm') == arrs(c, 'm'), 'Σ −2 == узел −1 %s [%s]' % (c['id'], user))
             else:
                 ok(not gs, 'у «прямо в юните» нет −2 [%s]' % user)
+        tree_ok(rows, 'дерево [%s %s]' % (user, flt))
         last = meta(rows)['last_m']
         for cut in CARRIER:
             fs = [r for r in by(rows, 'f') if r['pid'] == cut]
@@ -189,66 +219,85 @@ def main():
     rows, _ = ch.run(ch.render({}, 'a.sergeeva', always_true=True))
     ok(meta(rows)['scope'] == [sid(root)], 'AlwaysTrue (сохранение датасета) → дефолт: зона пользователя')
     ok(len(json.loads(by(base_rows, 'meta')[0]['j'])['cal']) == 48, 'календарь: 48 слотов в meta')
-    # ---------------- 5. глубина до 12-го уровня и большие зоны ----------------
+    # ---------------- 5. глубина «Команд» до 12-го уровня и большие зоны ----------------
     tech = U['Технологии']
-    deep = [U['Отдел бэкенда'], U['Отдел бэкенда / группа 1'], U['Подзвено A1'], U['Ячейка A1-1']]
-    outside = U['Отдел клиринга']
-    flt = {'unit_f': [sid(tech.rk)], 'exp_f': [sid(u.rk) for u in deep] + [sid(outside.rk), sid(tech.rk)]}
-    rows, _ = ask(flt)
-    m = meta(rows)
-    ok(set(m['exp']) == {sid(u.rk) for u in deep},
-       'раскрытие: чужой узел и сам юнит отброшены, свои приняты: %s' % m['exp'])
     rks = {sid(u.rk): u.rk for u in W.UNITS}
+    urows, _ = ch.run('SELECT id, pid, lvl, path, kids_n, sub_n, nm FROM prod_proteus.hrbp_hub_unit')
+    UT = {r['id']: r for r in urows}
+    rows3, _ = ask({'unit_f': [sid(tech.rk)]})
+    m3 = meta(rows3)
+    ok(m3['depth_req'] == '3' and m3['depth'] == '3', 'по умолчанию «Команды» — 3 уровня')
+    x3 = by(rows3, 'x')
+    ok(len(x3) > 0 and all(r['pid'].count('/') == 1 for r in x3), '3 уровня: третий уровень есть, четвёртого нет')
+    tree_ok(rows3, 'Технологии, 3 уровня')
+    rows_all, _ = ask({'unit_f': [sid(tech.rk)], 'depth_f': ['all']})
+    ma = meta(rows_all)
+    ok(ma['depth_req'] == 'all' and ma['depth'] == 'all' and ma['scope_n'] == UT[sid(tech.rk)]['sub_n'] <= ma['all_max'],
+       'все уровни: ветка (%s юнитов) меньше порога — отдаются' % ma['scope_n'])
+    tree_ok(rows_all, 'Технологии, все уровни')
+    deep = [U['Отдел бэкенда'], U['Отдел бэкенда / группа 1'], U['Подзвено A1']]
     for e in deep:
-        xs = [r for r in rows if r['role'] == 'x' and r['pid'] == sid(e.rk)]
-        ok(len(xs) > 0, 'раскрытие %s: есть строки детей' % e.name_at(W.D))
+        xs = [r for r in rows_all if r['role'] in ('g', 'x') and r['pid'].split('/')[-1] == sid(e.rk)]
+        ok(len(xs) > 0, 'все уровни: у %s есть строки детей' % e.name_at(W.D))
         for r in xs:
             child = None if r['id'] == '·' else rks[r['id']]
-            compare('раскрытие %s → %s' % (e.name_at(W.D), r['id']), r, X.child_of(e.rk, child), {})
-        ok(vsum(xs, 'm') == X.component_series('m', X.under({tech.rk}, {e.rk}), {}) and
-           vsum(xs, 'w') == X.component_series('w', X.under({tech.rk}, {e.rk}), {}),
-           'Σ детей раскрытого %s == его ветка' % e.name_at(W.D))
-    yach = [r for r in rows if r['role'] == 'x' and r['pid'] == sid(U['Ячейка A1-1'].rk)]
-    ok([r['id'] for r in yach] == ['·'], 'lvl12 — нижний уровень отчёта: у «Ячейки» только «прямо в ней» (lvl13 внутри)')
-    base_rows, _ = ask({'unit_f': [sid(tech.rk)]})
+            compare('все уровни %s → %s' % (e.name_at(W.D), r['id']), r, X.child_of(e.rk, child), {})
+    yach = sid(U['Ячейка A1-1'].rk)
+    ok(yach in {r['id'] for r in rows_all} and not [r for r in rows_all if r['pid'].split('/')[-1] == yach],
+       'lvl12 — нижний уровень: «Ячейка» в дереве, строк детей у неё нет (lvl13 — внутри неё)')
     norm_cg = lambda rs: sorted((r['role'], r['id'], r['pid'], r['m_hc'], r['w_rg']) for r in rs if r['role'] in ('scope', 'c', 'g', 'base', 'f'))
-    ok(norm_cg(rows) == norm_cg(base_rows), 'раскрытие не меняет юнит, −1, −2, базу и фасеты')
+    ok(norm_cg(rows_all) == norm_cg(rows3), 'глубина не меняет юнит, −1, −2, базу и фасеты')
+    rows_cap, _ = ch.dataset({'unit_f': [sid(tech.rk)], 'depth_f': ['all']}, 'a.sergeeva', all_max=5)
+    mc = meta(rows_cap)
+    xc = by(rows_cap, 'x')
+    ok(mc['depth_req'] == 'all' and mc['depth'] == '3' and mc['scope_n'] > mc['all_max']
+       and all(r['pid'].count('/') == 1 for r in xc),
+       'все уровни при ветке больше порога — отдаются 3 уровня, в meta видно почему')
     # путь отчёта: lvl2 пропущен, компания — родитель блоков
-    urows, _ = ch.run('SELECT id, pid, lvl, path, kids_n, nm FROM prod_proteus.hrbp_hub_unit')
-    UT = {r['id']: r for r in urows}
     ok(UT[sid(tech.rk)]['pid'] == sid(root) and UT[sid(tech.rk)]['lvl'] == 3, 'блок (lvl3) стоит прямо под компанией: lvl2 пропущен')
     ok(sid(U['Микроячейка A1-1-a'].rk) not in UT and sid(U['ТБанк · Банк'].rk) not in UT, 'lvl13 и lvl2 в справочник не попадают')
-    ok(max(r['lvl'] for r in urows) == 12 and UT[sid(U['Ячейка A1-1'].rk)]['kids_n'] == 0, 'нижний уровень — 12, детей у него нет')
+    ok(max(r['lvl'] for r in urows) == 12 and UT[yach]['kids_n'] == 0, 'нижний уровень — 12, детей у него нет')
     rows, _ = ask({'unit_f': [sid(root)]})
     dct = [r for r in rows if r['role'] == 'c' and r['id'] == '·']
     ok(len(dct) == 1, 'люди lvl1/lvl2 — строка «прямо в компании»')
     compare('прямо в компании (lvl1 + lvl2)', dct[0], X.direct(root), {}, ('m',))
-    # справочник большой зоны: путь + окрестность; поиск по имени
+    # справочник большой зоны: путь + дерево «Команд» + корни HRBP; поиск по имени
     def dict_ids(rs):
         return {ln.split('\t')[0] for ln in by(rs, 'dict')[0]['j'].split('\n')}
-    rows_full, _ = ask({'unit_f': [sid(tech.rk)]})
-    ok(meta(rows_full)['dict_mode'] == 'full' and dict_ids(rows_full) == set(UT), 'маленькая зона: справочник целиком')
-    flt = {'unit_f': [sid(tech.rk)], 'exp_f': [sid(U['Отдел бэкенда / группа 1'].rk)]}
-    rows, _ = ch.dataset(flt, 'a.sergeeva', dict_full_max=10)
-    m = meta(rows)
-    kpi_units = {r['pid'] for r in by(rows, 'kpi')}
-    scope = {sid(tech.rk)}
-    sanc = set(UT[sid(tech.rk)]['path'])
-    exp = {sid(U['Отдел бэкенда / группа 1'].rk)}
-    xanc = set(UT[sid(U['Отдел бэкенда / группа 1'].rk)]['path'])
-    want = {i for i, r in UT.items()
-            if i in sanc or r['pid'] in sanc or r['pid'] in exp or i in xanc or r['pid'] == sid(root)
-            or (len(r['path']) >= 3 and r['path'][-3] in scope) or i in kpi_units}
-    ok(m['dict_mode'] == 'part' and dict_ids(rows) == want,
-       'большая зона: путь, соседи, дети и внуки юнита, дети раскрытых, цели (%d из %d юнитов)' % (len(want), len(UT)))
-    c_ids = {r['id'] for r in rows if r['role'] in ('c', 'g', 'x') and r['id'] != '·'}
-    ok(c_ids <= dict_ids(rows), 'все строки команд −1/−2/раскрытия есть в справочнике')
+    ok(meta(rows3)['dict_mode'] == 'full' and dict_ids(rows3) == set(UT), 'маленькая зона: справочник целиком')
+    acc, _ = ch.run("SELECT ifNull(root_id, '') AS r FROM prod_proteus.hrbp_hub_access WHERE ifNull(role, '') = 'hrbp'")
+    hroots = {r['r'] for r in acc}
+    for depth_f, dep in (([], 3), (['all'], 10)):
+        flt = {'unit_f': [sid(tech.rk)]}
+        if depth_f:
+            flt['depth_f'] = depth_f
+        rows, _ = ch.dataset(flt, 'a.sergeeva', dict_full_max=10)
+        m = meta(rows)
+        kpi_units = {r['pid'] for r in by(rows, 'kpi')}
+        scope = {sid(tech.rk)}
+        sanc = set(UT[sid(tech.rk)]['path'])
+        want = {i for i, r in UT.items()
+                if i in sanc or r['pid'] in sanc or r['pid'] == sid(root) or i in kpi_units or i in hroots
+                or set(r['path'][max(0, len(r['path']) - 1 - dep):len(r['path']) - 1]) & scope}
+        ok(m['dict_mode'] == 'part' and dict_ids(rows) == want,
+           'большая зона, глубина %s: путь, соседи, дерево «Команд», цели, корни HRBP (%d из %d юнитов)' % (dep, len(want), len(UT)))
+        t_ids = {r['id'] for r in rows if r['role'] in ('c', 'g', 'x') and r['id'] != '·'}
+        ok(t_ids <= dict_ids(rows), 'все строки «Команд» (глубина %s) есть в справочнике' % dep)
     rows, _ = ch.dataset({'unit_f': [sid(tech.rk)], 'q_f': ['ЯЧЕЙКА']}, 'a.sergeeva', dict_full_max=10)
-    hit = sid(U['Ячейка A1-1'].rk)
-    ok(meta(rows)['q'] == 'ЯЧЕЙКА' and hit in dict_ids(rows) and set(UT[hit]['path']) <= dict_ids(rows),
+    ok(meta(rows)['q'] == 'ЯЧЕЙКА' and yach in dict_ids(rows) and set(UT[yach]['path']) <= dict_ids(rows),
        'поиск по всей зоне: найденный юнит и его путь в справочнике')
     rows, _ = ch.dataset({'q_f': ['ячейка']}, 'b.kotov', dict_full_max=1)
-    ok(hit not in dict_ids(rows), 'поиск не выходит за зону HRBP')
+    ok(yach not in dict_ids(rows), 'поиск не выходит за зону HRBP')
+    # HRBP: пути корней для дерева «кто под кем»
+    rows, _ = ask({}, 's.volkov')
+    hl = [ln.split('\t') for ln in by(rows, 'hrbps')[0]['j'].split('\n')]
+    good = len(hl) == 2
+    for f in hl:
+        roots_ = f[2].split(',')
+        paths_ = f[4].split(',') if len(f) > 4 else []
+        good = good and len(paths_) == len(roots_) and all(p.split('/')[-1] == r_ and p.split('/') == UT[r_]['path']
+                                                          for r_, p in zip(roots_, paths_))
+    ok(good, 'HRBP: у каждого корня зоны — его путь от компании')
 
     print('ClickHouse %s · %d проверок, провалено %d' % (ch.VERSION, cases, bad))
     return bad

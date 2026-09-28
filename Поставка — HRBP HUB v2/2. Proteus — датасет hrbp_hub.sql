@@ -2,24 +2,25 @@
     hrbp_hub — датасет ЕДИНСТВЕННОГО чарта отчёта HRBP HUB (Proteus, база CROSS).
 
     Один ответ везёт всё, что экрану может понадобиться до следующей смены юнита
-    или разрезов: сводку, команды (−1 и −2, глубже — по раскрытию), базу сравнения,
-    цели, фасеты фильтров, справочник юнитов для выбора и календарь. Всё остальное —
-    вкладки, раскрытие уже приехавших строк, «год / 12 недель», клик по команде,
-    наследование целей, светофор — считает чарт без запроса.
+    или разрезов: сводку, команды на 3 уровня вниз (или все уровни — depth_f), базу
+    сравнения, цели, фасеты фильтров, справочник юнитов и HRBP для выбора и календарь.
+    Всё остальное — вкладки, раскрытие строк «Команд», «год / 12 недель», клик по
+    команде, наследование целей, светофор — считает чарт без запроса.
 
     Строки различаются колонкой role:
       meta   1 строка — эхо применённых условий, доступ, календарь слотов (j = JSON)
       dict   1 строка — юниты пакетом: id, родитель, уровень, численность сейчас,
              текущий ли, rk, имя, число детей (j: поля через \t, строки через \n).
              Зона до DICT_FULL_MAX юнитов — целиком; больше (супер-HRBP, админ на
-             100 тыс. сотрудников) — путь до юнита с соседями, дети и внуки юнита,
-             дети раскрытых узлов, корни с детьми, найденное поиском q_f
-      hrbps  1 строка — HRBP, чьи зоны внутри моей: логин, имя, корни, численность
+             100 тыс. сотрудников) — путь до юнита с соседями, всё дерево «Команд»
+             (3 уровня или все), корни с детьми, корни зон HRBP, найденное поиском q_f
+      hrbps  1 строка — HRBP, чьи зоны внутри моей: логин, имя, корни, численность,
+             пути корней (по ним чарт строит дерево «кто под кем»)
       base   вся компания под выбранными разрезами — база сравнения (hrbp_hub_base)
       scope  выбранный юнит (или объединение корней зоны)
       c      узлы на уровень ниже (строки «Команд»); '·' — сотрудники прямо в юните
       g      на два уровня ниже, pid = узел −1; '·' — прямо в узле −1
-      x      дети раскрытых узлов глубже −2 (exp_f): pid = раскрытый узел; '·' — прямо в нём
+      x      третий уровень вниз и глубже: pid = путь родителя от узла −1 через '/'; '·' — прямо в нём
       f      фасеты фильтров: id = значение, pid = разрез, n = численность на конец
              последнего закрытого месяца при ОСТАЛЬНЫХ разрезах
       tr     разбивка по оси трансформеров (только когда tr_f задан), только месяцы
@@ -29,7 +30,7 @@
 
     Кросс-фильтры (эмитит сам чарт, самовлияние ВКЛЮЧЕНО): unit_f — id юнитов;
     paint_f / it_f / stream_f / spec_f / staff_f / hct_f — значения разрезов;
-    tr_f — ось трансформеров; exp_f — раскрытые узлы «Команд» глубже −2; q_f —
+    tr_f — ось трансформеров; depth_f — глубина «Команд» ('all' — все уровни); q_f —
     поиск юнита по имени (большие зоны). Колонки-носители в SELECT не выводятся
     (иначе Superset повесит авто-IN на внешний запрос). Доступ — current_username():
     юниты вне зоны пользователя не приезжают ни в каком виде.
@@ -56,7 +57,12 @@
     отдаёт вместо списка AlwaysTrueObject, у него нет длины и «+» не определён. -#}
 {% set me = (current_username() or '')|string|trim|lower %}
 {% set unit_req = [] %}{% for v in (filter_values('unit_f') or []) %}{% if v|string|trim != '' and unit_req|length < 50 %}{% set _ = unit_req.append(v|string|trim) %}{% endif %}{% endfor %}
-{% set exp_req = [] %}{% for v in (filter_values('exp_f') or []) %}{% if v|string|trim != '' and exp_req|length < 50 %}{% set _ = exp_req.append(v|string|trim) %}{% endif %}{% endfor %}
+{#- Глубина «Команд»: 3 уровня вниз; 'all' — до 12-го уровня, если в ветке юнита не больше
+    ALL_MAX юнитов (иначе ответ — мегабайты: у каждой строки 24 ряда по 24 точки). -#}
+{% set ALL_MAX = 1000 %}
+{% set DEEP = 10 %}
+{% set depth_req = 'all' if (filter_values('depth_f')|first|default('', true))|string == 'all' else '3' %}
+{% set D = DEEP if depth_req == 'all' else 3 %}
 {% set q_req = [] %}{% for v in (filter_values('q_f') or []) %}{% if v|string|trim != '' and q_req|length < 1 %}{% set _ = q_req.append((v|string|trim)[:60]) %}{% endif %}{% endfor %}
 {% set q = q_req|first|default('', true) %}
 {% set F = {} %}
@@ -117,21 +123,19 @@ WITH
            un.anc AS anc, un.zone_n AS zone_n, lm.last_m AS last_m
     FROM acc CROSS JOIN un CROSS JOIN lm
   ),
-  {#- Раскрытые узлы «Команд» — только строго внутри выбранного юнита; пути до юнита
-      и до раскрытых узлов — для справочника; lo / hi — диапазон ключа куба (path_s),
-      в котором лежит ветка юнита (xlo / xhi — ветки раскрытых): куб читается только в нём. -#}
+  {#- Пути до выбранного юнита — для справочника; lo / hi — диапазон ключа куба (path_s),
+      в котором лежит ветка юнита: куб читается только в нём. scope_n — юнитов в ветке;
+      depth — сколько уровней «Команд» реально отдаём (3 или DEEP). -#}
   ex AS (
-    SELECT groupArrayIf(uid, has({{ qa(exp_req) }}, uid) AND hasAny(p, ctx.scope) AND NOT has(ctx.scope, uid)) AS exp,
-           groupUniqArrayArrayIf(p, has(ctx.scope, uid)) AS sanc,
-           groupUniqArrayArrayIf(p, has({{ qa(exp_req) }}, uid) AND hasAny(p, ctx.scope)) AS xanc,
+    SELECT groupUniqArrayArrayIf(p, has(ctx.scope, uid)) AS sanc,
            minIf(arrayStringConcat(p, '/'), has(ctx.scope, uid)) AS lo,
            maxIf(concat(arrayStringConcat(p, '/'), '0'), has(ctx.scope, uid)) AS hi,
-           minIf(arrayStringConcat(p, '/'), has({{ qa(exp_req) }}, uid) AND hasAny(p, ctx.scope) AND NOT has(ctx.scope, uid)) AS xlo,
-           maxIf(concat(arrayStringConcat(p, '/'), '0'), has({{ qa(exp_req) }}, uid) AND hasAny(p, ctx.scope) AND NOT has(ctx.scope, uid)) AS xhi
+           toInt64(sumIf(ifNull(sub_n, 1), has(ctx.scope, uid))) AS scope_n,
+           toUInt32(if({{ '1' if depth_req == 'all' else '0' }} = 1 AND scope_n <= {{ ALL_MAX }}, {{ DEEP }}, 3)) AS depth
     FROM (
-      SELECT ifNull(id, '') AS uid, arrayMap(x -> ifNull(x, ''), path) AS p
+      SELECT ifNull(id, '') AS uid, arrayMap(x -> ifNull(x, ''), path) AS p, sub_n
       FROM prod_proteus.hrbp_hub_unit
-      WHERE id IN (SELECT arrayJoin(scope) FROM ctx){% if exp_req %} OR id IN {{ qt(exp_req) }}{% endif %}
+      WHERE id IN (SELECT arrayJoin(scope) FROM ctx)
     ) AS ue
     CROSS JOIN ctx
   )
@@ -139,46 +143,63 @@ SELECT role, id, pid, n, j,
   {% for c in COMP %}m_{{ c }}, {% endfor %}{% for c in COMP %}w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
 FROM (
 
-  {#- ---------- куб, дерево: юнит, −1 и −2 одним проходом (ROLLUP) ----------
-      child / gchild у настоящих групп никогда не пустые ('·' — прямо в узле),
-      поэтому свёрнутые ROLLUP строки узнаются по пустому ключу: ('', '') — юнит,
-      (child, '') — узел −1. ifNull — на случай group_by_use_nulls = 1. #}
-  SELECT multiIf(ifNull(child, '') = '', 'scope', ifNull(gchild, '') = '', 'c', 'g') AS role,
-    multiIf(ifNull(child, '') = '', '', ifNull(gchild, '') = '', ifNull(child, ''), ifNull(gchild, '')) AS id,
-    if(ifNull(child, '') != '' AND ifNull(gchild, '') != '', ifNull(child, ''), '') AS pid,
+  {#- ---------- куб, дерево «Команд»: юнит и D уровней вниз одним проходом (ROLLUP) ----------
+      k1…kD — узлы пути ниже выбранного юнита (у зоны из нескольких корней k1 — сам корень);
+      где путь кончился — '·' (сотрудники прямо в узле). Свёрнутые ROLLUP ключи пустые, поэтому
+      уровень строки lv = число непустых ключей: 0 — юнит, 1 — c, 2 — g, 3 и глубже — x.
+      pid — путь родителя от −1 через '/' (у g это просто узел −1): после реорганизации один
+      юнит бывает под двумя родителями, и его дети считаются отдельно в каждом месте дерева.
+      '·' после '·' — повтор и отбрасывается; '·' у узла
+      без других детей — тоже: «Напрямую в …» нужна только рядом с подразделениями. ifNull —
+      на случай group_by_use_nulls = 1. D = 3; при depth_f = 'all' — DEEP (до 12-го уровня),
+      но ключи глубже 3 оживают, только если ex.depth это разрешил (ветка ≤ ALL_MAX юнитов). #}
+  SELECT multiIf(lv = 0, 'scope', lv = 1, 'c', lv = 2, 'g', 'x') AS role, id, pid,
     toInt64(0) AS n, '' AS j,
     {% for c in COMP %}{{ out('s_m_' ~ c) }} AS m_{{ c }}, {% endfor %}
     {% for c in COMP %}{{ out('s_w_' ~ c) }} AS w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
   FROM (
-    SELECT child, gchild,
-      {% for c in COMP %}sumForEach(mv_{{ c }}) AS s_m_{{ c }},
-      {% endfor %}
-      {% for c in COMP %}sumForEach(wv_{{ c }}) AS s_w_{{ c }}{% if not loop.last %},{% endif %}
-      {% endfor %}
+    SELECT lv, id, pid, count() OVER (PARTITION BY lv, pid) AS sib,
+      {% for c in COMP %}s_m_{{ c }}, {% endfor %}{% for c in COMP %}s_w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
     FROM (
-      SELECT
-        arrayMap(x -> ifNull(x, ''), cb.path) AS p,
-        {% for c in COMP %}{{ arr('m_' ~ src(c)) }} AS mv_{{ c }},
-        {% endfor %}
-        {% for c in COMP %}{{ arr('w_' ~ src(c)) }} AS wv_{{ c }},
-        {% endfor %}
-        arrayFirstIndex(x -> has(ctx.scope, x), p) AS pos,
-        toUInt32(if(ctx.single, pos + 1, pos)) AS cpos,
-        if(arrayElement(p, cpos) = '', '·', arrayElement(p, cpos)) AS child,
-        if(child = '·' OR arrayElement(p, cpos + 1) = '', '·', arrayElement(p, cpos + 1)) AS gchild
+      SELECT toUInt32(length(arrayFilter(x -> x != '', ks))) AS lv,
+        arrayElement(ks, lv) AS id,
+        if(lv <= 1, '', arrayStringConcat(arraySlice(ks, 1, lv - 1), '/')) AS pid,
+        {% for c in COMP %}s_m_{{ c }}, {% endfor %}{% for c in COMP %}s_w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
       FROM (
-        SELECT *
-        FROM prod_proteus.hrbp_hub_cube
-        WHERE path_s >= tupleElement((SELECT (lo, hi) FROM ex), 1) AND path_s < tupleElement((SELECT (lo, hi) FROM ex), 2)
-      ) AS cb
-      CROSS JOIN ctx
-      WHERE notEmpty(ctx.roots)
-        AND hasAny(arrayMap(x -> ifNull(x, ''), cb.path), ctx.scope)
-        AND ({{ cond('') }})
+        SELECT [{% for i in range(D) %}ifNull(k{{ i + 1 }}, ''){% if not loop.last %}, {% endif %}{% endfor %}] AS ks,
+          {% for c in COMP %}sumForEach(mv_{{ c }}) AS s_m_{{ c }},
+          {% endfor %}
+          {% for c in COMP %}sumForEach(wv_{{ c }}) AS s_w_{{ c }}{% if not loop.last %},{% endif %}
+          {% endfor %}
+        FROM (
+          SELECT
+            arrayMap(x -> ifNull(x, ''), cb.path) AS p,
+            {% for c in COMP %}{{ arr('m_' ~ src(c)) }} AS mv_{{ c }},
+            {% endfor %}
+            {% for c in COMP %}{{ arr('w_' ~ src(c)) }} AS wv_{{ c }},
+            {% endfor %}
+            arrayFirstIndex(x -> has(ctx.scope, x), p) AS pos,
+            arraySlice(p, if(ctx.single, pos + 1, pos)) AS rel,
+            {% for i in range(D) %}if(length(rel) > {{ i }}{% if i >= 3 %} AND ex.depth > {{ i }}{% endif %}, arrayElement(rel, {{ i + 1 }}), '·') AS k{{ i + 1 }}{% if not loop.last %},
+            {% endif %}{% endfor %}
+          FROM (
+            SELECT *
+            FROM prod_proteus.hrbp_hub_cube
+            WHERE path_s >= tupleElement((SELECT (lo, hi) FROM ex), 1) AND path_s < tupleElement((SELECT (lo, hi) FROM ex), 2)
+          ) AS cb
+          CROSS JOIN ctx{% if D > 3 %}
+          CROSS JOIN ex{% endif %}
+          WHERE notEmpty(ctx.roots)
+            AND hasAny(arrayMap(x -> ifNull(x, ''), cb.path), ctx.scope)
+            AND ({{ cond('') }})
+        )
+        GROUP BY {% for i in range(D) %}k{{ i + 1 }}{% if not loop.last %}, {% endif %}{% endfor %} WITH ROLLUP
+      )
+      WHERE (lv <= 1 OR arrayElement(ks, lv - 1) != '·'){% if D > 3 %}
+        AND lv <= (SELECT depth FROM ex){% endif %}
     )
-    GROUP BY child, gchild WITH ROLLUP
   )
-  WHERE NOT (ifNull(child, '') = '·' AND ifNull(gchild, '') != '')
+  WHERE NOT (id = '·' AND sib = 1)
 
   UNION ALL
   {#- ---------- фасеты фильтров: численность значений при ОСТАЛЬНЫХ разрезах, без массивов ---------- #}
@@ -199,42 +220,6 @@ FROM (
       AND hasAny(arrayMap(x -> ifNull(x, ''), cb.path), ctx.scope)
   )
   GROUP BY fv
-{%- if exp_req %}
-
-  UNION ALL
-  {#- ---------- раскрытые узлы глубже −2: их дети, читается только их ветка ---------- #}
-  SELECT 'x' AS role, xk.2 AS id, xk.1 AS pid, toInt64(0) AS n, '' AS j,
-    {% for c in COMP %}{{ out('s_m_' ~ c) }} AS m_{{ c }}, {% endfor %}
-    {% for c in COMP %}{{ out('s_w_' ~ c) }} AS w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
-  FROM (
-    SELECT xk,
-      {% for c in COMP %}sumForEach(mv_{{ c }}) AS s_m_{{ c }},
-      {% endfor %}
-      {% for c in COMP %}sumForEach(wv_{{ c }}) AS s_w_{{ c }}{% if not loop.last %},{% endif %}
-      {% endfor %}
-    FROM (
-      SELECT
-        arrayMap(x -> ifNull(x, ''), cb.path) AS p,
-        {% for c in COMP %}{{ arr('m_' ~ src(c)) }} AS mv_{{ c }},
-        {% endfor %}
-        {% for c in COMP %}{{ arr('w_' ~ src(c)) }} AS wv_{{ c }},
-        {% endfor %}
-        arrayJoin(arrayMap(e -> (e, if(indexOf(p, e) = length(p), '·', arrayElement(p, indexOf(p, e) + 1))),
-                           arrayFilter(e -> has(p, e), ex.exp))) AS xk
-      FROM (
-        SELECT *
-        FROM prod_proteus.hrbp_hub_cube
-        WHERE path_s >= tupleElement((SELECT (xlo, xhi) FROM ex), 1) AND path_s < tupleElement((SELECT (xlo, xhi) FROM ex), 2)
-      ) AS cb
-      CROSS JOIN ctx
-      CROSS JOIN ex
-      WHERE notEmpty(ctx.roots)
-        AND hasAny(arrayMap(x -> ifNull(x, ''), cb.path), ex.exp)
-        AND ({{ cond('') }})
-    )
-    GROUP BY xk
-  )
-{%- endif %}
 {%- if axis in CUT_COLS %}
 
   UNION ALL
@@ -317,11 +302,14 @@ FROM (
                AND (ctx.zone_n <= {{ DICT_FULL_MAX }}
                     OR has(ex.sanc, ifNull(u.id, ''))
                     OR has(ex.sanc, ifNull(u.pid, ''))
-                    OR has(ex.exp, ifNull(u.pid, ''))
-                    OR has(ex.xanc, ifNull(u.id, ''))
                     OR has(ctx.roots, ifNull(u.pid, ''))
-                    OR (length(u.path) >= 3 AND has(ctx.scope, ifNull(arrayElement(u.path, length(u.path) - 2), '')))
+                    {#- всё дерево «Команд»: юнит встречается в пути не дальше depth шагов вверх -#}
+                    OR hasAny(arraySlice(arrayMap(x -> ifNull(x, ''), u.path),
+                                         greatest(toInt64(length(u.path)) - ex.depth, 1),
+                                         least(toInt64(ex.depth), toInt64(length(u.path)) - 1)), ctx.scope)
                     OR ifNull(u.id, '') IN (SELECT ifNull(unit_id, '') FROM prod_proteus.hrbp_hub_kpi)
+                    OR ifNull(u.id, '') IN (SELECT ifNull(root_id, '') FROM prod_proteus.hrbp_hub_access
+                                            WHERE ifNull(role, '') = 'hrbp')
                     {%- if q %}
                     OR has((SELECT groupUniqArrayArray(pp) FROM (
                               SELECT arrayMap(x -> ifNull(x, ''), h.path) AS pp
@@ -335,14 +323,16 @@ FROM (
   HAVING count() > 0
 
   UNION ALL
-  {#- ---------- HRBP, чьи зоны целиком внутри моей: быстрый выбор зоны ---------- #}
+  {#- ---------- HRBP, чьи зоны целиком внутри моей: выбор зоны; пути корней — для дерева «кто под кем» ---------- #}
   SELECT 'hrbps' AS role, '' AS id, '' AS pid, toInt64(count()) AS n,
     arrayStringConcat(groupArray(line), '\n') AS j, {{ empty_cols() }}
   FROM (
-    SELECT concat(lg, '\t', nm, '\t', arrayStringConcat(rs, ','), '\t', toString(hc)) AS line
+    SELECT concat(lg, '\t', nm, '\t', arrayStringConcat(rs, ','), '\t', toString(hc), '\t',
+                  arrayStringConcat(arrayMap(pp -> arrayStringConcat(pp, '/'), ps), ',')) AS line
     FROM (
       SELECT ifNull(x.login, '') AS lg, any(ifNull(x.hrbp_nm, '')) AS nm,
              groupArray(ifNull(x.root_id, '')) AS rs, toInt64(sum(ifNull(u.hc_now, 0))) AS hc,
+             groupArray(arrayMap(y -> ifNull(y, ''), u.path)) AS ps,
              min(toUInt8(hasAny(arrayMap(y -> ifNull(y, ''), u.path), ctx.roots))) AS vis
       FROM prod_proteus.hrbp_hub_access x
       INNER JOIN prod_proteus.hrbp_hub_unit u ON ifNull(u.id, '') = ifNull(x.root_id, '')
@@ -382,8 +372,10 @@ FROM (
       ',"roots":', toJSONString(ctx.roots),
       ',"scope":', toJSONString(ctx.scope),
       ',"req_unit":', toJSONString({{ qa(unit_req) }}),
-      ',"req_exp":', toJSONString({{ qa(exp_req) }}),
-      ',"exp":', toJSONString(ex.exp),
+      ',"depth_req":', toJSONString('{{ depth_req }}'),
+      ',"depth":', toJSONString(if(ex.depth > 3, 'all', '3')),
+      ',"scope_n":', toString(ex.scope_n),
+      ',"all_max":', toString({{ ALL_MAX }}),
       ',"q":', toJSONString({{ qs(q) }}),
       ',"zone_n":', toString(ctx.zone_n),
       ',"dict_mode":', toJSONString(if(ctx.zone_n <= {{ DICT_FULL_MAX }}, 'full', 'part')),

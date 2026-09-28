@@ -10,7 +10,7 @@
 с HH_SCALE_COMBOS=4 — ≈ 60 тыс.), база — сумма куба по разрезам, 200 зон HRBP,
 супер-HRBP и админ, 50 целей. Печатает лучшее из трёх время ответа, число строк
 и размер JSON для типовых запросов: супер-HRBP на компании, блок, департамент
-с раскрытием, поиск, HRBP своей зоны, разрезы. Куб атрибутов не заполняется:
+на всех уровнях, поиск, HRBP своей зоны, разрезы. Куб атрибутов не заполняется:
 трансформеры по атрибутам здесь не меряются.
 """
 import json
@@ -176,12 +176,12 @@ def main():
         by_lvl.setdefault(u['lvl'], []).append(u)
     blk = max(by_lvl[3], key=lambda u: u['hc'])
     dep = max((u for u in by_lvl[4] if blk['id'] in u['path']), key=lambda u: u['hc'])
-    deep = [u for u in units if dep['id'] in u['path'] and u['lvl'] in (6, 7, 8)][:4]
     hr = [a for a in acc if a['role'] == 'hrbp'][0]['login']
     cases = [
-        ('супер-HRBP, компания', 'super', {}),
+        ('супер-HRBP, компания (3 уровня)', 'super', {}),
         ('супер-HRBP, блок (lvl3)', 'super', {'unit_f': [blk['id']]}),
-        ('супер-HRBP, департамент + 4 раскрытия', 'super', {'unit_f': [dep['id']], 'exp_f': [u['id'] for u in deep]}),
+        ('супер-HRBP, блок, «все уровни» (порог)', 'super', {'unit_f': [blk['id']], 'depth_f': ['all']}),
+        ('супер-HRBP, департамент, все уровни', 'super', {'unit_f': [dep['id']], 'depth_f': ['all']}),
         ('супер-HRBP, поиск «Юнит 9.»', 'super', {'unit_f': [blk['id']], 'q_f': ['Юнит 9.']}),
         ('супер-HRBP, компания + 2 специализации', 'super', {'spec_f': CUTV['spec'][:2]}),
         ('супер-HRBP, компания + ось «Специализация»', 'super', {'tr_f': ['spec']}),
@@ -200,8 +200,8 @@ def main():
         meta = json.loads([r for r in rows if r['role'] == 'meta'][0]['j'])
         d = [r for r in rows if r['role'] == 'dict']
         dsz = len(d[0]['j'].encode()) // 1024 if d else 0
-        print('%-44s %6.2f %6d %8.0f  %s, %s юн., %d КБ' % (label, best, len(rows), size / 1024,
-              meta.get('dict_mode'), d[0]['n'] if d else 0, dsz))
+        print('%-44s %6.2f %6d %8.0f  %s, %s юн., %d КБ · глубина %s (ветка %s юн.)' % (label, best, len(rows), size / 1024,
+              meta.get('dict_mode'), d[0]['n'] if d else 0, dsz, meta.get('depth'), meta.get('scope_n')))
 
 
 if __name__ == '__main__':

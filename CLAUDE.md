@@ -31,11 +31,12 @@ chdb 2.1.1 (= 24.8.4.1) ставится в отдельный venv, систе�
 python3 stand/gen_sources.py              # синтетический мир (stand/world.py) → источники в БД gp
 python3 stand/run_gp.py --seed-kpi        # ВСЕ gp-параграфы из YAML, в том числе стоп-проверки
 python3 stand/ch.py load [nullable|plain] # hrbp_hub_* → prod_proteus.* в chdb (Nullable, как gp_to_click)
-python3 stand/check.py                    # 171 проверка датасета против stand/expect.py (независимый расчёт)
-<venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 173 (+ режим group_by_use_nulls)
+python3 stand/check.py                    # 176 проверок датасета против stand/expect.py (независимый расчёт)
+<venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 178 (+ режим group_by_use_nulls)
 <venv chdb 2.1.1>/bin/python stand/scale.py <каталог>  # 100 тыс. сотрудников: время, строки, JSON (HH_SCALE_COMBOS=4 — тяжёлый куб)
 python3 stand/live.py                     # чарт в браузере поверх chdb: ?user=a.sergeeva|b.kotov|s.volkov|nobody, ?w=900, ?selfoff=1
 HH_DICT_FULL_MAX=10 python3 stand/live.py # то же, но справочник «большой зоны» (окрестность + поиск по зоне)
+HH_ALL_MAX=20 python3 stand/live.py       # то же, но порог «Все уровни» — 20 юнитов в ветке (пояснение вместо запроса)
 python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для smoke (live.py остановить: chdb держит каталог)
 ```
 
@@ -57,11 +58,16 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   29 колонок. Новая колонка = правка «Измерений» в Proteus владельцем (FIELDS.md).
 - **Уровни** — как в ультраширокой: путь = `lvl1` + `lvl3…lvl12` (до 11 id), `lvl` в
   справочнике — номер уровня источника; `lvl2` и глубже 12-го в путь не берутся.
-- **Масштаб ≈100 тыс.**: куб читается только диапазоном `path_s` области (и раскрытых
-  узлов), база — из `hrbp_hub_base`, справочник зоны больше `DICT_FULL_MAX` (1 500) —
-  окрестностью (`dict_mode = part`) + поиск `q_f`. Не возвращать чтение всего куба.
-- **Кросс-фильтры**: носители `unit_f`, `paint_f…hct_f`, `tr_f`, `exp_f`, `q_f` не выводятся в SELECT;
+- **Масштаб ≈100 тыс.**: куб читается только диапазоном `path_s` области, база — из
+  `hrbp_hub_base`, справочник зоны больше `DICT_FULL_MAX` (1 500) — окрестностью
+  (`dict_mode = part`) + поиск `q_f`. Не возвращать чтение всего куба.
+- **«Команды» без догрузки**: дерево на 3 уровня (ROLLUP по k1…k3) приезжает с каждым
+  ответом, раскрытие строк — только вид. «Все уровни» — `depth_f = all` (ROLLUP по 10
+  ключам) и только для ветки ≤ `ALL_MAX` (1 000) юнитов; `pid` у x — путь от −1 через `/`.
+- **Кросс-фильтры**: носители `unit_f`, `paint_f…hct_f`, `tr_f`, `depth_f`, `q_f` не выводятся в SELECT;
   `value = []` не эмитится никогда; маска — целиком; самовлияние чарта включено.
+  Юнит, HRBP и разрезы строки фильтров копятся в `state.stage` и уходят одной «Применить»;
+  глубина, ось, стрелка → и «Показать» у цели — сразу.
 - **ClickHouse 24.8**: без неконстантных WITH-алиасов в подзапросах (CTE + CROSS JOIN ctx),
   без SETTINGS в датасете, `ifNull` на каждой колонке (gp_to_click даёт Nullable),
   проверять и старым анализатором, и `prefer_column_name_to_alias = 1`, `join_use_nulls = 1`,

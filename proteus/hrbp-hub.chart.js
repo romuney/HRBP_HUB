@@ -35,7 +35,7 @@ var CFG = {
     w: { hc: 'w_hc', jun: 'w_jun', rg: 'w_rg', nrg: 'w_nrg', hcw: 'w_hcw', nr: 'w_nr',
          r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire' }
   },
-  carriers: { unit: 'unit_f', axis: 'tr_f', exp: 'exp_f', q: 'q_f' },
+  carriers: { unit: 'unit_f', axis: 'tr_f', depth: 'depth_f', q: 'q_f' },
   // Разрезы численности: ключ колонки куба → носитель кросс-фильтра. Один перечень
   // и для фильтра отчёта, и для условий целей KPI (f_*), иначе разъедутся.
   cuts: [
@@ -136,8 +136,11 @@ var CFG = {
   // (lvl2 отчёт пропускает). Подпись — по номеру, у юнитов одного уровня разные слова
   // в названиях («Департамент …», «Отдел …»), поэтому слово не выдумываем.
   levels: { 1: 'Компания' },
-  maxExp: 50,                // раскрытых глубоких узлов «Команд» в одном запросе
   searchMin: 2,              // с какой длины строки поиск идёт по всей зоне
+  searchDelay: 500,          // пауза ввода перед поиском по всей зоне, мс
+  // Глубина «Команд»: 3 уровня вниз по умолчанию; «все» — пока ветка юнита не больше
+  // порога датасета (meta.all_max), иначе ответ — мегабайты.
+  depths: [['3', '3 уровня'], ['all', 'Все уровни']],
   tabs: [
     { key: 'onepager', label: 'Сводка' }, { key: 'teams', label: 'Команды' },
     { key: 'transform', label: 'Трансформеры' }, { key: 'goals', label: 'Цели' },
@@ -192,17 +195,19 @@ var __S = window.__pvtState;
 if (!__S[CFG.ns]) __S[CFG.ns] = {
   tip: null,
   view: '',              // вкладка (data-view): '' = «Сводка»
-  open: '',              // открытый поповер: 'unit' | 'cut:<разрез>' | 'metrics' | ''
+  open: '',              // открытый поповер: 'unit' | 'hrbp' | 'cut:<разрез>' | 'metrics' | ''
   q: '',                 // строка поиска открытого поповера
-  draft: null,           // черновик значений разреза до «Применить»: {key, vals}
+  stage: null,           // набранные, но не применённые фильтры: {unit: [...], cuts: {разрез: [...]}}
+  qT: null,              // таймер поиска по всей зоне
   treeOpen: {},          // раскрытые узлы дерева в выборе юнита
-  pickTab: 'tree',       // выбор юнита: 'tree' | 'hrbp'
+  hOpen: {},             // раскрытые узлы дерева HRBP
+  depthNote: false,      // «Все уровни» недоступны для этой ветки — показать пояснение
   openMetric: '',        // раскрытая строка сводки
   metricOff: {},         // метрики, снятые с показа
   focusOnly: false,      // «Только фокусные»
   block: 'retention',    // подвкладка «Команд»
   selTeam: '',           // выбранная строка «Команд» ('' — ИТОГО)
-  openRows: {},          // раскрытые строки −1 в «Командах»
+  openRows: {},          // раскрытые узлы «Команд»: ключ — путь узла от −1 через '/'
   dyn: 'yoy',            // «Год» | «12 недель» в «Командах»
   tfMetric: 'regret', tfMode: 'dyn', tfAxis: '',
   axisTried: {},         // оси трансформеров, которые уже запрашивались
@@ -292,7 +297,8 @@ function buildModel() {
   var M = { ok: false, missing: [], meta: null, cal: { m: [], w: [] }, L: -1, dataDt: '',
             units: {}, kids: {}, hrbps: [], base: null, scope: null, c: [], g: {}, x: {}, facets: {},
             tr: [], rules: [], role: 'none', scopeIds: [], roots: [], single: false,
-            sel: {}, axis: '', reqUnit: [], exp: [], reqExp: [], q: '', dictMode: 'full', zoneN: 0 };
+            sel: {}, axis: '', reqUnit: [], q: '', dictMode: 'full', zoneN: 0,
+            depth: '3', depthReq: '3', scopeN: 0, allMax: 0, hKids: {}, hTop: [], hBy: {} };
   if (!rawData.length) return M;
   var need = [F.role, F.id, F.pid, F.n, F.j];
   for (var ci = 0; ci < COMP.length; ci++) { need.push(F.m[COMP[ci]]); need.push(F.w[COMP[ci]]); }
@@ -314,7 +320,10 @@ function buildModel() {
     } else if (role === 'hrbps') {
       var hr = splitRecords(r[F.j]);
       for (var h = 0; h < hr.length; h++) {
-        M.hrbps.push({ login: hr[h][0], nm: hr[h][1] || hr[h][0], roots: (hr[h][2] || '').split(',').sort(), hc: num(hr[h][3]) || 0 });
+        // пути корней (5-е поле): у каждого корня — путь от компании, по ним дерево «кто под кем»
+        var hp = hr[h][4] ? String(hr[h][4]).split(',') : [], anc = [];
+        for (var hq = 0; hq < hp.length; hq++) if (hp[hq]) anc.push(hp[hq].split('/'));
+        M.hrbps.push({ login: hr[h][0], nm: hr[h][1] || hr[h][0], roots: (hr[h][2] || '').split(',').sort(), hc: num(hr[h][3]) || 0, anc: anc });
       }
     } else if (role === 'base') M.base = serOf(r);
     else if (role === 'scope') M.scope = serOf(r);
@@ -338,8 +347,10 @@ function buildModel() {
   M.single = M.scopeIds.length === 1;
   M.axis = meta.axis || '';
   M.reqUnit = meta.req_unit || [];
-  M.exp = (meta.exp || []).slice().sort();
-  M.reqExp = meta.req_exp || [];
+  M.depth = meta.depth === 'all' ? 'all' : '3';
+  M.depthReq = meta.depth_req === 'all' ? 'all' : '3';
+  M.scopeN = num(meta.scope_n) || 0;
+  M.allMax = num(meta.all_max) || 0;
   M.q = meta.q || '';
   M.dictMode = meta.dict_mode || 'full';
   M.zoneN = num(meta.zone_n) || 0;
@@ -359,8 +370,41 @@ function buildModel() {
     M.kids[pu].push(pk);
   }
   for (var kk in M.kids) if (M.kids.hasOwnProperty(kk)) M.kids[kk].sort(function (a, b) { return unitName(M, a) < unitName(M, b) ? -1 : 1; });
+  hrbpTree(M);
   M.ok = true;
   return M;
+}
+// Дерево HRBP «кто под кем»: зона B целиком внутри зоны A (каждый корень B лежит под
+// каким-то корнем A) и не совпадает с ней → B ниже A. Родитель — самая узкая такая A
+// (меньше численность). Совпадающие зоны (два HRBP на одной ветке) — соседи.
+function hrbpTree(M) {
+  var hs = M.hrbps, i, j;
+  function covers(A, B) {
+    if (!B.anc.length) return false;
+    for (var r = 0; r < B.anc.length; r++) {
+      var hit = false;
+      for (var q = 0; q < B.anc[r].length && !hit; q++) if (A.roots.indexOf(B.anc[r][q]) > -1) hit = true;
+      if (!hit) return false;
+    }
+    return true;
+  }
+  M.hKids = {};
+  M.hTop = [];
+  M.hBy = {};
+  for (i = 0; i < hs.length; i++) M.hBy[hs[i].login] = hs[i];
+  for (i = 0; i < hs.length; i++) {
+    var best = null;
+    for (j = 0; j < hs.length; j++) {
+      if (i === j || !covers(hs[j], hs[i]) || covers(hs[i], hs[j])) continue;
+      if (!best || hs[j].hc < best.hc || (hs[j].hc === best.hc && hs[j].nm < best.nm)) best = hs[j];
+    }
+    hs[i].parent = best ? best.login : '';
+    if (best) (M.hKids[best.login] = M.hKids[best.login] || []).push(hs[i].login);
+    else M.hTop.push(hs[i].login);
+  }
+  var byNm = function (a, b) { return M.hBy[a].nm < M.hBy[b].nm ? -1 : (M.hBy[a].nm > M.hBy[b].nm ? 1 : 0); };
+  M.hTop.sort(byNm);
+  for (var k in M.hKids) if (M.hKids.hasOwnProperty(k)) M.hKids[k].sort(byNm);
 }
 function unitName(M, id) {
   var u = M.units[id];
@@ -556,26 +600,45 @@ function selMetrics(block) {
 // Маска задаётся ЦЕЛИКОМ каждым вызовом: юнит, разрезы, ось трансформеров.
 // Носитель с value = [] не шлём никогда (ронял запрос); пустая маска —
 // applyCrossFilter([]) — полный сброс. Что применилось, говорит эхо в meta.
+// Применённое сейчас: что вернул датасет (unit — пусто, если это вся зона).
 function reqNow() {
   var cuts = {};
   for (var i = 0; i < CFG.cuts.length; i++) cuts[CFG.cuts[i].key] = (MODEL.sel[CFG.cuts[i].key] || []).slice();
   return { unit: sameSet(MODEL.scopeIds, MODEL.roots) ? [] : MODEL.scopeIds.slice(), cuts: cuts, axis: MODEL.axis || '',
-           exp: MODEL.exp.slice(), q: '' };
+           depth: MODEL.depthReq, q: '' };
 }
-// Эхо запроса: что датасет получил (req_unit / req_exp — как пришло, до проверки доступа).
+// Эхо запроса: что датасет получил (req_unit — как пришло, до проверки доступа).
 function reqEcho() {
-  var r = reqNow(), u = [], x = [];
+  var r = reqNow(), u = [];
   for (var i = 0; i < MODEL.reqUnit.length; i++) if (MODEL.reqUnit[i]) u.push(MODEL.reqUnit[i]);
-  for (var j = 0; j < MODEL.reqExp.length; j++) if (MODEL.reqExp[j]) x.push(MODEL.reqExp[j]);
   r.unit = u;
-  r.exp = x;
   r.q = MODEL.q;
   return r;
 }
 function sigOf(o) {
   var s = 'u:' + (o.unit || []).slice().sort().join(',');
   for (var i = 0; i < CFG.cuts.length; i++) s += '|' + CFG.cuts[i].key + ':' + ((o.cuts && o.cuts[CFG.cuts[i].key]) || []).slice().sort().join('\u0001');
-  return s + '|a:' + (o.axis || '') + '|x:' + (o.exp || []).slice().sort().join(',') + '|q:' + (o.q || '');
+  return s + '|a:' + (o.axis || '') + '|d:' + (o.depth === 'all' ? 'all' : '3') + '|q:' + (o.q || '');
+}
+// Строка фильтров копит выбор (юнит, HRBP, разрезы) и отправляет его одной кнопкой
+// «Применить»: staged() — применённое плюс набранное, stageDiff() — сколько фильтров изменено.
+function staged() {
+  var a = reqNow();
+  if (!state.stage) return a;
+  a.unit = state.stage.unit.slice();
+  for (var k in state.stage.cuts) if (state.stage.cuts.hasOwnProperty(k)) a.cuts[k] = state.stage.cuts[k].slice();
+  return a;
+}
+function stageDiff() {
+  if (!state.stage) return 0;
+  var a = reqNow(), b = staged(), n = sameSet(a.unit, b.unit) ? 0 : 1;
+  for (var i = 0; i < CFG.cuts.length; i++) if (!sameSet(a.cuts[CFG.cuts[i].key] || [], b.cuts[CFG.cuts[i].key] || [])) n++;
+  return n;
+}
+function stageEdit(fn) {
+  if (!state.stage) { var a = reqNow(); state.stage = { unit: a.unit, cuts: a.cuts }; }
+  fn(state.stage);
+  if (!stageDiff()) state.stage = null;
 }
 function maskOf(o) {
   var out = [];
@@ -587,7 +650,7 @@ function maskOf(o) {
   add(CFG.carriers.unit, (o.unit || []).slice(0, 50));
   for (var c = 0; c < CFG.cuts.length; c++) add(CFG.cuts[c].carrier, o.cuts ? o.cuts[CFG.cuts[c].key] : []);
   if (o.axis) add(CFG.carriers.axis, [o.axis]);
-  add(CFG.carriers.exp, (o.exp || []).slice(0, CFG.maxExp));
+  if (o.depth === 'all') add(CFG.carriers.depth, ['all']);
   if (o.q) add(CFG.carriers.q, [o.q]);
   return out;
 }
@@ -917,17 +980,6 @@ function buildCSS() {
     P + '-tab' + P + '-on{color:' + C.blue + ';border-bottom-color:' + C.blue + ';}',
     P + '-cnt{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 4px;margin-left:5px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;font-size:9px;font-weight:500;}',
 
-    // ---- юнит отчёта: путь + открыватель выбора (контрол 34 px, как выпадашка) ----
-    P + '-uchip{display:inline-flex;align-items:center;gap:6px;height:34px;border-radius:9px;padding:0 10px 0 12px;font-size:' + F.control + 'px;font-weight:500;background:' + C.card + ';color:' + C.ink2 + ';border:1px solid ' + C.line + ';cursor:pointer;max-width:100%;min-width:0;}',
-    P + '-uchip:hover{border-color:#d8dce4;}',
-    P + '-uchip' + P + '-on{border-color:' + C.act + ';}',
-    P + '-ulab{color:' + C.muted + ';font-weight:400;}',
-    P + '-ustep{color:' + C.muted + ';font-weight:400;white-space:nowrap;}',
-    P + '-ustep' + P + '-lnk:hover{color:' + C.act + ';text-decoration:underline;}',
-    P + '-usep{font-style:normal;color:' + C.muted2 + ';}',
-    P + '-uname{color:' + C.ink + ';font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}',
-    P + '-ucar{flex:0 0 auto;color:' + C.muted2 + ';font-size:10px;margin-left:2px;}',
-
     // ---- строка фильтров: контролы 34 px ----
     P + '-fbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px 0;}',
     P + '-fsep{width:1px;height:20px;background:' + C.line + ';margin:0 4px;}',
@@ -936,6 +988,9 @@ function buildCSS() {
     P + '-ddb:hover{border-color:#d8dce4;}',
     P + '-ddb' + P + '-set{background:' + C.blueBg + ';color:#2b5fd0;border-color:#dbe6fd;}',
     P + '-ddb' + P + '-on{border-color:' + C.act + ';}',
+    // выбрано, но не применено: пунктир акцентом — видно, что ждёт «Применить»
+    P + '-ddb' + P + '-chg{border-style:dashed;border-color:' + C.act + ';}',
+    P + '-ddu ' + P + '-ddv{max-width:260px;}',
     P + '-ddl{color:' + C.muted + ';font-weight:400;}',
     P + '-ddb' + P + '-set ' + P + '-ddl{color:#5b83dc;}',
     P + '-ddv{overflow:hidden;text-overflow:ellipsis;min-width:0;}',
@@ -1003,6 +1058,8 @@ function buildCSS() {
     P + '-btn' + P + '-ghost{border-color:transparent;color:' + C.blue + ';background:transparent;}',
     P + '-btn' + P + '-ghost:hover{background:' + C.blueBg + ';}',
     P + '-popf ' + P + '-btn{height:28px;padding:0 10px;}',
+    P + '-btn[disabled]{opacity:.45;cursor:default;}',
+    P + '-btn' + P + '-pri[disabled]:hover{background:' + C.act + ';}',
     P + '-lnk{color:' + C.act + ';cursor:pointer;font-weight:500;border:0;background:transparent;padding:0;font-size:inherit;}',
     P + '-lnk:hover{text-decoration:underline;}',
 
@@ -1050,6 +1107,9 @@ function buildCSS() {
     P + '-sub:hover{color:' + C.ink2 + ';}',
     P + '-sub' + P + '-on{background:' + C.card + ';color:' + C.ink + ';}',
     P + '-tools{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px;}',
+    P + '-tools ' + P + '-lh{align-self:center;}',
+    P + '-dnote{font-size:' + F.note + 'px;color:' + C.muted + ';max-width:380px;line-height:1.4;}',
+    P + '-below{color:' + C.muted2 + ';cursor:help;border-bottom:1px dotted ' + C.muted2 + ';}',
     P + '-ctl{display:flex;flex-direction:column;gap:4px;}',
     P + '-ctll{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.4px;color:' + C.muted + ';font-weight:500;}',
     P + '-selw{position:relative;display:inline-block;max-width:100%;}',
@@ -1376,7 +1436,6 @@ function headHTML() {
   var P = CFG.ns, M = MODEL, ok = M.ok && M.role !== 'none';
   var s = '<div class="' + P + '-head"><div class="' + P + '-htop">';
   s += '<span class="' + P + '-logo">' + esc(CFG.text.title) + '<small>метрики команд</small></span>';
-  if (ok) s += unitChipHTML();
   s += '<span class="' + P + '-sp"></span>';
   if (M.ok && M.L >= 0) {
     var lw = lastIdx('w');
@@ -1405,41 +1464,34 @@ function headHTML() {
   }
   return s + '</div>';
 }
-// Юнит отчёта: путь (предки бледнее, кликабельны в пределах зоны) + открыватель выбора.
-function unitChipHTML() {
-  var P = CFG.ns, M = MODEL, open = state.open === 'unit';
-  var s = '<div class="' + P + '-dd" data-scope="unit">';
-  s += '<div class="' + P + '-uchip' + (open ? ' ' + P + '-on' : '') + '" role="button" tabindex="0" data-action="open" data-pop="unit" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '">';
-  s += '<span class="' + P + '-ulab">Юнит:</span>';
-  if (M.single) {
-    var chain = pathTo(M.scopeIds[0]);
-    var shown = chain.length > 4 ? [chain[0], '', chain[chain.length - 2], chain[chain.length - 1]] : chain;
-    for (var i = 0; i < shown.length - 1; i++) {
-      var a = shown[i];
-      if (!a) { s += '<span class="' + P + '-ustep">…</span><i class="' + P + '-usep">›</i>'; continue; }
-      s += inZone(a)
-        ? '<span class="' + P + '-ustep ' + P + '-lnk" data-action="unit" data-id="' + esc(a) + '"' + tip({ title: 'Перейти выше', text: unitName(M, a) }) + '>' + esc(unitName(M, a)) + '</span>'
-        : '<span class="' + P + '-ustep">' + esc(unitName(M, a)) + '</span>';
-      s += '<i class="' + P + '-usep">›</i>';
-    }
-  }
-  s += '<span class="' + P + '-uname">' + esc(scopeLabel()) + '</span><span class="' + P + '-ucar">▾</span></div>';
-  if (open) s += unitPopHTML();
-  return s + '</div>';
+// ---- строка фильтров: юнит и HRBP (выбор копится до «Применить») ----
+// Подпись набора юнитов: вся зона, один юнит, зона HRBP или «N юнитов».
+function unitsLabel(ids) {
+  var M = MODEL;
+  if (!ids.length || sameSet(ids, M.roots)) return M.role === 'hrbp' ? 'Моя зона' : 'Вся зона';
+  if (ids.length === 1) return unitName(M, ids[0]);
+  var z = zoneOwner(ids);
+  return z ? 'Зона ' + z.nm : ids.length + ' ' + plural(ids.length, 'юнит', 'юнита', 'юнитов');
 }
-function unitPopHTML() {
-  var P = CFG.ns, M = MODEL;
-  var zones = M.hrbps.length > 1 || (M.hrbps.length === 1 && M.role !== 'hrbp');
-  var tab = zones ? state.pickTab : 'tree';
-  var s = '<div class="' + P + '-pop ' + P + '-wide" tabindex="-1">';
-  s += '<div class="' + P + '-poph"><span>Юнит отчёта</span>' + (zones ? hSeg([['tree', 'Структура'], ['hrbp', 'Зоны HRBP']], tab, 'picktab') : '') + '</div>';
-  if (tab === 'hrbp') {
-    s += '<div class="' + P + '-list">' + zoneListHTML() + '</div>';
-  } else {
-    s += hSearch('unit', 'Поиск юнита по названию');
-    s += '<div class="' + P + '-list" data-plist="unit">' + unitListHTML() + '</div>';
+function stagedUnit() { return staged().unit; }
+function unitChanged() { return !sameSet(stagedUnit(), reqNow().unit); }
+function unitDDHTML() {
+  var P = CFG.ns, open = state.open === 'unit', ids = stagedUnit();
+  var chain = ids.length === 1 ? pathTo(ids[0]) : [], names = [];
+  for (var i = 0; i < chain.length; i++) names.push(unitName(MODEL, chain[i]));
+  var s = '<div class="' + P + '-dd" data-scope="unit">';
+  s += '<button class="' + P + '-ddb ' + P + '-ddu' + (ids.length ? ' ' + P + '-set' : '') + (unitChanged() ? ' ' + P + '-chg' : '') + (open ? ' ' + P + '-on' : '')
+    + '" data-action="open" data-pop="unit" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '"'
+    + (open ? '' : tip({ title: 'Юнит отчёта', text: names.length ? names.join(' › ') : unitsLabel(ids),
+        note: unitChanged() ? 'Выбран, но ещё не применён — кнопка «Применить».' : 'Сводка, команды и цели — по этому юниту.' })) + '>'
+    + '<span class="' + P + '-ddl">Юнит:</span><span class="' + P + '-ddv">' + esc(unitsLabel(ids)) + '</span><span class="' + P + '-ddc">▾</span></button>';
+  if (open) {
+    s += '<div class="' + P + '-pop ' + P + '-wide" tabindex="-1">'
+      + '<div class="' + P + '-poph"><span>Юнит отчёта</span></div>'
+      + hSearch('unit', 'Поиск юнита по названию')
+      + '<div class="' + P + '-list" data-plist="unit">' + unitListHTML() + '</div>'
+      + '<div class="' + P + '-popf"><span>Выбор применится кнопкой «Применить». Цифра справа — численность сейчас.</span></div></div>';
   }
-  s += '<div class="' + P + '-popf"><span>Смена юнита перезапрашивает данные. Цифра справа — численность сейчас.</span></div>';
   return s + '</div>';
 }
 function kidsOf(id) {
@@ -1463,24 +1515,26 @@ function treeRows(id, depth, cur, out) {
   out.n++;
   // Большая зона: справочник приходит окрестностью — дети узла могут быть не загружены (nk > 0).
   var kids = kidsOf(id), more = !kids.length && u.nk > 0, open = treeOpen(id, depth);
-  out.s += '<div class="' + P + '-tr' + (id === cur ? ' ' + P + '-cur' : '') + '" data-action="unit" data-id="' + esc(id) + '" style="padding-left:' + (9 + depth * 16) + 'px">'
+  out.s += '<div class="' + P + '-tr' + (id === cur ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="' + esc(id) + '" style="padding-left:' + (9 + depth * 16) + 'px">'
     + (kids.length || more ? '<button class="' + P + '-tw" data-action="tree" data-id="' + esc(id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button>' : '<span class="' + P + '-tsp"></span>')
     + '<span class="' + P + '-tn">' + esc(u.nm) + (u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>') + '</span>'
     + '<span class="' + P + '-tl">' + esc(levelShort(u.lvl)) + '</span><span class="' + P + '-th">' + fmtInt(u.hc) + '</span></div>';
   if (!open) return;
   if (more) {
-    out.s += '<div class="' + P + '-tr ' + P + '-thint" data-action="unit" data-id="' + esc(id) + '" style="padding-left:' + (9 + (depth + 1) * 16) + 'px">'
+    out.s += '<div class="' + P + '-tr ' + P + '-thint" data-action="pick" data-id="' + esc(id) + '" style="padding-left:' + (9 + (depth + 1) * 16) + 'px">'
       + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + u.nk + ' ' + plural(u.nk, 'подразделение', 'подразделения', 'подразделений')
-      + ' — откройте юнит, и они подгрузятся</span></div>';
+      + ' — выберите юнит и примените, они подгрузятся</span></div>';
     return;
   }
   for (var i = 0; i < kids.length; i++) treeRows(kids[i], depth + 1, cur, out);
 }
+function searchPending() { return !!state.qT || (!!state.pend && !!String(state.q || '').replace(/^\s+|\s+$/g, '')); }
 function unitListHTML() {
   var P = CFG.ns, M = MODEL, q = String(state.q || '').replace(/^\s+|\s+$/g, '').toLowerCase();
-  var cur = M.single ? M.scopeIds[0] : '';
+  var ids = stagedUnit(), cur = ids.length === 1 ? ids[0] : '';
   if (!q) {
-    var s = '<div class="' + P + '-tr' + (defaultScope() ? ' ' + P + '-cur' : '') + '" data-action="unit" data-id="">'
+    var all = !ids.length || sameSet(ids, M.roots);
+    var s = '<div class="' + P + '-tr' + (all ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="">'
       + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + (M.role === 'hrbp' ? 'Вся моя зона' : 'Вся зона видимости') + '</span>'
       + '<span class="' + P + '-tl">' + M.roots.length + ' ' + plural(M.roots.length, 'корень', 'корня', 'корней') + '</span>'
       + '<span class="' + P + '-th">' + fmtInt(zoneHc(M.roots)) + '</span></div>';
@@ -1496,14 +1550,15 @@ function unitListHTML() {
     if (at < 0 || !inZone(id)) continue;
     hits.push({ id: id, u: u, rank: (at === 0 ? 0 : 1) * 100 + u.lvl });
   }
-  // Большая зона: здесь только юниты вокруг выбранного — остальное ищет датасет (q_f).
+  // Большая зона: справочник — окрестность юнита; остальное ищет датасет (q_f) сам,
+  // после паузы в наборе — без Enter.
   var r = '';
   if (M.dictMode === 'part') {
     var done = M.q && M.q.toLowerCase() === q;
     r += done
       ? '<div class="' + P + '-nores">Найдено по всей зоне: ' + hits.length + '</div>'
       : (q.length >= CFG.searchMin
-         ? '<div class="' + P + '-tr ' + P + '-thint" data-action="qsearch"><span class="' + P + '-tsp"></span><span class="' + P + '-tn">Искать «' + esc(state.q) + '» во всей зоне (' + fmtInt(M.zoneN) + ' юнитов) — Enter</span></div>'
+         ? '<div class="' + P + '-nores">' + (searchPending() ? 'Ищу «' + esc(state.q) + '» по всей зоне…' : 'Ищу по всей зоне (' + fmtInt(M.zoneN) + ' юнитов)…') + '</div>'
          : '<div class="' + P + '-nores">Введите от ' + CFG.searchMin + ' букв — найдём по всей зоне</div>');
   }
   if (!hits.length) return r + (M.dictMode === 'part' && !(M.q && M.q.toLowerCase() === q) ? '' : '<div class="' + P + '-nores">Ничего не найдено</div>');
@@ -1511,7 +1566,7 @@ function unitListHTML() {
   for (var k = 0; k < hits.length && k < 80; k++) {
     var h = hits[k], chain = pathTo(h.id), names = [];
     for (var c = Math.max(0, chain.length - 4); c < chain.length - 1; c++) names.push(unitName(M, chain[c]));
-    r += '<div class="' + P + '-tr' + (h.id === cur ? ' ' + P + '-cur' : '') + '" data-action="unit" data-id="' + esc(h.id) + '">'
+    r += '<div class="' + P + '-tr' + (h.id === cur ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="' + esc(h.id) + '">'
       + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + esc(h.u.nm) + (h.u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>')
       + '<span class="' + P + '-tpath">' + esc(names.join(' › ') || levelLabel(h.u.lvl)) + '</span></span>'
       + '<span class="' + P + '-tl">' + esc(levelShort(h.u.lvl)) + '</span><span class="' + P + '-th">' + fmtInt(h.u.hc) + '</span></div>';
@@ -1519,18 +1574,71 @@ function unitListHTML() {
   if (hits.length > 80) r += '<div class="' + P + '-nores">Показаны 80 из ' + hits.length + ' — уточните запрос</div>';
   return r;
 }
-function zoneListHTML() {
-  var P = CFG.ns, M = MODEL, list = M.hrbps.slice();
-  list.sort(function (a, b) { return a.nm < b.nm ? -1 : (a.nm > b.nm ? 1 : 0); });
-  var s = '';
-  for (var i = 0; i < list.length; i++) {
-    var h = list[i], cur = sameSet(h.roots, M.scopeIds);
-    s += '<div class="' + P + '-tr' + (cur ? ' ' + P + '-cur' : '') + '" data-action="zone" data-id="' + esc(h.login) + '">'
-      + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + esc(h.nm) + (h.login === (M.meta && M.meta.me) ? ' · я' : '')
-      + '<span class="' + P + '-tpath">' + esc(h.login) + ' · ' + h.roots.length + ' ' + plural(h.roots.length, 'корень', 'корня', 'корней') + ' зоны</span></span>'
-      + '<span class="' + P + '-th">' + fmtInt(h.hc) + '</span></div>';
+// ---- HRBP: дерево «кто под кем» (по вложенности зон) с поиском ----
+function hrbpVisible() { var M = MODEL; return M.hrbps.length > 1 || (M.hrbps.length === 1 && M.role !== 'hrbp'); }
+function hrbpOpen(login, depth) { return state.hOpen.hasOwnProperty(login) ? !!state.hOpen[login] : depth === 0 && MODEL.hrbps.length <= 40; }
+function hrbpRootsText(h) {
+  var names = [];
+  for (var i = 0; i < h.roots.length && i < 2; i++) names.push(unitName(MODEL, h.roots[i]));
+  return names.join(', ') + (h.roots.length > 2 ? ' +' + (h.roots.length - 2) : '');
+}
+function hrbpRow(h, depth, cur, withPath) {
+  var P = CFG.ns, M = MODEL, kids = M.hKids[h.login] || [], open = hrbpOpen(h.login, depth), chain = [], up = h.parent;
+  while (up && M.hBy[up] && chain.length < 6) { chain.unshift(M.hBy[up].nm); up = M.hBy[up].parent; }
+  return '<div class="' + P + '-tr' + (h.login === cur ? ' ' + P + '-cur' : '') + '" data-action="hpick" data-id="' + esc(h.login) + '"'
+    + (withPath ? '' : ' style="padding-left:' + (9 + depth * 16) + 'px"') + '>'
+    + (!withPath && kids.length ? '<button class="' + P + '-tw" data-action="htree" data-id="' + esc(h.login) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button>' : '<span class="' + P + '-tsp"></span>')
+    + '<span class="' + P + '-tn">' + esc(h.nm) + (h.login === (M.meta && M.meta.me) ? ' · я' : '')
+    + '<span class="' + P + '-tpath">' + esc(withPath && chain.length ? chain.join(' › ') : hrbpRootsText(h)) + '</span></span>'
+    + (kids.length ? '<span class="' + P + '-tl">' + kids.length + ' ' + plural(kids.length, 'HRBP', 'HRBP', 'HRBP') + ' ниже</span>' : '')
+    + '<span class="' + P + '-th">' + fmtInt(h.hc) + '</span></div>';
+}
+function hrbpTreeRows(login, depth, cur, out) {
+  var h = MODEL.hBy[login];
+  if (!h || out.n > 600) return;
+  out.n++;
+  out.s += hrbpRow(h, depth, cur, false);
+  if (!hrbpOpen(login, depth)) return;
+  var kids = MODEL.hKids[login] || [];
+  for (var i = 0; i < kids.length; i++) hrbpTreeRows(kids[i], depth + 1, cur, out);
+}
+function hrbpListHTML() {
+  var P = CFG.ns, M = MODEL, q = String(state.q || '').replace(/^\s+|\s+$/g, '').toLowerCase();
+  var owner = zoneOwner(stagedUnit().length ? stagedUnit() : M.roots), cur = owner ? owner.login : '';
+  if (!M.hrbps.length) return '<div class="' + P + '-nores">Других зон внутри вашей нет</div>';
+  if (!q) {
+    var out = { s: '', n: 0 };
+    for (var i = 0; i < M.hTop.length; i++) hrbpTreeRows(M.hTop[i], 0, cur, out);
+    return out.s;
   }
-  return s || '<div class="' + P + '-nores">Других зон внутри вашей нет</div>';
+  var hits = [];
+  for (var j = 0; j < M.hrbps.length; j++) {
+    var h = M.hrbps[j], hay = (h.nm + ' ' + h.login + ' ' + hrbpRootsText(h)).toLowerCase(), at = hay.indexOf(q);
+    if (at > -1) hits.push({ h: h, rank: at === 0 ? 0 : 1 });
+  }
+  if (!hits.length) return '<div class="' + P + '-nores">Ничего не найдено</div>';
+  hits.sort(function (a, b) { return a.rank - b.rank || (a.h.nm < b.h.nm ? -1 : 1); });
+  var s = '';
+  for (var k = 0; k < hits.length && k < 80; k++) s += hrbpRow(hits[k].h, 0, cur, true);
+  return s;
+}
+function hrbpDDHTML() {
+  var P = CFG.ns, open = state.open === 'hrbp', ids = stagedUnit();
+  var owner = ids.length ? zoneOwner(ids) : null;
+  var s = '<div class="' + P + '-dd" data-scope="hrbp">';
+  s += '<button class="' + P + '-ddb' + (owner ? ' ' + P + '-set' : '') + (owner && unitChanged() ? ' ' + P + '-chg' : '') + (open ? ' ' + P + '-on' : '')
+    + '" data-action="open" data-pop="hrbp" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '"'
+    + (open ? '' : tip({ title: 'Зона HRBP', text: owner ? owner.nm + ': ' + hrbpRootsText(owner) : 'Выберите HRBP — отчёт покажет его зону.',
+        note: 'HRBP вложены по зонам: кто покрывает чужую зону, тот выше.' })) + '>'
+    + '<span class="' + P + '-ddl">HRBP:</span><span class="' + P + '-ddv">' + esc(owner ? owner.nm : 'все') + '</span><span class="' + P + '-ddc">▾</span></button>';
+  if (open) {
+    s += '<div class="' + P + '-pop ' + P + '-wide" tabindex="-1">'
+      + '<div class="' + P + '-poph"><span>Зона HRBP</span></div>'
+      + hSearch('hrbp', 'Поиск HRBP: фамилия, логин или юнит')
+      + '<div class="' + P + '-list" data-plist="hrbp">' + hrbpListHTML() + '</div>'
+      + '<div class="' + P + '-popf"><span>Ниже — HRBP, чьи зоны внутри зоны выше. Цифра справа — численность зоны.</span></div></div>';
+  }
+  return s + '</div>';
 }
 
 // ---- строка фильтров: разрезы, метрики, фокус, сброс, база ----
@@ -1551,13 +1659,15 @@ function cutValues(key) {
   return out;
 }
 function cutDDHTML(cut) {
-  var P = CFG.ns, sel = MODEL.sel[cut.key] || [], key = 'cut:' + cut.key, open = state.open === key;
+  var P = CFG.ns, sel = staged().cuts[cut.key] || [], key = 'cut:' + cut.key, open = state.open === key;
+  var chg = !sameSet(sel, MODEL.sel[cut.key] || []);
   var val = !sel.length ? 'все' : (sel.length === 1 ? trName(sel[0]) : trName(sel[0]) + ' +' + (sel.length - 1));
   var s = '<div class="' + P + '-dd" data-scope="' + key + '">';
   var names = [];
   for (var i = 0; i < sel.length; i++) names.push(trName(sel[i]));
-  s += '<button class="' + P + '-ddb' + (sel.length ? ' ' + P + '-set' : '') + (open ? ' ' + P + '-on' : '') + '" data-action="open" data-pop="' + key + '" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '"'
-    + (open ? '' : tip({ title: cut.label, text: sel.length ? names.join(', ') : cut.all + ': фильтр не задан', note: 'Разрез действует на всё: юнит, команды, базу и цели.' })) + '>'
+  s += '<button class="' + P + '-ddb' + (sel.length ? ' ' + P + '-set' : '') + (chg ? ' ' + P + '-chg' : '') + (open ? ' ' + P + '-on' : '') + '" data-action="open" data-pop="' + key + '" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '"'
+    + (open ? '' : tip({ title: cut.label, text: sel.length ? names.join(', ') : cut.all + ': фильтр не задан',
+        note: chg ? 'Выбрано, но ещё не применено — кнопка «Применить».' : 'Разрез действует на всё: юнит, команды, базу и цели.' })) + '>'
     + '<span class="' + P + '-ddl">' + esc(cut.label) + ':</span><span class="' + P + '-ddv">' + esc(val) + '</span>'
     + (sel.length ? '<span class="' + P + '-x" role="button" aria-label="Снять фильтр" data-action="clearcut" data-key="' + cut.key + '">×</span>' : '<span class="' + P + '-ddc">▾</span>')
     + '</button>';
@@ -1565,26 +1675,25 @@ function cutDDHTML(cut) {
   return s + '</div>';
 }
 function cutPopHTML(cut) {
-  var P = CFG.ns, vals = cutValues(cut.key), d = state.draft && state.draft.key === cut.key ? state.draft.vals : (MODEL.sel[cut.key] || []);
+  var P = CFG.ns, vals = cutValues(cut.key), d = staged().cuts[cut.key] || [];
   var s = '<div class="' + P + '-pop" tabindex="-1">';
   s += '<div class="' + P + '-poph"><span>' + esc(cut.label) + '</span></div>';
   if (vals.length > 7) s += hSearch('cut', 'Поиск значения');
   s += '<div class="' + P + '-list" data-plist="cut">' + cutListHTML(cut) + '</div>';
   s += '<div class="' + P + '-popf"><span data-pcount="1">' + draftCount(d) + '</span>'
-    + '<button class="' + P + '-btn ' + P + '-ghost" data-action="cutnone">Очистить</button>'
-    + '<button class="' + P + '-btn ' + P + '-pri" data-action="cutapply">Применить</button></div>';
+    + '<button class="' + P + '-btn ' + P + '-ghost" data-action="cutnone" data-key="' + cut.key + '">Очистить</button></div>';
   return s + '</div>';
 }
-function draftCount(vals) { return vals.length ? 'выбрано: ' + vals.length : 'все значения'; }
+function draftCount(vals) { return (vals.length ? 'выбрано: ' + vals.length : 'все значения') + ' · применится кнопкой «Применить»'; }
 function cutListHTML(cut) {
   var P = CFG.ns, vals = cutValues(cut.key), q = String(state.q || '').toLowerCase();
-  var d = state.draft && state.draft.key === cut.key ? state.draft.vals : (MODEL.sel[cut.key] || []);
+  var d = staged().cuts[cut.key] || [];
   var s = '', n = 0;
   for (var i = 0; i < vals.length; i++) {
     var v = vals[i].v;
     if (q && String(v).toLowerCase().indexOf(q) < 0) continue;
     n++;
-    s += '<label class="' + P + '-opt"><input type="checkbox" data-cutval="' + esc(v) + '"' + (d.indexOf(v) > -1 ? ' checked' : '') + '>'
+    s += '<label class="' + P + '-opt"><input type="checkbox" data-cutkey="' + cut.key + '" data-cutval="' + esc(v) + '"' + (d.indexOf(v) > -1 ? ' checked' : '') + '>'
       + '<span class="' + P + '-optt">' + esc(trName(v)) + '</span><span class="' + P + '-optn">' + fmtInt(vals[i].n) + '</span></label>';
   }
   if (!vals.length) return '<div class="' + P + '-nores">В выбранном юните значений нет</div>';
@@ -1612,19 +1721,24 @@ function metricsDDHTML() {
   return s + '</div>';
 }
 function filterBarHTML() {
-  var P = CFG.ns, M = MODEL, anyCut = false;
-  var s = '<div class="' + P + '-fbar">';
+  var P = CFG.ns, M = MODEL, anyCut = false, st = staged(), n = stageDiff();
+  var s = '<div class="' + P + '-fbar">' + unitDDHTML() + (hrbpVisible() ? hrbpDDHTML() : '');
   for (var i = 0; i < CFG.cuts.length; i++) {
     s += cutDDHTML(CFG.cuts[i]);
-    if ((M.sel[CFG.cuts[i].key] || []).length) anyCut = true;
+    if ((M.sel[CFG.cuts[i].key] || []).length || (st.cuts[CFG.cuts[i].key] || []).length) anyCut = true;
   }
+  // Одна кнопка на всю строку: юнит, HRBP и разрезы уходят одним запросом.
+  s += '<button class="' + P + '-btn ' + P + '-pri" data-action="apply"' + (n && !state.pend ? '' : ' disabled')
+    + tip({ title: 'Применить фильтры', text: n ? 'Изменено фильтров: ' + n + '. Данные пересчитаются одним запросом.' : 'Выберите юнит, HRBP или значения разрезов — они применятся все сразу.' })
+    + '>' + (state.pend && state.stage ? 'Применяю…' : 'Применить' + (n ? ' · ' + n : '')) + '</button>';
+  if (n) s += '<button class="' + P + '-btn ' + P + '-ghost" data-action="unstage">Отменить</button>';
   s += '<span class="' + P + '-fsep"></span>' + metricsDDHTML();
   var fo = state.focusOnly;
   s += '<button class="' + P + '-ft' + (fo ? ' ' + P + '-on' : '') + '" data-action="focus" aria-pressed="' + (fo ? 'true' : 'false') + '"'
     + tip({ title: 'Только фокусные', text: 'На «Сводке» остаются метрики с целью — своей или унаследованной. На «Командах» — юниты, где по показанным метрикам стоит своя цель.' })
     + '><span class="' + P + '-ft-tr"><span class="' + P + '-ft-kn"></span></span><span class="' + P + '-ft-tx">Только фокусные</span></button>';
-  if (anyCut || !defaultScope() || fo || selMetrics('').length < CFG.metrics.length) {
-    s += '<button class="' + P + '-btn ' + P + '-ghost" data-action="reset"' + tip({ title: 'Сбросить', text: 'Вернуть свою зону, снять разрезы, показать все метрики.' }) + '>Сбросить</button>';
+  if (anyCut || !defaultScope() || fo || selMetrics('').length < CFG.metrics.length || n) {
+    s += '<button class="' + P + '-btn ' + P + '-ghost" data-action="reset"' + tip({ title: 'Сбросить', text: 'Вернуть свою зону, снять разрезы, показать все метрики — сразу, без «Применить».' }) + '>Сбросить</button>';
   }
   s += '<span class="' + P + '-sp"></span>';
   s += '<span class="' + P + '-bench"' + tip({ title: 'База сравнения',
@@ -1835,43 +1949,55 @@ function byHc(a, b) {
   if (a.id === '·' || b.id === '·') return a.id === '·' ? 1 : -1;
   return hcOf(b.ser) - hcOf(a.ser) || (unitName(MODEL, a.id) < unitName(MODEL, b.id) ? -1 : 1);
 }
-function hasKids(cid) {
-  var g = MODEL.g[cid] || [];
-  for (var i = 0; i < g.length; i++) if (g[i].id !== '·') return true;
+// Дерево «Команд»: датасет отдаёт юнит и 3 уровня вниз (режим «Все уровни» — до 12-го):
+// −1 — c, −2 — g (pid — узел −1), глубже — x (pid — путь родителя от −1 через '/').
+// Узел дерева — путь от −1 (pfx): после реорганизации один юнит стоит под двумя
+// родителями, и его подразделения в каждом месте свои. Догрузки при раскрытии нет.
+function kidsAt(r) {
+  if (!r.id || r.id === '·') return null;
+  return r.lvl === 1 ? (MODEL.g[r.id] || null) : (MODEL.x[r.pfx] || null);
+}
+function realKids(list) {
+  if (!list) return false;
+  for (var i = 0; i < list.length; i++) if (list[i].id !== '·') return true;
   return false;
 }
-// Дерево «Команд» до 12-го уровня: −1 (c) и −2 (g) приезжают сразу, глубже —
-// строки x по раскрытию (exp_f). lvl строки — глубина от выбранного юнита.
-function rowKids(r) {
-  if (r.id === '·') return null;
-  if (r.lvl === 1) return MODEL.g[r.id] || [];
-  return MODEL.x[r.id] || null;                  // null — ещё не загружены
-}
-function rowCanExp(r) {
-  if (r.id === '·') return false;
-  if (r.lvl === 1) return hasKids(r.id);
-  var u = MODEL.units[r.id];
-  if (u && u.nk >= 0) return u.nk > 0;
-  var xs = MODEL.x[r.id];
-  if (!xs) return true;                          // число детей неизвестно — даём раскрыть
-  for (var i = 0; i < xs.length; i++) if (xs[i].id !== '·') return true;
-  return false;
-}
-function teamRows() {
+function rowCanExp(r) { return realKids(kidsAt(r)); }
+// all — обойти всё дерево (для «Развернуть всё»), иначе — только раскрытые узлы.
+function teamRows(all) {
   var out = [];
-  function walk(list, lvl, pid) {
+  function walk(list, lvl, ppfx) {
     var ls = list.slice().sort(byHc);
     for (var i = 0; i < ls.length; i++) {
-      var r = { lvl: lvl, id: ls[i].id, pid: pid, ser: ls[i].ser, key: lvl + ':' + pid + ':' + ls[i].id };
+      var id = ls[i].id, pfx = id === '·' ? '' : (ppfx ? ppfx + '/' : '') + id;
+      var r = { lvl: lvl, id: id, pid: ppfx ? ppfx.slice(ppfx.lastIndexOf('/') + 1) : '', pfx: pfx, ser: ls[i].ser,
+                key: lvl + ':' + ppfx + ':' + id };
       out.push(r);
-      if (r.id === '·' || !state.openRows[r.id] || !rowCanExp(r)) continue;
-      var kids = rowKids(r);
-      if (kids) walk(kids, lvl + 1, r.id);
-      else out.push({ lvl: lvl + 1, id: '', pid: r.id, ser: null, key: 'load:' + r.id, loading: true });
+      if (id === '·' || !(all || state.openRows[pfx]) || !rowCanExp(r)) continue;
+      walk(kidsAt(r), lvl + 1, pfx);
     }
   }
   walk(MODEL.c, 1, '');
   return out;
+}
+// Переключатель глубины над таблицей «Команд»: запрос сразу, без «Применить».
+function depthHTML() {
+  var P = CFG.ns, M = MODEL, big = M.allMax > 0 && M.scopeN > M.allMax, s = '<span class="' + P + '-lh">Глубина</span><div class="' + P + '-subs" role="tablist">';
+  for (var i = 0; i < CFG.depths.length; i++) {
+    var k = CFG.depths[i][0], on = k === M.depthReq;
+    s += '<button class="' + P + '-sub' + (on ? ' ' + P + '-on' : '') + '" role="tab" aria-selected="' + (on ? 'true' : 'false') + '" data-action="depth" data-key="' + k + '"'
+      + tip(k === 'all'
+        ? { title: 'Все уровни', text: big ? 'Для юнита до ' + fmtInt(M.allMax) + ' подразделений — здесь ' + fmtInt(M.scopeN) + '. Откройте юнит поменьше стрелкой → в строке.'
+                                         : 'Всё дерево до 12-го уровня одним запросом.' }
+        : { title: '3 уровня', text: 'Три уровня вниз от выбранного юнита — сразу, без догрузки при раскрытии.' })
+      + '>' + esc(CFG.depths[i][1]) + '</button>';
+  }
+  s += '</div>';
+  if (state.depthNote || (M.depthReq === 'all' && M.depth !== 'all')) {
+    s += '<span class="' + P + '-dnote">Все уровни — для юнита до ' + fmtInt(M.allMax) + ' подразделений, здесь ' + fmtInt(M.scopeN)
+      + '. Откройте юнит поменьше стрелкой → в строке.</span>';
+  }
+  return s;
 }
 // Юнит, чьи цели действуют на строку: «·» — сотрудники прямо в родителе.
 function rowUnit(r) { return r.id !== '·' ? r.id : (r.lvl === 1 ? scopeUnit() : r.pid); }
@@ -1911,7 +2037,7 @@ function ownLive(unitId, keys) {
 }
 function teamsHTML() {
   var P = CFG.ns, M = MODEL, L = M.L;
-  var s = pageHead('Команды', 'Юниты уровнем ниже выбранного. Каретка раскрывает детализацию ещё на уровень, стрелка → делает юнит юнитом отчёта. '
+  var s = pageHead('Команды', 'Юниты ниже выбранного — сразу на 3 уровня вниз (или все уровни — переключатель «Глубина»). Каретка раскрывает уровень, стрелка → делает юнит юнитом отчёта. '
     + 'Цветом отмечено само значение: у метрик с целью — относительно цели, у остальных — относительно базы <b>' + esc(benchLabel()) + '</b>. '
     + 'Клик по строке показывает ориентиры под значениями и меняет графики справа.');
   var live = [];
@@ -1921,7 +2047,7 @@ function teamsHTML() {
   for (var q = 0; q < live.length; q++) if (live[q][0] === state.block) blk = state.block;
   var mets = selMetrics(blk), keys = [];
   for (var mk = 0; mk < mets.length; mk++) keys.push(mets[mk].key);
-  s += '<div class="' + P + '-tools">' + hSubs(live, blk, 'block') + '</div>';
+  s += '<div class="' + P + '-tools">' + hSubs(live, blk, 'block') + '<span class="' + P + '-sp2"></span>' + depthHTML() + '</div>';
   if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Снимите один из разрезов в строке фильтров.');
   var rows = teamRows();
   if (state.focusOnly) {
@@ -1931,8 +2057,8 @@ function teamsHTML() {
   }
   var sel = null;
   for (var r0 = 0; r0 < rows.length; r0++) if (rows[r0].key === state.selTeam) sel = rows[r0];
-  var expandable = [];
-  for (var e = 0; e < M.c.length; e++) if (M.c[e].id !== '·' && hasKids(M.c[e].id)) expandable.push(M.c[e].id);
+  var every = teamRows(true), expandable = [];
+  for (var e = 0; e < every.length; e++) if (rowCanExp(every[e])) expandable.push(every[e].pfx);
   var allOpen = expandable.length > 0;
   for (var e2 = 0; e2 < expandable.length; e2++) if (!state.openRows[expandable[e2]]) allOpen = false;
 
@@ -1941,7 +2067,7 @@ function teamsHTML() {
   t += '</tr></thead><tbody>';
   t += '<tr class="' + P + '-row ' + P + '-tot' + (!sel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="">'
     + '<td class="' + P + '-l"><span class="' + P + '-rl">'
-    + (expandable.length ? hCaret(allOpen, 'expall', allOpen ? '0' : '1', allOpen ? 'Свернуть всё' : 'Развернуть всё', { title: allOpen ? 'Свернуть всё' : 'Развернуть всё', text: 'Детализация всех юнитов сразу.' }) : '<span class="' + P + '-cars"></span>')
+    + (expandable.length ? hCaret(allOpen, 'expall', allOpen ? '0' : '1', allOpen ? 'Свернуть всё' : 'Развернуть всё', { title: allOpen ? 'Свернуть всё' : 'Развернуть всё', text: 'Все уровни, которые приехали, — сразу.' }) : '<span class="' + P + '-cars"></span>')
     + '<span class="' + P + '-rb">ИТОГО · ' + esc(scopeLabel()) + '<span class="' + P + '-us">' + fmtInt(hcOf(M.scope)) + ' чел</span></span></span></td>';
   for (var tm = 0; tm < mets.length; tm++) t += unitCell(scopeUnit(), M.scope, mets[tm], !sel);
   t += '</tr>';
@@ -1950,27 +2076,25 @@ function teamsHTML() {
     // Отступ дерева: 12 px на уровень, но не больше 8 ступеней — на 12 уровнях имя не сжимается в столбик,
     // а глубину договаривает подпись «ур. N».
     var ind = '<span class="' + P + '-ind" style="width:' + (Math.min(row.lvl - 1, 8) * 12) + 'px"></span>';
-    if (row.loading) {
-      t += '<tr class="' + P + '-lv2"><td class="' + P + '-l" colspan="' + (mets.length + 1) + '"><span class="' + P + '-rl">' + ind
-        + '<span class="' + P + '-cars"></span><span class="' + P + '-muted">'
-        + (state.pend ? 'Загружаю подразделения…' : 'Подразделения не загрузились — сверните и раскройте ещё раз.') + '</span></span></td></tr>';
-      continue;
-    }
     var isSel = sel && sel.key === row.key, uid = rowUnit(row), unit = M.units[row.id];
-    var canExp = rowCanExp(row), open = !!state.openRows[row.id];
+    var canExp = rowCanExp(row), open = !!state.openRows[row.pfx];
+    // На границе глубины подразделения ниже не приехали — говорим, сколько их и как увидеть.
+    var below = M.depth === '3' && row.lvl >= 3 && !canExp && unit && unit.nk > 0 ? unit.nk : 0;
     var nOwn = row.id !== '·' ? ownLive(row.id, keys) : 0;
     var hidOwn = [];
     if (row.id !== '·') { var allOwn = ownRules(row.id, ''); for (var ho = 0; ho < allOwn.length; ho++) if (keys.indexOf(allOwn[ho].metric) > -1 && !ruleMatches(allOwn[ho])) hidOwn.push(allOwn[ho]); }
     t += '<tr class="' + P + '-row' + (row.lvl >= 2 ? ' ' + P + '-lv2' : '') + (isSel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="' + esc(row.key) + '">'
       + '<td class="' + P + '-l"><span class="' + P + '-rl">' + ind
-      + (canExp ? hCaret(open, 'exp', row.id, 'Раскрыть детализацию', { title: 'Детализация', text: 'Юниты уровнем ниже внутри «' + unitName(M, row.id) + '».',
-          note: row.lvl >= 2 && !M.x[row.id] ? 'Подразделения этого уровня подгружаются запросом — секунда-две.' : null }) : '<span class="' + P + '-cars"></span>')
+      + (canExp ? hCaret(open, 'exp', row.pfx, 'Раскрыть детализацию', { title: 'Детализация', text: 'Юниты уровнем ниже внутри «' + unitName(M, row.id) + '».' }) : '<span class="' + P + '-cars"></span>')
       + '<span class="' + P + '-rb">' + nameGo(rowName(row), row.id !== '·' ? '<button class="' + P + '-go" data-action="unit" data-id="' + esc(row.id) + '" aria-label="Открыть юнит"'
           + tip({ title: 'Открыть юнит', text: 'Сделать «' + unitName(M, row.id) + '» юнитом отчёта: сводка, команды и цели — по нему.' }) + '>→</button>' : '')
       + (nOwn ? ' <span class="' + P + '-tag ' + P + '-own"' + tip({ title: 'Фокус юнита', text: 'Цели установлены на этом юните и уходят вниз по всей его ветке.', rows: [{ label: 'целей в фокусе', value: String(nOwn) }] }) + '>★ Фокус</span>' : '')
       + moreFocus(hidOwn, true)
       + (unit && !unit.cur ? '<span class="' + P + '-gone">нет в структуре</span>' : '')
-      + '<span class="' + P + '-us">' + (unit ? esc(levelShort(unit.lvl)) + ' · ' : '') + fmtInt(hcOf(row.ser)) + ' чел</span></span></span></td>';
+      + '<span class="' + P + '-us">' + (unit ? esc(levelShort(unit.lvl)) + ' · ' : '') + fmtInt(hcOf(row.ser)) + ' чел'
+      + (below ? ' · <span class="' + P + '-below"' + tip({ title: 'Ниже ещё ' + below + ' ' + plural(below, 'подразделение', 'подразделения', 'подразделений'),
+          text: 'Показаны 3 уровня вниз. Глубже — переключатель «Глубина: Все уровни» или стрелка → (юнит станет юнитом отчёта).' }) + '>ниже ещё ' + below + '</span>' : '')
+      + '</span></span></span></td>';
     for (var mm = 0; mm < mets.length; mm++) t += unitCell(uid, row.ser, mets[mm], isSel);
     t += '</tr>';
   }
@@ -2447,7 +2571,6 @@ function buildHTML() {
       if (!keepPop) {
         state.open = '';
         state.q = '';
-        state.draft = null;
       }
       var sig = sigOf(next);
       if (sig === sigOf(reqEcho())) { state.pend = null; armPend(); render(); return; }
@@ -2464,20 +2587,24 @@ function buildHTML() {
       render();
       applyCrossFilter(maskOf(next));
     }
-    // Новый юнит — новое дерево «Команд»: раскрытия и поиск не переносятся.
+    // Переход к юниту действием (стрелка →, «Показать» у цели): сразу, мимо «Применить»;
+    // новое дерево «Команд» — раскрытия и набранные фильтры не переносятся.
     function withUnit(ids) {
       var n = reqNow();
       n.unit = sameSet(ids, MODEL.roots) ? [] : ids.slice();
-      n.exp = [];
       n.q = '';
       state.openRows = {};
       state.selTeam = '';
+      state.stage = null;
       return n;
     }
-    // Поиск юнита по всей зоне (справочник большой зоны приходит окрестностью).
+    // Поиск юнита по всей зоне (справочник большой зоны приходит окрестностью):
+    // после паузы в наборе или по Enter. Уходят применённые фильтры + строка поиска —
+    // набранное в строке фильтров остаётся набранным.
     function searchZone() {
+      if (state.qT) { clearTimeout(state.qT); state.qT = null; }
       var q = String(state.q || '').replace(/^\s+|\s+$/g, '');
-      if (q.length < CFG.searchMin || MODEL.dictMode !== 'part') return;
+      if (q.length < CFG.searchMin || MODEL.dictMode !== 'part' || q.toLowerCase() === String(MODEL.q || '').toLowerCase()) { refreshList(); return; }
       var n = reqNow();
       n.q = q.slice(0, 60);
       emit(n, true);
@@ -2494,7 +2621,11 @@ function buildHTML() {
     }
     function focusPop() {
       var inp = overlay.querySelector('[data-psearch]');
-      if (inp) { inp.focus(); return; }
+      if (inp) {
+        inp.focus();
+        try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (er) { /* поле без выделения */ }
+        return;
+      }
       var pop = overlay.querySelector('.' + CFG.ns + '-pop');
       if (pop && pop.focus) pop.focus();
     }
@@ -2502,6 +2633,7 @@ function buildHTML() {
       var box = overlay.querySelector('[data-plist]');
       if (!box) return;
       if (state.open === 'unit') box.innerHTML = unitListHTML();
+      else if (state.open === 'hrbp') box.innerHTML = hrbpListHTML();
       else if (state.open.indexOf('cut:') === 0 && CUT[state.open.slice(4)]) box.innerHTML = cutListHTML(CUT[state.open.slice(4)]);
     }
     function copyLine() {
@@ -2529,7 +2661,6 @@ function buildHTML() {
       if (state.open && (!sc || sc.getAttribute('data-scope') !== state.open)) {
         state.open = '';
         state.q = '';
-        state.draft = null;
         if (!trigger(e.target, 'data-action') && !trigger(e.target, 'data-view')) { render(); return; }
       }
       // Переключалка вкладок: кнопка помечена data-view и role=tab.
@@ -2546,38 +2677,42 @@ function buildHTML() {
       var act = a.getAttribute('data-action'), key = a.getAttribute('data-key') || '', id = a.getAttribute('data-id');
       if (act === 'open') {
         var pop = a.getAttribute('data-pop') || '';
-        if (state.open === pop) { state.open = ''; state.draft = null; render(); return; }
+        if (state.open === pop) { state.open = ''; render(); return; }
         state.open = pop;
         state.q = '';
-        state.draft = pop.indexOf('cut:') === 0 ? { key: pop.slice(4), vals: (MODEL.sel[pop.slice(4)] || []).slice() } : null;
         state.tip = null;
         hideTip();
         render();
         focusPop();
         return;
       }
-      if (act === 'picktab') { state.pickTab = key; state.q = ''; render(); focusPop(); return; }
       if (act === 'tree') { state.treeOpen[id] = !treeOpen(id, MODEL.roots.indexOf(id) > -1 ? 0 : 1); render(); return; }
       if (act === 'unit') { emit(withUnit(id ? [id] : MODEL.roots)); return; }
-      if (act === 'zone') {
-        for (var z = 0; z < MODEL.hrbps.length; z++) if (MODEL.hrbps[z].login === id) { emit(withUnit(MODEL.hrbps[z].roots)); return; }
+      // Строка фильтров копит выбор: юнит, зона HRBP, разрезы — до «Применить».
+      if (act === 'pick' || act === 'hpick') {
+        var ids = [];
+        if (act === 'pick') ids = id ? [id] : [];
+        else if (MODEL.hBy[id]) ids = sameSet(MODEL.hBy[id].roots, MODEL.roots) ? [] : MODEL.hBy[id].roots.slice();
+        stageEdit(function (st) { st.unit = ids; });
+        state.open = '';
+        state.q = '';
+        render();
         return;
       }
-      if (act === 'clearcut') { var nc = reqNow(); nc.cuts[key] = []; emit(nc); return; }
-      if (act === 'cutnone') {
-        if (state.draft) state.draft.vals = [];
-        refreshList();
-        var cnt = overlay.querySelector('[data-pcount]');
-        if (cnt) cnt.textContent = draftCount([]);
+      if (act === 'htree') { state.hOpen[id] = !hrbpOpen(id, MODEL.hTop.indexOf(id) > -1 ? 0 : 1); render(); return; }
+      if (act === 'clearcut' || act === 'cutnone') {
+        stageEdit(function (st) { st.cuts[key] = []; });
+        render();
         return;
       }
-      if (act === 'cutapply') {
-        if (!state.draft) return;
-        var na = reqNow();
-        na.cuts[state.draft.key] = state.draft.vals.slice();
+      if (act === 'apply') {
+        if (!stageDiff() || state.pend) return;
+        var na = staged();
+        if (!sameSet(na.unit, reqNow().unit)) { state.openRows = {}; state.selTeam = ''; }
         emit(na);
         return;
       }
+      if (act === 'unstage') { state.stage = null; render(); return; }
       if (act === 'mall' || act === 'mnone') {
         for (var mi = 0; mi < CFG.metrics.length; mi++) state.metricOff[CFG.metrics[mi].key] = act === 'mnone';
         render();
@@ -2590,33 +2725,30 @@ function buildHTML() {
         state.openMetric = '';
         state.selTeam = '';
         state.openRows = {};
-        emit({ unit: [], cuts: {}, axis: MODEL.axis || '', exp: [], q: '' });
+        state.stage = null;
+        emit({ unit: [], cuts: {}, axis: MODEL.axis || '', depth: MODEL.depthReq, q: '' });
         return;
       }
       if (act === 'openm') { state.openMetric = state.openMetric === key ? '' : key; render(); return; }
       if (act === 'block') { state.block = key; state.selTeam = ''; render(); return; }
       if (act === 'team') { state.selTeam = key; render(); return; }
-      if (act === 'exp') {
-        var opening = !state.openRows[key], isC = false;
-        state.openRows[key] = opening;
-        for (var cx = 0; cx < MODEL.c.length; cx++) if (MODEL.c[cx].id === key) isC = true;
-        // −1 раскрывается данными −2 из ответа; глубже — дети приходят запросом (exp_f).
-        if (opening && !isC && !MODEL.x[key]) {
-          var nx = reqNow(), list = nx.exp.slice();
-          if (list.indexOf(key) < 0) list.push(key);
-          while (list.length > CFG.maxExp) list.shift();
-          nx.exp = list;
-          emit(nx, true);
-          return;
+      // Раскрытие — только вид: все уровни глубины уже в ответе.
+      if (act === 'exp') { state.openRows[key] = !state.openRows[key]; render(); return; }
+      if (act === 'expall') {
+        state.openRows = {};
+        if (key === '1') {
+          var all = teamRows(true);
+          for (var ai = 0; ai < all.length; ai++) if (rowCanExp(all[ai])) state.openRows[all[ai].pfx] = true;
         }
         render();
         return;
       }
-      if (act === 'qsearch') { searchZone(); return; }
-      if (act === 'expall') {
-        state.openRows = {};
-        if (key === '1') for (var ci = 0; ci < MODEL.c.length; ci++) if (MODEL.c[ci].id !== '·') state.openRows[MODEL.c[ci].id] = true;
-        render();
+      if (act === 'depth') {
+        if (key === 'all' && MODEL.allMax > 0 && MODEL.scopeN > MODEL.allMax) { state.depthNote = true; render(); return; }
+        state.depthNote = false;
+        var nd = reqNow();
+        nd.depth = key === 'all' ? 'all' : '3';
+        emit(nd);
         return;
       }
       if (act === 'dyn') { state.dyn = key; render(); return; }
@@ -2644,13 +2776,15 @@ function buildHTML() {
     function onChange(e) {
       var t = e.target;
       if (!t || !t.getAttribute) return;
-      var cv = t.getAttribute('data-cutval');
-      if (cv !== null && state.draft) {
-        var list = state.draft.vals, at = list.indexOf(cv);
-        if (t.checked && at < 0) list.push(cv);
-        if (!t.checked && at > -1) list.splice(at, 1);
-        var cnt = overlay.querySelector('[data-pcount]');
-        if (cnt) cnt.textContent = draftCount(list);
+      var cv = t.getAttribute('data-cutval'), ck = t.getAttribute('data-cutkey');
+      if (cv !== null && ck) {
+        stageEdit(function (st) {
+          var list = (st.cuts[ck] || []).slice(), at = list.indexOf(cv);
+          if (t.checked && at < 0) list.push(cv);
+          if (!t.checked && at > -1) list.splice(at, 1);
+          st.cuts[ck] = list;
+        });
+        render();
         return;
       }
       var mk = t.getAttribute('data-metric');
@@ -2672,7 +2806,18 @@ function buildHTML() {
     function onInput(e) {
       var t = e.target;
       if (!t || !t.getAttribute) return;
-      if (t.getAttribute('data-psearch') !== null) { state.q = t.value; refreshList(); return; }
+      var ps = t.getAttribute('data-psearch');
+      if (ps !== null) {
+        state.q = t.value;
+        // Большая зона: поиск по всей зоне сам уходит после паузы в наборе — без Enter.
+        if (ps === 'unit' && MODEL.dictMode === 'part') {
+          if (state.qT) clearTimeout(state.qT);
+          state.qT = String(state.q).replace(/^\s+|\s+$/g, '').length >= CFG.searchMin
+            ? setTimeout(function () { state.qT = null; searchZone(); }, CFG.searchDelay) : null;
+        }
+        refreshList();
+        return;
+      }
       var kd = t.getAttribute('data-kd');
       if (kd) { state.kd[kd] = t.value; updateKd(); }
     }
@@ -2688,11 +2833,10 @@ function buildHTML() {
       if (k === 27 && state.open) {
         state.open = '';
         state.q = '';
-        state.draft = null;
         render();
         return;
       }
-      // Строки-кнопки (юнит в шапке): Enter/пробел = клик.
+      // Не-кнопки с role="button" («×» у разреза): Enter/пробел = клик.
       if ((k === 13 || k === 32) && e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button' && e.target.tagName !== 'BUTTON') {
         e.preventDefault();
         onClick({ target: e.target });
@@ -2720,7 +2864,6 @@ function buildHTML() {
       while (n) { if (n === overlay) return; n = n.parentNode; }
       state.open = '';
       state.q = '';
-      state.draft = null;
       render();
     };
     document.addEventListener('mousedown', state.onDocDown, true);
@@ -2732,8 +2875,12 @@ function buildHTML() {
     if (state.pend && Date.now() - state.pend.at > CFG.pendingWarnMs) { state.pend = null; state.warn = CFG.text.notApplied; }
     if (state.lastSig && state.lastSig === echo && state.warn === CFG.text.notApplied) state.warn = '';
     armPend();
+    // Набранное применилось (ответ совпал с набором) — строка фильтров снова «чистая».
+    if (state.stage && !stageDiff()) state.stage = null;
 
     render();
+    // Ответ поиска по зоне: поповер открыт — курсор обратно в поле поиска.
+    if (state.open === 'unit' || state.open === 'hrbp') focusPop();
     ensureAxis();
 
     // ResizeObserver только правит габариты. НЕ вызывать render() — зациклит.
