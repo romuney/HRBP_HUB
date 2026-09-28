@@ -16,6 +16,7 @@ import datetime as dt
 import decimal
 import json
 import os
+import re
 import sys
 
 import chdb
@@ -48,14 +49,34 @@ TABLES = {
 }
 PG2CH = {'text': 'String', 'integer': 'Int32', 'bigint': 'Int64', 'smallint': 'Int16', 'numeric': 'Float64',
          'double precision': 'Float64', 'date': 'Date', 'timestamp without time zone': 'DateTime'}
+UPLOAD = os.path.join(HERE, '..', 'helicopter', 'paragraphs', '15 Выгрузка в ClickHouse.py')
 
 
-def ch_type(pg_type, udt, nullable):
+def array_cast_tables():
+    """Таблицы, которые ноут выгружает с array_type_cast=True (параграф «Выгрузка в ClickHouse»).
+    Без флага gp_to_click кладёт массив GP строкой ('{a,b,c}') — стенд повторяет это,
+    чтобы датасет не мог опереться на такую колонку как на массив (так в бою упал
+    arrayMap по hrbp_hub_kpi.unit_path: «Argument 2 of function arrayMap must be Array»)."""
+    out = set()
+    for call in open(UPLOAD, encoding='utf-8').read().split('gp_to_click(')[1:]:
+        m = re.match(r"\s*'(\w+)'", call)
+        if m and re.search(r'array_type_cast\s*=\s*True', call):
+            out.add(m.group(1))
+    return out
+
+
+def ch_type(pg_type, udt, nullable, cast=True):
     if pg_type == 'ARRAY':
+        if not cast:
+            return 'Nullable(String)' if nullable else 'String'
         inner = PG2CH[{'_text': 'text', '_int4': 'integer', '_int8': 'bigint'}[udt]]
         return 'Array(%s)' % ('Nullable(%s)' % inner if nullable else inner)
     t = PG2CH[pg_type]
     return 'Nullable(%s)' % t if nullable else t
+
+
+def pg_array_text(v):
+    return '{' + ','.join('NULL' if x is None else str(x) for x in v) + '}'
 
 
 def load(mode='nullable'):
@@ -63,11 +84,13 @@ def load(mode='nullable'):
     pg = psycopg2.connect(dbname=os.environ.get('PGDATABASE', 'gp'))
     cur = pg.cursor()
     S.query('CREATE DATABASE IF NOT EXISTS prod_proteus')
+    cast_tables = array_cast_tables()
     for t, (order, _) in TABLES.items():
+        cast = t in cast_tables
         cur.execute("select column_name, data_type, udt_name from information_schema.columns "
                     "where table_name = %s order by ordinal_position", (t,))
         cols = cur.fetchall()
-        ddl = ', '.join('`%s` %s' % (c, ch_type(dtp, udt, nullable)) for c, dtp, udt in cols)
+        ddl = ', '.join('`%s` %s' % (c, ch_type(dtp, udt, nullable, cast)) for c, dtp, udt in cols)
         S.query('DROP TABLE IF EXISTS prod_proteus.%s' % t)
         S.query('CREATE TABLE prod_proteus.%s (%s) ENGINE = MergeTree ORDER BY %s SETTINGS allow_nullable_key = 1'
                 % (t, ddl, order))
@@ -81,12 +104,15 @@ def load(mode='nullable'):
                     v = v.isoformat()
                 elif isinstance(v, decimal.Decimal):
                     v = float(v)
+                elif isinstance(v, list) and not cast:
+                    v = pg_array_text(v)
                 o[n] = v
             lines.append(json.dumps(o, ensure_ascii=False))
         if lines:
             S.query('INSERT INTO prod_proteus.%s FORMAT JSONEachRow\n%s' % (t, '\n'.join(lines)))
         n = S.query('SELECT count() FROM prod_proteus.%s' % t, 'CSV').bytes().decode().strip()
-        print('%-20s %8s строк  %s' % (t, n, 'nullable' if nullable else 'plain'))
+        print('%-20s %8s строк  %s%s' % (t, n, 'nullable' if nullable else 'plain',
+                                          '' if cast or not any(d == 'ARRAY' for _, d, _ in cols) else ' · массивы строкой'))
 
 
 class AlwaysTrue:

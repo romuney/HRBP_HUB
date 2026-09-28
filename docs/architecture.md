@@ -97,6 +97,9 @@ Proteus: чарт «HRBP HUB» (proteus/hrbp-hub.chart.js) — кросс-фил
 ## 3. Таблицы ClickHouse (`prod_proteus`)
 
 Все колонки после `gp_to_click` — Nullable, поэтому датасет везде пишет `ifNull`.
+Массивы GP становятся массивами ClickHouse только при `array_type_cast=True` (unit, cube,
+attr, base); без флага массив приезжает строкой. Стенд (`stand/ch.py load`) читает флаги
+из параграфа «Выгрузка в ClickHouse» и повторяет это.
 
 ### `hrbp_hub_calendar` — что значит позиция в массиве · ORDER BY (grain, idx)
 
@@ -141,7 +144,7 @@ Proteus: чарт «HRBP HUB» (proteus/hrbp-hub.chart.js) — кросс-фил
 | Колонка | Тип | Смысл |
 |---|---|---|
 | rule_id | String | код правила |
-| unit_id, unit_rk, unit_path | String, String, Array(String) | юнит цели |
+| unit_id, unit_rk, unit_path | String, String, String | юнит цели; `unit_path` выгружается без `array_type_cast` и в ClickHouse — строка `{a,b,c}`, датасет её не читает (путь юнита цели — из `hrbp_hub_unit`) |
 | metric_id | String | retention_new_3, retention_new_6, regret, exit_reasons, jun_team |
 | target | Float64 | цель в единицах метрики (3.5 = 3,5 %) |
 | f_paint … f_hct | String | разрезы, при которых цель действует; `all` — при любых |

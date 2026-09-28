@@ -367,7 +367,11 @@ FROM (
   FROM prod_proteus.hrbp_hub_kpi
   CROSS JOIN ctx
   WHERE notEmpty(ctx.roots)
-    AND (hasAny(arrayMap(x -> ifNull(x, ''), unit_path), ctx.roots) OR has(ctx.anc, ifNull(unit_id, '')))
+    {#- Юнит цели в зоне — по пути из справочника, а не по unit_path цели: реестр целей
+        выгружается без array_type_cast, и unit_path в ClickHouse — строка, не массив. #}
+    AND (has(ctx.anc, ifNull(unit_id, ''))
+         OR ifNull(unit_id, '') IN (SELECT ifNull(z.id, '') FROM prod_proteus.hrbp_hub_unit z CROSS JOIN ctx
+                                    WHERE hasAny(arrayMap(x -> ifNull(x, ''), z.path), ctx.roots)))
 
   UNION ALL
   {#- ---------- эхо и календарь: по нему чарт понимает, что именно применилось ---------- #}

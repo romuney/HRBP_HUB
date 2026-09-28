@@ -162,7 +162,8 @@ def main():
         u = R.choice(units)
         kp.append(dict(rule_id='S-%03d' % n, unit_id=u['id'], unit_rk='rk' + u['id'], metric_id=R.choice(['regret', 'retention_new_3', 'exit_reasons']),
                        target=3.5, f_paint='all', f_it='all', f_stream='all', f_spec='all', f_staff='all', f_hct='all',
-                       valid_from='2025-01-01', valid_to='2099-12-31', author='scale', note='', unit_path=u['path']))
+                       valid_from='2025-01-01', valid_to='2099-12-31', author='scale', note='',
+                       unit_path=ch.pg_array_text(u['path']) if 'hrbp_hub_kpi' not in ch.array_cast_tables() else u['path']))
     S.query('INSERT INTO prod_proteus.hrbp_hub_kpi FORMAT JSONEachRow\n' + '\n'.join(json.dumps(k, ensure_ascii=False) for k in kp))
     n_cube = S.query('SELECT count() FROM prod_proteus.hrbp_hub_cube', 'CSV').bytes().decode().strip()
     n_base = S.query('SELECT count() FROM prod_proteus.hrbp_hub_base', 'CSV').bytes().decode().strip()

@@ -66,6 +66,9 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   без SETTINGS в датасете, `ifNull` на каждой колонке (gp_to_click даёт Nullable),
   проверять и старым анализатором, и `prefer_column_name_to_alias = 1`, `join_use_nulls = 1`,
   `group_by_use_nulls = 1` (ключи ROLLUP — через `ifNull`).
+- **Массивы в ClickHouse** — только у таблиц, выгружаемых с `array_type_cast=True` (unit, cube,
+  attr, base; параграф 15). Без флага массив GP приезжает строкой (так в бою упал `arrayMap`
+  по `hrbp_hub_kpi.unit_path`); `stand/ch.py load` берёт флаги из параграфа 15 и повторяет это.
 - **Доступ** — только через `current_username()` и `hrbp_hub_access` внутри датасета;
   юниты вне зоны не приезжают ни в каком виде.
 - **Чарт** — ES5 (без let/const, стрелок, шаблонных строк), БЛОКИ 1–7 шаблона скилла,
