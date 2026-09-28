@@ -1,0 +1,1316 @@
+title: HRBP HUB
+paragraphs:
+  - sid: 01a0c820-fc00-7b51-9e8f-23e0cadf54b5
+    title: Описание
+    shebang: md
+    code: |-
+      ### HRBP HUB — витрины отчёта для HRBP
+
+      Ноут собирает всё, что нужно единственному чарту отчёта HRBP HUB в Proteus, и
+      выгружает в ClickHouse (`prod_proteus.hrbp_hub_*`). Метрики — числитель и
+      знаменатель, время — массивы по 24 слота (месяцы и недели), оргструктура —
+      путь юнитов в каждой строке. Проценты не храним: любая цифра отчёта — `Σ num / Σ den`.
+
+      #### Sources
+      - `prod_v_emart.mdm_employee_structure_d` — база всех метрик (подневная витрина сотрудника)
+      - `usr_cross_data.regrettable_n_non_regrettable_base` — разметка regrettable / non-regrettable
+      - `prod_v_hrmart.legal_position_dismissal_reason` — причины увольнений
+      - `prod_v_sse_crossdata.mdm_employee_residence` — город и макрорегион (только для трансформеров)
+
+      #### Target (ClickHouse, база Proteus CROSS)
+      | Таблица | Что внутри |
+      |---|---|
+      | `hrbp_hub_cube` | путь юнита × 6 разрезов численности → массивы компонентов метрик (24 мес + 24 нед) |
+      | `hrbp_hub_attr` | то же × атрибут для трансформеров (грейд, стаж, город…), только месяцы |
+      | `hrbp_hub_unit` | справочник юнитов: имя, уровень, родитель, путь, численность сейчас |
+      | `hrbp_hub_access` | логин → роль и корни зоны (RLS внутри датасета) |
+      | `hrbp_hub_kpi` | цели KPI (реестр правится в параграфе «KPI · реестр целей») |
+      | `hrbp_hub_calendar` | 48 слотов: что значит позиция в массиве |
+
+      #### Порядок
+      Параметры → календарь → строки источника → справочник юнитов → зоны HRBP →
+      увольнения → когорты найма → события по слотам → куб → куб атрибутов → цели →
+      проверки (падают делением на ноль) → выгрузка в ClickHouse → права → удаление времянок.
+
+      Расписание: ежедневно после обновления `mdm_employee_structure_d`.
+      Подробности — репозиторий HRBP_HUB, `docs/architecture.md`.
+    isEnabled: true
+  - sid: 01a0c820-ffe8-79bf-a558-45d13de06d88
+    title: Актуальность источников
+    shebang: python_condition
+    code: |-
+      tf.tables_wait([
+          'prod_v_emart.mdm_employee_structure_d'
+          , 'usr_cross_data.regrettable_n_non_regrettable_base'
+          , 'prod_v_hrmart.legal_position_dismissal_reason'
+          , 'prod_v_sse_crossdata.mdm_employee_residence'
+          ], gp_service='cross'
+      )
+    isEnabled: true
+  - sid: 01a0c821-03d0-7463-8558-af3ff0e26c30
+    title: HH · параметры
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · параметры. Всё, что меняется без правки остальных параграфов.
+      --   data_dt            — последний день данных в источнике (срез last_day_flg = 1)
+      --   last_month_end     — конец последнего ЗАКРЫТОГО месяца: текущий месяц в отчёт
+      --                        не идёт, недостроенный период читается как обвал метрики
+      --   last_week_end      — последнее закрытое воскресенье (неделя пн–вс)
+      --   nr_grace_days      — причина увольнения считается «не заполненной», если с
+      --                        увольнения прошло столько дней, а её всё нет
+      --   super_hrbp_unit_rk — юнит, где сидит супер-HRBP («лид эйчар»), как в ноуте
+      --                        «Связи и подчинения»; сверить с фактическим юнитом
+      --   active_type_value  — тип численности, при котором закрепляемость считается
+      --                        от active_hire_dt (в остальных случаях — от company_hire_dt)
+      -- Окна метрик (12 мес / 52 нед и т. д.) — в параграфе «HH · куб по разрезам».
+      -- ============================================================================
+      drop table if exists hh_param;
+      create table hh_param as
+      select d.data_dt                                                          as data_dt,
+             (date_trunc('month', d.data_dt + 1) - interval '1 day')::date       as last_month_end,
+             (d.data_dt - (extract(isodow from d.data_dt)::int % 7))::date       as last_week_end,
+             30                                                                  as nr_grace_days,
+             '50eb70d6df69372ceb7f354df8e8aa53'::text                            as super_hrbp_unit_rk,
+             'Активная'::text                                                    as active_type_value
+      from (select max(business_dt)::date as data_dt
+            from prod_v_emart.mdm_employee_structure_d
+            where business_dt >= current_date - 14
+              and last_day_flg = 1) d
+      distributed replicated;
+
+      -- Джуны: seniority ILIKE шаблон. Состав — по бизнес-контексту: intern, jun, jun+
+      -- (в источнике «Intern», «Junior», «Junior+»). Поменять состав = поменять строки.
+      drop table if exists hh_param_junior;
+      create table hh_param_junior (pattern text) distributed replicated;
+      insert into hh_param_junior values ('intern%'), ('jun%');
+
+      -- Администраторы отчёта: видят всю компанию, как супер-HRBP. Логины — как в Proteus.
+      drop table if exists hh_param_admin;
+      create table hh_param_admin (login text) distributed replicated;
+      insert into hh_param_admin values ('r.kazantsev');
+
+      -- Стоп, если источник пуст или не обновился: дальше все массивы съехали бы на месяц.
+      select 1 / (case when data_dt is null or data_dt < current_date - 7 then 0 else 1 end) as data_dt_check
+      from hh_param;
+    isEnabled: true
+  - sid: 01a0c821-07b8-7ef5-9f50-f8e0afced59a
+    title: HH · календарь
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · календарь слотов. Окно отчёта фиксировано, поэтому период — не измерение,
+      -- а ПОЗИЦИЯ в массиве витрины:
+      --   месяцы: idx 0…11 — прошлый календарный год, 12…23 — текущий (год последнего
+      --           закрытого месяца); незакрытые слоты текущего года пустые;
+      --   недели: idx 0…23 — последние 24 закрытые недели пн–вс, 23 — последняя.
+      -- Отрицательные idx — история для скользящих окон (11 мес под окно 12 мес,
+      -- 51 неделя под окно 52 нед). В ClickHouse уезжают только idx ≥ 0.
+      -- ============================================================================
+      drop table if exists hh_calendar;
+      create table hh_calendar as
+      select c.grain, c.idx, c.slot_start, c.slot_end,
+             case when c.slot_end <= p.data_dt then 1 else 0 end as is_closed
+      from (
+          select 'm'::text as grain, i as idx,
+                 (make_date(extract(year from p.last_month_end)::int - 1, 1, 1) + i * interval '1 month')::date                          as slot_start,
+                 (make_date(extract(year from p.last_month_end)::int - 1, 1, 1) + (i + 1) * interval '1 month' - interval '1 day')::date as slot_end
+          from hh_param p, generate_series(-11, 23) i
+          union all
+          select 'w'::text, i,
+                 (p.last_week_end - (23 - i) * 7 - 6)::date,
+                 (p.last_week_end - (23 - i) * 7)::date
+          from hh_param p, generate_series(-51, 23) i
+      ) c
+      cross join hh_param p
+      distributed replicated;
+
+      drop table if exists hrbp_hub_calendar;
+      create table hrbp_hub_calendar as
+      select c.grain, c.idx, c.slot_start, c.slot_end, c.is_closed, p.data_dt
+      from hh_calendar c
+      cross join hh_param p
+      where c.idx >= 0
+      distributed replicated;
+
+      -- Форма окна: по 24 слота на гранул, индексы без дыр. Массивы позиционные —
+      -- сдвиг на один слот тихо переставил бы весь ряд, поэтому стоп здесь, а не потом.
+      select 1 / (case when count(*) = 0 then 1 else 0 end) as calendar_shape_check
+      from (select grain from hrbp_hub_calendar group by grain
+            having count(*) <> 24 or min(idx) <> 0 or max(idx) <> 23) t;
+    isEnabled: true
+  - sid: 01a0c821-0ba0-7b0a-be2d-b743d832c790
+    title: HH · строки источника
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · строки источника. Один проход по mdm_employee_structure_d — дальше всё
+      -- считается отсюда.
+      --   is_slot_row  строка на конец слота (месяц / неделя, вкл. историю окон) или на
+      --                срез data_dt: запасы (численность, джуны), справочник, зоны HRBP;
+      --   is_fire_row  строка дня увольнения из компании (business_dt = company_fire_dt);
+      --   is_hire_row  строка дня найма (business_dt = company_hire_dt);
+      --   is_ahire_row строка дня перехода в активную численность (= active_hire_dt).
+      -- Атрибуты строки — на ЕЁ дату: запасы берут разрезы на конец периода, события —
+      -- на дату события. Путь юнита — mapped-цепочка lvl1…lvl13 + сам mapped-лист;
+      -- id узла = первые 12 знаков md5(rk): короткий, стабильный между пересборками.
+      -- Разрезы численности (как в filter-fields.md):
+      --   paint  = emp_specialization_oper_code      it    = emp_specialization_it_code
+      --   stream = emp_stream_desc                   spec  = emp_specialization_desc
+      --   staff  = «Штат» для employment_relation_type_desc = 'Штатный сотрудник', иначе «Не штат»
+      --   hct    = active_type_nm как есть
+      -- Пустое значение разреза = '-'. Атрибуты a_* — оси трансформеров.
+      -- ============================================================================
+      drop table if exists hh_src_raw;
+      create table hh_src_raw as
+      select
+          e.business_dt::date                                                        as business_dt,
+          e.mdm_employee_rk,
+          case when sd.d is not null then 1 else 0 end                                as is_slot_row,
+          case when e.business_dt = e.company_fire_dt then 1 else 0 end              as is_fire_row,
+          case when e.business_dt = e.company_hire_dt then 1 else 0 end              as is_hire_row,
+          case when e.business_dt = e.active_hire_dt  then 1 else 0 end              as is_ahire_row,
+          coalesce(e.active_employee_flg, 0)::int                                    as hc,
+          e.company_hire_dt::date                                                    as company_hire_dt,
+          e.active_hire_dt::date                                                     as active_hire_dt,
+          e.legal_fire_dt::date                                                      as legal_fire_dt,
+          e.legal_position_rk::text                                                  as legal_position_rk,
+          concat_ws('/',
+              substr(md5(nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl6_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl7_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl8_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text),  ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+              substr(md5(nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-')), 1, 12)
+          )                                                                          as chain_ids,
+          substr(md5(nullif(nullif(trim(e.mapped_management_unit_rk::text), ''), '-')), 1, 12) as leaf_id,
+          coalesce(nullif(trim(e.emp_specialization_oper_code::text), ''), '-')      as paint,
+          coalesce(nullif(trim(e.emp_specialization_it_code::text), ''), '-')        as it,
+          coalesce(nullif(trim(e.emp_stream_desc::text), ''), '-')                   as stream,
+          coalesce(nullif(trim(e.emp_specialization_desc::text), ''), '-')           as spec,
+          case when e.employment_relation_type_desc = 'Штатный сотрудник'
+               then 'Штат' else 'Не штат' end                                        as staff,
+          coalesce(nullif(trim(e.active_type_nm::text), ''), '-')                    as hct,
+          coalesce(nullif(trim(e.seniority::text), ''), '-')                         as seniority,
+          coalesce(nullif(trim(e.grade::text), ''), '-')                             as a_grade,
+          coalesce(nullif(trim(e.experience_group_nm::text), ''), '-')               as a_exp,
+          coalesce(nullif(trim(e.gender_desc::text), ''), '-')                       as a_gender,
+          case when e.birth_dt is null then '-'
+               when extract(year from age(e.business_dt::date, e.birth_dt::date)) < 25 then 'до 25'
+               when extract(year from age(e.business_dt::date, e.birth_dt::date)) < 35 then '25–34'
+               when extract(year from age(e.business_dt::date, e.birth_dt::date)) < 45 then '35–44'
+               else '45 и старше' end                                                as a_age,
+          coalesce(nullif(trim(e.office_desc::text), ''), '-')                       as a_office,
+          coalesce(nullif(trim(e.employee_contract_type_desc::text), ''), '-')       as a_work,
+          case when coalesce(e.management_head_flg, 0) = 1
+               then 'Руководитель' else 'Не руководитель' end                        as a_head,
+          coalesce(nullif(trim(e.lvl1_legal_unit_nm::text), ''), '-')                as a_legal,
+          coalesce(nullif(trim(r.macroregion_nm::text), ''), '-')                    as a_macro,
+          coalesce(nullif(trim(r.city_nm::text), ''), '-')                           as a_city,
+          r.valid_from_dttm                                                          as res_from,
+          e.hrbp_mdm_employee_rk                                                     as hrbp_rk,
+          lower(trim(e.hrbp_ad_login::text))                                         as hrbp_login,
+          trim(coalesce(e.hrbp_last_nm::text, '') || ' ' || coalesce(e.hrbp_first_nm::text, '')) as hrbp_nm
+      from prod_v_emart.mdm_employee_structure_d e
+      cross join (select min(slot_start) - interval '7 month' as d0 from hh_calendar) lim
+      left join (select c.slot_end as d from hh_calendar c cross join hh_param p where c.slot_end <= p.data_dt
+                 union
+                 select data_dt from hh_param) sd
+          on sd.d = e.business_dt
+      left join prod_v_sse_crossdata.mdm_employee_residence r
+          on r.mdm_employee_rk = e.mdm_employee_rk
+         and e.business_dt between r.valid_from_dttm and r.valid_to_dttm
+         and r.deleted_flg = 0
+      where e.business_dt >= lim.d0
+        and (sd.d is not null
+             or e.business_dt = e.company_fire_dt
+             or e.business_dt = e.company_hire_dt
+             or e.business_dt = e.active_hire_dt)
+      distributed by (mdm_employee_rk);
+
+      -- Одна строка на (сотрудник, день): пересечения периодов проживания дают дубли —
+      -- берём самый свежий. Дубли самого источника проверяет параграф «HH · проверки».
+      drop table if exists hh_src;
+      create table hh_src as
+      select x.*,
+             case when x.leaf_id is null      then x.chain_ids
+                  when x.chain_ids = ''       then x.leaf_id
+                  when x.chain_ids = x.leaf_id
+                    or x.chain_ids like '%/' || x.leaf_id then x.chain_ids
+                  else x.chain_ids || '/' || x.leaf_id end                           as path_s
+      from (
+          select distinct on (mdm_employee_rk, business_dt) *
+          from hh_src_raw
+          order by mdm_employee_rk, business_dt, res_from desc
+      ) x
+      distributed by (mdm_employee_rk);
+
+      -- Джун — по seniority и шаблонам из hh_param_junior (сопоставление по ILIKE, не точное).
+      drop table if exists hh_seniority;
+      create table hh_seniority as
+      select s.seniority,
+             max(case when s.seniority ilike j.pattern then 1 else 0 end) as jun
+      from (select distinct seniority from hh_src) s
+      cross join hh_param_junior j
+      group by s.seniority
+      distributed replicated;
+
+      analyze hh_src;
+    isEnabled: true
+  - sid: 01a0c821-0f88-7627-a93d-e124f5a5beb4
+    title: HH · справочник юнитов
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · справочник юнитов → hrbp_hub_unit. Все узлы, которые встречаются в путях
+      -- строк источника (текущие и исторические): имя и родитель — по самой свежей строке,
+      -- где узел встречался; is_current — есть в срезе data_dt; hc_now — численность
+      -- поддерева на data_dt (для выбора юнита). rk — исходный mapped rk: по нему
+      -- заводят цели KPI. Путь — от корня до узла, те же id, что в кубе.
+      -- ============================================================================
+      drop table if exists hh_chain;
+      create table hh_chain as
+      select t.chain_ids, t.names_s, t.lvls_s, t.rks_s, t.leaf_id, t.leaf_rk, t.leaf_nm, t.leaf_lvl,
+             max(t.business_dt) as last_dt,
+             max(t.is_now)      as is_now
+      from (
+          select e.business_dt::date                                             as business_dt,
+                 case when e.business_dt = p.data_dt then 1 else 0 end            as is_now,
+                 concat_ws('/',
+                     substr(md5(nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl6_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl7_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl8_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-')), 1, 12),
+                     substr(md5(nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-')), 1, 12)
+                 )                                                                as chain_ids,
+                 concat_ws(chr(31),
+                     case when nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl1_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl2_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl3_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl4_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl5_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl6_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl6_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl7_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl7_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl8_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl8_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl9_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl10_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl11_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl12_mapped_management_unit_nm::text), ''), '—') end,
+                     case when nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-') is not null then coalesce(nullif(trim(e.lvl13_mapped_management_unit_nm::text), ''), '—') end
+                 )                                                                as names_s,
+                 concat_ws(',',
+                     case when nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text), ''), '-') is not null then '1' end,
+                     case when nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text), ''), '-') is not null then '2' end,
+                     case when nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text), ''), '-') is not null then '3' end,
+                     case when nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text), ''), '-') is not null then '4' end,
+                     case when nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text), ''), '-') is not null then '5' end,
+                     case when nullif(nullif(trim(e.lvl6_mapped_management_unit_rk::text), ''), '-') is not null then '6' end,
+                     case when nullif(nullif(trim(e.lvl7_mapped_management_unit_rk::text), ''), '-') is not null then '7' end,
+                     case when nullif(nullif(trim(e.lvl8_mapped_management_unit_rk::text), ''), '-') is not null then '8' end,
+                     case when nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text), ''), '-') is not null then '9' end,
+                     case when nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-') is not null then '10' end,
+                     case when nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-') is not null then '11' end,
+                     case when nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-') is not null then '12' end,
+                     case when nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-') is not null then '13' end
+                 )                                                                as lvls_s,
+                 concat_ws(',',
+                     nullif(nullif(trim(e.lvl1_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl2_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl3_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl4_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl5_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl6_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl7_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl8_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl9_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl10_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl11_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl12_mapped_management_unit_rk::text), ''), '-'),
+                     nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-')
+                 )                                                                as rks_s,
+                 substr(md5(nullif(nullif(trim(e.mapped_management_unit_rk::text), ''), '-')), 1, 12) as leaf_id,
+                 nullif(nullif(trim(e.mapped_management_unit_rk::text), ''), '-')  as leaf_rk,
+                 coalesce(nullif(trim(e.mapped_management_unit_nm::text), ''), '—') as leaf_nm,
+                 coalesce(e.management_unit_lvl_num::int, 0)                     as leaf_lvl
+          from prod_v_emart.mdm_employee_structure_d e
+          join hh_src s
+              on s.mdm_employee_rk = e.mdm_employee_rk
+             and s.business_dt = e.business_dt
+          cross join hh_param p
+          where e.business_dt >= (select min(business_dt) from hh_src)
+      ) t
+      group by 1, 2, 3, 4, 5, 6, 7, 8
+      distributed randomly;
+
+      -- Цепочка + лист (если лист не последний в цепочке) — так же, как path_s в hh_src.
+      drop table if exists hh_unit_long;
+      create table hh_unit_long as
+      select q.last_dt, q.is_now, q.i,
+             (string_to_array(q.path_s, '/'))[q.i]                                as id,
+             (string_to_array(q.rks_all, ','))[q.i]                               as rk,
+             (string_to_array(q.names_all, chr(31)))[q.i]                         as nm,
+             coalesce(nullif((string_to_array(q.lvls_all, ','))[q.i], ''), '0')::int as lvl,
+             case when q.i > 1 then (string_to_array(q.path_s, '/'))[q.i - 1] else '' end as pid,
+             array_to_string((string_to_array(q.path_s, '/'))[1:q.i], '/')        as upath
+      from (
+          select c.*, generate_series(1, array_length(string_to_array(c.path_s, '/'), 1)) as i
+          from (
+              select h.last_dt, h.is_now,
+                     case when not h.app then h.chain_ids
+                          when h.chain_ids = '' then h.leaf_id
+                          else h.chain_ids || '/' || h.leaf_id end                  as path_s,
+                     case when not h.app then h.names_s
+                          when h.chain_ids = '' then h.leaf_nm
+                          else h.names_s || chr(31) || h.leaf_nm end                as names_all,
+                     case when not h.app then h.lvls_s
+                          when h.chain_ids = '' then h.leaf_lvl::text
+                          else h.lvls_s || ',' || h.leaf_lvl::text end              as lvls_all,
+                     case when not h.app then h.rks_s
+                          when h.chain_ids = '' then h.leaf_rk
+                          else h.rks_s || ',' || h.leaf_rk end                      as rks_all
+              from (
+                  select x.*,
+                         (x.leaf_id is not null
+                          and not (x.chain_ids = x.leaf_id or x.chain_ids like '%/' || x.leaf_id)) as app
+                  from hh_chain x
+              ) h
+          ) c
+          where c.path_s <> ''
+      ) q
+      distributed randomly;
+
+      drop table if exists hrbp_hub_unit;
+      create table hrbp_hub_unit as
+      select d.id, d.rk, d.nm, d.lvl, d.pid,
+             string_to_array(d.upath, '/')            as path,
+             coalesce(n.is_current, 0)                as is_current,
+             coalesce(h.hc_now, 0)::int               as hc_now,
+             d.last_dt
+      from (
+          select distinct on (id) id, rk, nm, lvl, pid, upath, last_dt
+          from hh_unit_long
+          where id <> ''
+          order by id, last_dt desc, is_now desc
+      ) d
+      left join (select id, max(is_now) as is_current from hh_unit_long group by id) n
+          on n.id = d.id
+      left join (
+          select x.id, count(*) as hc_now
+          from (select unnest(string_to_array(s.path_s, '/')) as id
+                from hh_src s
+                join hh_param p on s.business_dt = p.data_dt
+                where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> '') x
+          group by x.id
+      ) h on h.id = d.id
+      distributed by (id);
+    isEnabled: true
+  - sid: 01a0c821-1370-7113-bb81-9a738a191c7e
+    title: HH · зоны HRBP и доступ
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · зоны HRBP и доступ → hrbp_hub_access. Правила — из ноута «Связи и
+      -- подчинения», срез data_dt:
+      --   корни HRBP   — юниты, где сидят сотрудники с этим HRBP (tmp_hrbp_roots);
+      --                  видимость — поддеревья корней;
+      --   подъём       — если ВСЕ сотрудники поддерева юнита у одного HRBP, корнем
+      --                  становится сам юнит (зона «Департамент карт», а не шесть его
+      --                  отделов). Видимые люди от этого не меняются — меняется только то,
+      --                  какими узлами зона называется и с какого узла открывается отчёт;
+      --   покрытие     — корень выпадает, если выше по пути стоит другой корень того же HRBP;
+      --   супер-HRBP   — три условия tmp_super_hrbp: является HRBP; в его цепочке
+      --                  руководителей нет других HRBP; сидит в юните super_hrbp_unit_rk.
+      --                  Видит всю компанию («лид эйчар»);
+      --   администратор — логин из hh_param_admin, видит всю компанию.
+      -- Одна строка = (логин, корень). Датасет берёт корни по current_username().
+      -- ============================================================================
+      drop table if exists hh_hrbp_root;
+      create table hh_hrbp_root as
+      select s.hrbp_rk, s.hrbp_login, max(s.hrbp_nm) as hrbp_nm,
+             split_part(s.path_s, '/', array_length(string_to_array(s.path_s, '/'), 1)) as root_id
+      from hh_src s
+      join hh_param p on s.business_dt = p.data_dt
+      where s.is_slot_row = 1
+        and s.hrbp_rk is not null
+        and coalesce(s.hrbp_login, '') <> ''
+        and s.path_s <> ''
+      group by 1, 2, 4
+      distributed by (hrbp_rk);
+
+      -- Узлы, целиком закрытые одним HRBP: все сотрудники поддерева в срезе — у него.
+      drop table if exists hh_hrbp_full;
+      create table hh_hrbp_full as
+      select c.id, c.hrbp_rk
+      from (
+          select x.id, x.hrbp_rk, count(*) as n
+          from (select unnest(string_to_array(s.path_s, '/')) as id, s.hrbp_rk
+                from hh_src s join hh_param p on s.business_dt = p.data_dt
+                where s.is_slot_row = 1 and s.path_s <> '') x
+          group by 1, 2
+      ) c
+      join (
+          select x.id, count(*) as n
+          from (select unnest(string_to_array(s.path_s, '/')) as id
+                from hh_src s join hh_param p on s.business_dt = p.data_dt
+                where s.is_slot_row = 1 and s.path_s <> '') x
+          group by 1
+      ) t on t.id = c.id and t.n = c.n
+      where c.hrbp_rk is not null
+      distributed by (id);
+
+      -- Кандидаты в корни: верхние целиком закрытые узлы (родитель уже не закрыт тем же
+      -- HRBP) + юниты сотрудников, не лежащие ни под одним закрытым узлом этого HRBP.
+      drop table if exists hh_hrbp_cand;
+      create table hh_hrbp_cand as
+      select f.hrbp_rk, f.id as root_id
+      from hh_hrbp_full f
+      join hrbp_hub_unit u on u.id = f.id
+      left join hh_hrbp_full fp on fp.id = u.pid and fp.hrbp_rk = f.hrbp_rk
+      where fp.id is null
+      union
+      select r.hrbp_rk, r.root_id
+      from hh_hrbp_root r
+      join hrbp_hub_unit u on u.id = r.root_id
+      left join (
+          select distinct r1.hrbp_rk, r1.root_id
+          from hh_hrbp_root r1
+          join hrbp_hub_unit u1 on u1.id = r1.root_id
+          join hh_hrbp_full f1 on f1.hrbp_rk = r1.hrbp_rk
+          where f1.id = any(u1.path)
+      ) cov on cov.hrbp_rk = r.hrbp_rk and cov.root_id = r.root_id
+      where cov.root_id is null
+      distributed by (hrbp_rk);
+
+      -- Корень, над которым по пути стоит другой корень того же HRBP, — лишний.
+      drop table if exists hh_hrbp_zone;
+      create table hh_hrbp_zone as
+      select c.hrbp_rk, n.hrbp_login, n.hrbp_nm, c.root_id
+      from hh_hrbp_cand c
+      join (select hrbp_rk, max(hrbp_login) as hrbp_login, max(hrbp_nm) as hrbp_nm
+            from hh_hrbp_root group by 1) n on n.hrbp_rk = c.hrbp_rk
+      left join (
+          select distinct c1.hrbp_rk, c1.root_id
+          from hh_hrbp_cand c1
+          join hrbp_hub_unit u  on u.id = c1.root_id
+          join hh_hrbp_cand c2  on c2.hrbp_rk = c1.hrbp_rk and c2.root_id <> c1.root_id
+          where c2.root_id = any(u.path)
+      ) a on a.hrbp_rk = c.hrbp_rk and a.root_id = c.root_id
+      where a.root_id is null
+      distributed by (hrbp_rk);
+
+      drop table if exists hh_hrbp_super;
+      create table hh_hrbp_super as
+      with me as (
+          select e.mdm_employee_rk as hrbp_rk,
+                 e.management_unit_rk::text as unit_rk,
+                 array[e.lvl1_management_head_mdm_employee_rk,
+                         e.lvl2_management_head_mdm_employee_rk,
+                         e.lvl3_management_head_mdm_employee_rk,
+                         e.lvl4_management_head_mdm_employee_rk,
+                         e.lvl5_management_head_mdm_employee_rk,
+                         e.lvl6_management_head_mdm_employee_rk,
+                         e.lvl7_management_head_mdm_employee_rk,
+                         e.lvl8_management_head_mdm_employee_rk,
+                         e.lvl9_management_head_mdm_employee_rk,
+                         e.lvl10_management_head_mdm_employee_rk,
+                         e.lvl11_management_head_mdm_employee_rk,
+                         e.lvl12_management_head_mdm_employee_rk,
+                         e.lvl13_management_head_mdm_employee_rk] as heads
+          from prod_v_emart.mdm_employee_structure_d e
+          join hh_param p on e.business_dt = p.data_dt
+          where e.mdm_employee_rk in (select hrbp_rk from hh_hrbp_root)
+      ),
+      above as (
+          select distinct m.hrbp_rk
+          from me m
+          join (select distinct hrbp_rk from hh_hrbp_root) h
+              on h.hrbp_rk = any(m.heads) and h.hrbp_rk <> m.hrbp_rk
+      )
+      select distinct m.hrbp_rk
+      from me m
+      cross join hh_param p
+      left join above a on a.hrbp_rk = m.hrbp_rk
+      where a.hrbp_rk is null
+        and m.unit_rk = p.super_hrbp_unit_rk
+      distributed replicated;
+
+      -- Корни компании: узлы первого уровня в срезе.
+      drop table if exists hh_company_root;
+      create table hh_company_root as
+      select distinct split_part(s.path_s, '/', 1) as root_id
+      from hh_src s
+      join hh_param p on s.business_dt = p.data_dt
+      where s.is_slot_row = 1 and s.path_s <> ''
+      distributed replicated;
+
+      drop table if exists hrbp_hub_access;
+      create table hrbp_hub_access as
+      select z.hrbp_login as login, z.hrbp_rk::text as hrbp_rk, z.hrbp_nm, 'hrbp'::text as role, z.root_id
+      from hh_hrbp_zone z
+      where z.hrbp_rk not in (select hrbp_rk from hh_hrbp_super)
+      union all
+      select h.hrbp_login, h.hrbp_rk::text, h.hrbp_nm, 'super'::text, c.root_id
+      from (select hrbp_rk, hrbp_login, max(hrbp_nm) as hrbp_nm
+            from hh_hrbp_root
+            where hrbp_rk in (select hrbp_rk from hh_hrbp_super)
+            group by 1, 2) h
+      cross join hh_company_root c
+      union all
+      select lower(trim(a.login)), ''::text, lower(trim(a.login)), 'admin'::text, c.root_id
+      from hh_param_admin a
+      cross join hh_company_root c
+      distributed by (login);
+    isEnabled: true
+  - sid: 01a0c821-1758-7967-87b9-1b2597f7e98c
+    title: HH · увольнения
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · увольнения → hh_fire. Событие = строка дня увольнения из компании
+      -- (business_dt = company_fire_dt); юнит и разрезы — на эту дату.
+      --   rg / nrg — regrettable / non-regrettable: джойн вспомогательной витрины
+      --              usr_cross_data.regrettable_n_non_regrettable_base по сотруднику и
+      --              дате (как в ультраширокой); в базе этих флагов нет;
+      --   nr       — причина НЕ заполнена: legal_fire_dt не пустая, в
+      --              legal_position_dismissal_reason (legal_position_rk + fire_dt =
+      --              legal_fire_dt) нет причины — и с увольнения прошло nr_grace_days.
+      --              coalesce(dismissal_reason_desc, 'Причина отсутствует') = отсутствует.
+      -- Дни увольнения берутся с запасом в 7 месяцев до окна: по ним когорты найма
+      -- узнают, дожил ли новичок до 3 и 6 месяцев.
+      -- ============================================================================
+      drop table if exists hh_fire;
+      create table hh_fire as
+      select s.mdm_employee_rk, s.company_hire_dt, s.business_dt as fire_dt,
+             s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct,
+             s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head,
+             s.a_legal, s.a_macro, s.a_city,
+             coalesce(rt.rg, 0)  as rg,
+             coalesce(rt.nrg, 0) as nrg,
+             case when s.legal_fire_dt is not null
+                   and coalesce(fr.has_reason, 0) = 0
+                   and s.business_dt <= p.data_dt - p.nr_grace_days
+                  then 1 else 0 end as nr
+      from hh_src s
+      cross join hh_param p
+      left join (
+          select mdm_employee_rk, business_dt::date as business_dt,
+                 max(case when regrettable_fire_flg = 1 then 1 else 0 end)     as rg,
+                 max(case when non_regrettable_fire_flg = 1 then 1 else 0 end) as nrg
+          from usr_cross_data.regrettable_n_non_regrettable_base
+          where business_dt >= (select min(slot_start) - interval '7 month' from hh_calendar)
+          group by 1, 2
+      ) rt on rt.mdm_employee_rk = s.mdm_employee_rk and rt.business_dt = s.business_dt
+      left join (
+          select legal_position_rk::text as legal_position_rk, fire_dt::date as fire_dt,
+                 max(case when nullif(trim(dismissal_reason_desc::text), '') is not null
+                           and dismissal_reason_desc <> 'Причина отсутствует' then 1 else 0 end) as has_reason
+          from prod_v_hrmart.legal_position_dismissal_reason
+          group by 1, 2
+      ) fr on fr.legal_position_rk = s.legal_position_rk and fr.fire_dt = s.legal_fire_dt
+      where s.is_fire_row = 1
+        and s.path_s <> ''
+      distributed by (mdm_employee_rk);
+    isEnabled: true
+  - sid: 01a0c821-1b40-70a3-a5c1-a87b5c325465
+    title: HH · когорты найма
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · когорты найма → hh_cohort. Закрепляемость новичков (business-context § 2.7):
+      -- сколько новичков продолжает работать в компании через 3 и 6 месяцев от найма.
+      --   база 'c' — от company_hire_dt (по умолчанию);
+      --   база 'a' — от active_hire_dt: отчёт берёт её, когда в фильтре «Тип численности»
+      --             выбрана ровно «Активная» (hh_param.active_type_value).
+      -- Новичок — одно трудоустройство (повторный найм — новая когорта). Юнит и разрезы —
+      -- на дату найма. fire_dt — увольнение ЭТОГО трудоустройства (по company_hire_dt
+      -- из hh_fire); пусто = работает. Созревание и «дожил ли» — в «HH · события по слотам».
+      -- ============================================================================
+      drop table if exists hh_cohort;
+      create table hh_cohort as
+      select 'c'::text as base, s.mdm_employee_rk, s.company_hire_dt as hire_dt, f.fire_dt,
+             s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct,
+             s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head,
+             s.a_legal, s.a_macro, s.a_city
+      from hh_src s
+      left join (select mdm_employee_rk, company_hire_dt, min(fire_dt) as fire_dt
+                 from hh_fire group by 1, 2) f
+          on f.mdm_employee_rk = s.mdm_employee_rk and f.company_hire_dt = s.company_hire_dt
+      where s.is_hire_row = 1 and s.path_s <> ''
+      union all
+      select 'a'::text, s.mdm_employee_rk, s.active_hire_dt, f.fire_dt,
+             s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct,
+             s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head,
+             s.a_legal, s.a_macro, s.a_city
+      from hh_src s
+      left join (select mdm_employee_rk, company_hire_dt, min(fire_dt) as fire_dt
+                 from hh_fire group by 1, 2) f
+          on f.mdm_employee_rk = s.mdm_employee_rk and f.company_hire_dt = s.company_hire_dt
+      where s.is_ahire_row = 1 and s.path_s <> ''
+      distributed by (mdm_employee_rk);
+    isEnabled: true
+  - sid: 01a0c821-1f28-7baa-b1df-a29481add8d6
+    title: HH · события по слотам
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · события по слотам → hh_evt. Длинная таблица «вклад строки в компонент
+      -- метрики в слоте». Всё, что дальше, — суммы по ней.
+      --   запасы     hc, jun          сотрудник в списочной численности на конец слота
+      --                               (active_employee_flg = 1); джун — по hh_seniority
+      --   поток      fire, rg, nrg, nr в слоте дня увольнения
+      --   найм       hire             в слоте дня найма (база company_hire_dt)
+      --   когорты    r3d / r3n        новичок созрел (найм + 3 мес / + 13 нед) в этом слоте
+      --              r6d / r6n        и дожил ли (+ 6 мес / + 26 нед); суффикс a — база
+      --                               active_hire_dt. Незрелые (срок позже data_dt) — не в счёт.
+      -- Слоты — с историей окон (idx < 0), окна применяются в следующем параграфе.
+      -- ============================================================================
+      drop table if exists hh_evt;
+      create table hh_evt as
+      select c.grain, c.idx, s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct, s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head, s.a_legal, s.a_macro, s.a_city,
+             1 as hc, coalesce(j.jun, 0) as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad
+      from hh_src s
+      join hh_calendar c on c.slot_end = s.business_dt
+      left join hh_seniority j on j.seniority = s.seniority
+      where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> ''
+      union all
+      select c.grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city,
+             0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, f.nr as nr, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad
+      from hh_fire f
+      join hh_calendar c on f.fire_dt between c.slot_start and c.slot_end
+      union all
+      select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city,
+             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 1 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad
+      from hh_cohort h
+      join hh_calendar c on h.hire_dt between c.slot_start and c.slot_end
+      where h.base = 'c'
+      union all
+      select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city,
+             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as hire, case when h.base = 'c' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3n, case when h.base = 'c' and h.hz = 3 then 1 else 0 end as r3d, case when h.base = 'c' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6n, case when h.base = 'c' and h.hz = 6 then 1 else 0 end as r6d, case when h.base = 'a' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3an, case when h.base = 'a' and h.hz = 3 then 1 else 0 end as r3ad, case when h.base = 'a' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6an, case when h.base = 'a' and h.hz = 6 then 1 else 0 end as r6ad
+      from (
+          select q.*,
+                 case when q.fire_dt is null or q.fire_dt >= q.md then 1 else 0 end as ret
+          from (
+              select h.*, z.grain as zgrain, z.hz,
+                     (case when z.mons is not null then h.hire_dt + z.mons * interval '1 month'
+                           else h.hire_dt + z.dys * interval '1 day' end)::date as md
+              from hh_cohort h
+              cross join (values ('m'::text, 3, 3, null::int), ('m'::text, 6, 6, null::int),
+                                 ('w'::text, 3, null::int, 91), ('w'::text, 6, null::int, 182)) z(grain, hz, mons, dys)
+          ) q
+      ) h
+      join hh_calendar c on c.grain = h.zgrain and h.md between c.slot_start and c.slot_end
+      cross join hh_param p
+      where h.md <= p.data_dt
+      distributed by (path_s);
+
+      analyze hh_evt;
+    isEnabled: true
+  - sid: 01a0c821-2310-7256-8d01-42dd9e606d74
+    title: HH · куб по разрезам
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · куб по разрезам → hrbp_hub_cube. Ключ строки — путь юнита × 6 разрезов
+      -- численности; значения — массивы по слотам: m_* 24 месяца, w_* 24 недели
+      -- (позиция = idx из hrbp_hub_calendar). Проценты не храним — только числитель и
+      -- знаменатель, поэтому любую строку можно складывать с любой другой.
+      --
+      -- ОКНА (меняются здесь и только здесь):
+      --   rg, nrg (regrettable / non-regrettable увольнения), hcw (Σ численности за окно,
+      --   знаменатель текучести; средняя = hcw / 12 или / 52) — 12 мес / 52 нед;
+      --   nr (незаполненные причины) — 3 мес / 13 нед;
+      --   r3*/r6* (созревшие новички и дожившие) — 3 мес / 13 нед.
+      --   hc, jun, hire, fire — без окна (запас на конец слота и поток слота).
+      -- Окно считается на каждой строке куба: сумма окон по строкам = окно суммы.
+      -- ============================================================================
+      drop table if exists hh_cube_long;
+      create table hh_cube_long as
+      select md5(path_s || '|' || paint || '|' || it || '|' || stream || '|' || spec || '|' || staff || '|' || hct) as kid,
+             path_s, paint, it, stream, spec, staff, hct, grain, idx,
+             sum(hc) as hc,
+             sum(jun) as jun,
+             sum(fire) as fire,
+             sum(rg) as rg,
+             sum(nrg) as nrg,
+             sum(nr) as nr,
+             sum(hire) as hire,
+             sum(r3n) as r3n,
+             sum(r3d) as r3d,
+             sum(r6n) as r6n,
+             sum(r6d) as r6d,
+             sum(r3an) as r3an,
+             sum(r3ad) as r3ad,
+             sum(r6an) as r6an,
+             sum(r6ad) as r6ad
+      from hh_evt
+      group by path_s, paint, it, stream, spec, staff, hct, grain, idx
+      distributed by (kid);
+
+      -- Плотная сетка «ключ × все слоты», иначе окно в строках захватит не те слоты.
+      drop table if exists hh_cube_win;
+      create table hh_cube_win as
+      select x.kid, x.grain, x.idx,
+             x.hc,
+             x.jun,
+             case when x.grain = 'm' then sum(x.rg) over w12 else sum(x.rg) over w52 end as rg,
+             case when x.grain = 'm' then sum(x.nrg) over w12 else sum(x.nrg) over w52 end as nrg,
+             case when x.grain = 'm' then sum(x.hc) over w12 else sum(x.hc) over w52 end as hcw,
+             case when x.grain = 'm' then sum(x.nr) over w3 else sum(x.nr) over w13 end as nr,
+             case when x.grain = 'm' then sum(x.r3n) over w3 else sum(x.r3n) over w13 end as r3n,
+             case when x.grain = 'm' then sum(x.r3d) over w3 else sum(x.r3d) over w13 end as r3d,
+             case when x.grain = 'm' then sum(x.r6n) over w3 else sum(x.r6n) over w13 end as r6n,
+             case when x.grain = 'm' then sum(x.r6d) over w3 else sum(x.r6d) over w13 end as r6d,
+             case when x.grain = 'm' then sum(x.r3an) over w3 else sum(x.r3an) over w13 end as r3an,
+             case when x.grain = 'm' then sum(x.r3ad) over w3 else sum(x.r3ad) over w13 end as r3ad,
+             case when x.grain = 'm' then sum(x.r6an) over w3 else sum(x.r6an) over w13 end as r6an,
+             case when x.grain = 'm' then sum(x.r6ad) over w3 else sum(x.r6ad) over w13 end as r6ad,
+             x.hire,
+             x.fire
+      from (
+          select g.kid, g.grain, g.idx,
+                 coalesce(l.hc, 0) as hc,
+                         coalesce(l.jun, 0) as jun,
+                         coalesce(l.fire, 0) as fire,
+                         coalesce(l.rg, 0) as rg,
+                         coalesce(l.nrg, 0) as nrg,
+                         coalesce(l.nr, 0) as nr,
+                         coalesce(l.hire, 0) as hire,
+                         coalesce(l.r3n, 0) as r3n,
+                         coalesce(l.r3d, 0) as r3d,
+                         coalesce(l.r6n, 0) as r6n,
+                         coalesce(l.r6d, 0) as r6d,
+                         coalesce(l.r3an, 0) as r3an,
+                         coalesce(l.r3ad, 0) as r3ad,
+                         coalesce(l.r6an, 0) as r6an,
+                         coalesce(l.r6ad, 0) as r6ad
+          from (select k.kid, c.grain, c.idx
+                from (select distinct kid from hh_cube_long) k
+                cross join hh_calendar c) g
+          left join hh_cube_long l
+              on l.kid = g.kid and l.grain = g.grain and l.idx = g.idx
+      ) x
+      window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
+             w52 as (partition by x.kid, x.grain order by x.idx rows between 51 preceding and current row),
+             w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
+             w13 as (partition by x.kid, x.grain order by x.idx rows between 12 preceding and current row)
+      distributed by (kid);
+
+      drop table if exists hrbp_hub_cube;
+      create table hrbp_hub_cube as
+      select k.path_s,
+             string_to_array(k.path_s, '/')                                          as path,
+             split_part(k.path_s, '/', array_length(string_to_array(k.path_s, '/'), 1)) as leaf,
+             k.paint, k.it, k.stream, k.spec, k.staff, k.hct,
+             m.hc as m_hc,
+             m.jun as m_jun,
+             m.rg as m_rg,
+             m.nrg as m_nrg,
+             m.hcw as m_hcw,
+             m.nr as m_nr,
+             m.r3n as m_r3n,
+             m.r3d as m_r3d,
+             m.r6n as m_r6n,
+             m.r6d as m_r6d,
+             m.r3an as m_r3an,
+             m.r3ad as m_r3ad,
+             m.r6an as m_r6an,
+             m.r6ad as m_r6ad,
+             m.hire as m_hire,
+             m.fire as m_fire,
+             w.hc as w_hc,
+             w.jun as w_jun,
+             w.rg as w_rg,
+             w.nrg as w_nrg,
+             w.hcw as w_hcw,
+             w.nr as w_nr,
+             w.r3n as w_r3n,
+             w.r3d as w_r3d,
+             w.r6n as w_r6n,
+             w.r6d as w_r6d,
+             w.r3an as w_r3an,
+             w.r3ad as w_r3ad,
+             w.r6an as w_r6an,
+             w.r6ad as w_r6ad,
+             w.hire as w_hire,
+             w.fire as w_fire
+      from (select distinct kid, path_s, paint, it, stream, spec, staff, hct from hh_cube_long) k
+      join (select kid,
+                 array_agg(hc::int order by idx) as hc,
+                 array_agg(jun::int order by idx) as jun,
+                 array_agg(rg::int order by idx) as rg,
+                 array_agg(nrg::int order by idx) as nrg,
+                 array_agg(hcw::int order by idx) as hcw,
+                 array_agg(nr::int order by idx) as nr,
+                 array_agg(r3n::int order by idx) as r3n,
+                 array_agg(r3d::int order by idx) as r3d,
+                 array_agg(r6n::int order by idx) as r6n,
+                 array_agg(r6d::int order by idx) as r6d,
+                 array_agg(r3an::int order by idx) as r3an,
+                 array_agg(r3ad::int order by idx) as r3ad,
+                 array_agg(r6an::int order by idx) as r6an,
+                 array_agg(r6ad::int order by idx) as r6ad,
+                 array_agg(hire::int order by idx) as hire,
+                 array_agg(fire::int order by idx) as fire,
+                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) as tot
+          from hh_cube_win
+          where grain = 'm' and idx >= 0
+          group by kid) m
+          on m.kid = k.kid
+      join (select kid,
+                 array_agg(hc::int order by idx) as hc,
+                 array_agg(jun::int order by idx) as jun,
+                 array_agg(rg::int order by idx) as rg,
+                 array_agg(nrg::int order by idx) as nrg,
+                 array_agg(hcw::int order by idx) as hcw,
+                 array_agg(nr::int order by idx) as nr,
+                 array_agg(r3n::int order by idx) as r3n,
+                 array_agg(r3d::int order by idx) as r3d,
+                 array_agg(r6n::int order by idx) as r6n,
+                 array_agg(r6d::int order by idx) as r6d,
+                 array_agg(r3an::int order by idx) as r3an,
+                 array_agg(r3ad::int order by idx) as r3ad,
+                 array_agg(r6an::int order by idx) as r6an,
+                 array_agg(r6ad::int order by idx) as r6ad,
+                 array_agg(hire::int order by idx) as hire,
+                 array_agg(fire::int order by idx) as fire,
+                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) as tot
+          from hh_cube_win
+          where grain = 'w' and idx >= 0
+          group by kid) w
+          on w.kid = k.kid
+      where m.tot + w.tot > 0
+      distributed by (path_s);
+    isEnabled: true
+  - sid: 01a0c821-26f8-7a2f-afa3-581fa1cdc656
+    title: HH · куб атрибутов
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · куб атрибутов → hrbp_hub_attr. Для вкладки «Трансформеры»: та же метрика,
+      -- разложенная по атрибуту сотрудника, при тех же 6 разрезах и юните. Только месяцы.
+      -- Атрибут (attr_k → attr_v) берётся на дату строки, как и разрезы:
+      --   grade — грейд; seniority — старшинство; exp — стаж (experience_group_nm);
+      --   gender — пол; age — возрастная группа; office — офис; work — тип работы
+      --   (employee_contract_type_desc); head — руководитель / нет; legal — юрлицо
+      --   (lvl1_legal_unit_nm); macro — макрорегион; city — город (mdm_employee_residence).
+      -- Окна — как в «HH · куб по разрезам» (месячные: 12 / 3 / 3).
+      -- ============================================================================
+      drop table if exists hh_attr_long;
+      create table hh_attr_long as
+      select md5(path_s || '|' || paint || '|' || it || '|' || stream || '|' || spec || '|' || staff || '|' || hct || '|' || attr_k || '|' || attr_v) as kid,
+             path_s, paint, it, stream, spec, staff, hct, attr_k, attr_v, idx,
+             sum(hc) as hc,
+             sum(jun) as jun,
+             sum(fire) as fire,
+             sum(rg) as rg,
+             sum(nrg) as nrg,
+             sum(nr) as nr,
+             sum(hire) as hire,
+             sum(r3n) as r3n,
+             sum(r3d) as r3d,
+             sum(r6n) as r6n,
+             sum(r6d) as r6d,
+             sum(r3an) as r3an,
+             sum(r3ad) as r3ad,
+             sum(r6an) as r6an,
+             sum(r6ad) as r6ad
+      from (
+          select e.*, a.attr_k,
+                 coalesce(case a.attr_k when 'grade' then e.a_grade when 'seniority' then e.seniority when 'exp' then e.a_exp when 'gender' then e.a_gender when 'age' then e.a_age when 'office' then e.a_office when 'work' then e.a_work when 'head' then e.a_head when 'legal' then e.a_legal when 'macro' then e.a_macro when 'city' then e.a_city end, '-') as attr_v
+          from hh_evt e
+          cross join (values ('grade'), ('seniority'), ('exp'), ('gender'), ('age'), ('office'), ('work'), ('head'), ('legal'), ('macro'), ('city')) a(attr_k)
+          where e.grain = 'm'
+      ) t
+      group by path_s, paint, it, stream, spec, staff, hct, attr_k, attr_v, idx
+      distributed by (kid);
+
+      drop table if exists hh_attr_win;
+      create table hh_attr_win as
+      select x.kid, x.grain, x.idx,
+             x.hc,
+             x.jun,
+             sum(x.rg) over w12 as rg,
+             sum(x.nrg) over w12 as nrg,
+             sum(x.hc) over w12 as hcw,
+             sum(x.nr) over w3 as nr,
+             sum(x.r3n) over w3 as r3n,
+             sum(x.r3d) over w3 as r3d,
+             sum(x.r6n) over w3 as r6n,
+             sum(x.r6d) over w3 as r6d,
+             sum(x.r3an) over w3 as r3an,
+             sum(x.r3ad) over w3 as r3ad,
+             sum(x.r6an) over w3 as r6an,
+             sum(x.r6ad) over w3 as r6ad,
+             x.hire,
+             x.fire
+      from (
+          select g.kid, g.grain, g.idx,
+                 coalesce(l.hc, 0) as hc,
+                         coalesce(l.jun, 0) as jun,
+                         coalesce(l.fire, 0) as fire,
+                         coalesce(l.rg, 0) as rg,
+                         coalesce(l.nrg, 0) as nrg,
+                         coalesce(l.nr, 0) as nr,
+                         coalesce(l.hire, 0) as hire,
+                         coalesce(l.r3n, 0) as r3n,
+                         coalesce(l.r3d, 0) as r3d,
+                         coalesce(l.r6n, 0) as r6n,
+                         coalesce(l.r6d, 0) as r6d,
+                         coalesce(l.r3an, 0) as r3an,
+                         coalesce(l.r3ad, 0) as r3ad,
+                         coalesce(l.r6an, 0) as r6an,
+                         coalesce(l.r6ad, 0) as r6ad
+          from (select k.kid, c.grain, c.idx
+                from (select distinct kid from hh_attr_long) k
+                cross join hh_calendar c
+                where c.grain = 'm') g
+          left join hh_attr_long l
+              on l.kid = g.kid and l.idx = g.idx
+      ) x
+      window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
+             w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row)
+      distributed by (kid);
+
+      drop table if exists hrbp_hub_attr;
+      create table hrbp_hub_attr as
+      select k.path_s,
+             string_to_array(k.path_s, '/')                                          as path,
+             split_part(k.path_s, '/', array_length(string_to_array(k.path_s, '/'), 1)) as leaf,
+             k.paint, k.it, k.stream, k.spec, k.staff, k.hct, k.attr_k, k.attr_v,
+             m.hc as m_hc,
+             m.jun as m_jun,
+             m.rg as m_rg,
+             m.nrg as m_nrg,
+             m.hcw as m_hcw,
+             m.nr as m_nr,
+             m.r3n as m_r3n,
+             m.r3d as m_r3d,
+             m.r6n as m_r6n,
+             m.r6d as m_r6d,
+             m.r3an as m_r3an,
+             m.r3ad as m_r3ad,
+             m.r6an as m_r6an,
+             m.r6ad as m_r6ad,
+             m.hire as m_hire,
+             m.fire as m_fire
+      from (select distinct kid, path_s, paint, it, stream, spec, staff, hct, attr_k, attr_v from hh_attr_long) k
+      join (select kid,
+                 array_agg(hc::int order by idx) as hc,
+                 array_agg(jun::int order by idx) as jun,
+                 array_agg(rg::int order by idx) as rg,
+                 array_agg(nrg::int order by idx) as nrg,
+                 array_agg(hcw::int order by idx) as hcw,
+                 array_agg(nr::int order by idx) as nr,
+                 array_agg(r3n::int order by idx) as r3n,
+                 array_agg(r3d::int order by idx) as r3d,
+                 array_agg(r6n::int order by idx) as r6n,
+                 array_agg(r6d::int order by idx) as r6d,
+                 array_agg(r3an::int order by idx) as r3an,
+                 array_agg(r3ad::int order by idx) as r3ad,
+                 array_agg(r6an::int order by idx) as r6an,
+                 array_agg(r6ad::int order by idx) as r6ad,
+                 array_agg(hire::int order by idx) as hire,
+                 array_agg(fire::int order by idx) as fire,
+                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) as tot
+          from hh_attr_win
+          where grain = 'm' and idx >= 0
+          group by kid) m
+          on m.kid = k.kid
+      where m.tot > 0
+      distributed by (path_s);
+    isEnabled: true
+  - sid: 01a0c821-2ae0-7c3a-91cc-68fc97fa3678
+    title: KPI · реестр целей
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- KPI · реестр целей (ПРАВИТСЯ РУКАМИ). Одна строка INSERT = одна цель.
+      -- Пока инструмента настройки KPI нет, источник целей — этот параграф: поправили
+      -- строки → запустили ноут → цель в отчёте. Контракт тот же, что ждёт будущий
+      -- инструмент (docs/dataset-spec.md, «Цели»), поэтому потом меняется только источник.
+      --
+      --   rule_id    уникальный код правила (любой текст)
+      --   unit_rk    mapped rk юнита (mapped_management_unit_rk / lvlN_mapped_…_rk);
+      --              в отчёте: выбор юнита → «ID для цели» у выбранного юнита
+      --   metric_id  retention_new_3 | retention_new_6 | regret | exit_reasons | jun_team
+      --              (nonregret и headcount целей не имеют: «больше» у них не значит «лучше»)
+      --   target     целевое значение в единицах метрики: проценты — числом (3.5 = 3,5 %)
+      --   f_paint … f_hct  разрезы численности, при которых цель действует; 'all' — при
+      --              любых. Значения — как в отчёте (HQ, IT, «Штат», «Активная» …). Цель с
+      --              разрезом видна, только когда в отчёте выбран ровно этот разрез.
+      --   valid_from / valid_to  действие цели (valid_to пусто — бессрочно)
+      --   author, note           кто поставил и зачем
+      -- Наследование: цель юнита действует на всю его ветку вниз, пока ниже не встретится
+      -- своя; на одном юните более узкое правило (больше разрезов) бьёт более широкое.
+      -- ============================================================================
+      drop table if exists hh_kpi_src;
+      create table hh_kpi_src (
+          rule_id    text,
+          unit_rk    text,
+          metric_id  text,
+          target     numeric,
+          f_paint    text,
+          f_it       text,
+          f_stream   text,
+          f_spec     text,
+          f_staff    text,
+          f_hct      text,
+          valid_from date,
+          valid_to   date,
+          author     text,
+          note       text
+      ) distributed randomly;
+
+      -- Пример (раскомментировать и подставить rk юнита):
+      -- insert into hh_kpi_src values
+      --   ('R-001', '<rk юнита>', 'regret',          3.5, 'all', 'all', 'all', 'all', 'all', 'all', '2026-01-01', null, 'r.kazantsev', 'Цель блока по regret'),
+      --   ('R-002', '<rk юнита>', 'retention_new_3', 90,  'HQ',  'all', 'all', 'all', 'all', 'all', '2026-01-01', null, 'r.kazantsev', 'Закрепляемость HQ');
+    isEnabled: true
+    color: '#FDC454'
+  - sid: 01a0c821-2ec8-7719-b28e-9c110d180ae0
+    title: KPI · цели для отчёта
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- KPI · цели для отчёта → hrbp_hub_kpi. rk юнита → id узла отчёта; пустые разрезы →
+      -- 'all' (NULL в сравнении ведёт себя иначе, и правило «на всю численность»
+      -- перестало бы находиться). Наследование и выбор победителя — в чарте: они
+      -- зависят от выбранных сейчас разрезов. Правила с неизвестным rk или метрикой
+      -- сюда не попадают — их список печатает «HH · проверки».
+      -- ============================================================================
+      drop table if exists hrbp_hub_kpi;
+      create table hrbp_hub_kpi as
+      select trim(r.rule_id)                                   as rule_id,
+             u.id                                              as unit_id,
+             trim(r.unit_rk)                                   as unit_rk,
+             trim(r.metric_id)                                 as metric_id,
+             r.target::float8                                  as target,
+             coalesce(nullif(trim(r.f_paint), ''), 'all')      as f_paint,
+             coalesce(nullif(trim(r.f_it), ''), 'all')         as f_it,
+             coalesce(nullif(trim(r.f_stream), ''), 'all')     as f_stream,
+             coalesce(nullif(trim(r.f_spec), ''), 'all')       as f_spec,
+             coalesce(nullif(trim(r.f_staff), ''), 'all')      as f_staff,
+             coalesce(nullif(trim(r.f_hct), ''), 'all')        as f_hct,
+             coalesce(r.valid_from, date '2000-01-01')         as valid_from,
+             coalesce(r.valid_to, date '2099-12-31')           as valid_to,
+             coalesce(r.author, '')                            as author,
+             coalesce(r.note, '')                              as note,
+             u.path                                            as unit_path
+      from hh_kpi_src r
+      join hrbp_hub_unit u on u.rk = trim(r.unit_rk)
+      where trim(r.metric_id) in ('retention_new_3', 'retention_new_6', 'regret', 'exit_reasons', 'jun_team')
+        and r.target is not null
+      distributed randomly;
+    isEnabled: true
+  - sid: 01a0c821-32b0-7ab0-8d64-f1bd4dad688a
+    title: HH · проверки
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · проверки. Стоп-проверки падают делением на ноль (как «Проверка на дубли»
+      -- в ультраширокой) — до выгрузки в ClickHouse, чтобы отчёт не получил битые
+      -- массивы. Последние два запроса — диагностика, ничего не роняют: их результат
+      -- стоит глянуть после первого запуска.
+      -- ============================================================================
+
+      -- 1. Дубли источника на днях, которые читает ноут: одна строка на (сотрудник, день).
+      select 1 / (case when count(*) > 0 then 0 else 1 end) as source_duplicates_check
+      from (
+          select e.mdm_employee_rk, e.business_dt
+          from prod_v_emart.mdm_employee_structure_d e
+          join (select distinct c.slot_end as d from hh_calendar c cross join hh_param p where c.slot_end <= p.data_dt) sd
+              on sd.d = e.business_dt
+          group by 1, 2
+          having count(*) > 1
+      ) t;
+
+      -- 2. Короткие id узлов уникальны (первые 12 знаков md5 от rk).
+      select 1 / (case when count(distinct rk) = count(distinct id) and count(*) = count(distinct id) then 1 else 0 end) as unit_id_check
+      from hrbp_hub_unit;
+
+      -- 3. Все массивы куба — ровно 24 позиции.
+      select 1 / (case when count(*) > 0 then 0 else 1 end) as cube_array_length_check
+      from hrbp_hub_cube
+      where array_length(m_hc, 1) <> 24 or array_length(w_hc, 1) <> 24
+         or array_length(m_hcw, 1) <> 24 or array_length(w_r6ad, 1) <> 24;
+      select 1 / (case when count(*) > 0 then 0 else 1 end) as attr_array_length_check
+      from hrbp_hub_attr
+      where array_length(m_hc, 1) <> 24 or array_length(m_r6ad, 1) <> 24;
+
+      -- 4. Куб сходится с источником: численность на конец последнего закрытого месяца.
+      select 1 / (case when c.hc = s.hc then 1 else 0 end) as cube_headcount_check, c.hc as cube_hc, s.hc as source_hc
+      from (
+          select sum(k.m_hc[l.pos]) as hc
+          from hrbp_hub_cube k
+          cross join (select c.idx + 1 as pos
+                      from hrbp_hub_calendar c
+                      join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
+      ) c
+      cross join (
+          select count(*) as hc
+          from hh_src s join hh_param p on s.business_dt = p.last_month_end
+          where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> ''
+      ) s;
+
+      -- 5. Каждый узел из путей куба есть в справочнике.
+      select 1 / (case when count(*) > 0 then 0 else 1 end) as cube_units_in_dictionary_check
+      from (select distinct unnest(path) as id from hrbp_hub_cube) x
+      left join hrbp_hub_unit u on u.id = x.id
+      where u.id is null;
+
+      -- 6. Доступ не пуст: хотя бы один HRBP с зоной.
+      select 1 / (case when count(*) > 0 then 1 else 0 end) as access_not_empty_check
+      from hrbp_hub_access where role in ('hrbp', 'super');
+
+      -- Диагностика: строки без юнита (в отчёт не попадают), увольнения без разметки
+      -- regrettable, незаполненные причины; правила KPI, не попавшие в отчёт.
+      select (select count(*) from hh_src where path_s = '')                     as rows_without_unit,
+             (select count(*) from hh_fire)                                        as fires,
+             (select count(*) from hh_fire where rg = 0 and nrg = 0)               as fires_without_regret_marking,
+             (select count(*) from hh_fire where nr = 1)                           as fires_without_reason,
+             (select count(*) from hrbp_hub_cube)                                  as cube_rows,
+             (select count(*) from hrbp_hub_attr)                                  as attr_rows,
+             (select count(*) from hrbp_hub_unit where is_current = 1)             as units_now,
+             (select count(distinct login) from hrbp_hub_access)                   as logins;
+      select r.rule_id, r.unit_rk, r.metric_id,
+             case when u.id is null then 'нет такого юнита' else 'неизвестная метрика или пустая цель' end as problem
+      from hh_kpi_src r
+      left join hrbp_hub_unit u on u.rk = trim(r.unit_rk)
+      where u.id is null
+         or trim(r.metric_id) not in ('retention_new_3', 'retention_new_6', 'regret', 'exit_reasons', 'jun_team')
+         or r.target is null;
+    isEnabled: true
+  - sid: 01a0c821-3698-7641-96f5-ee91ff040341
+    title: Выгрузка в ClickHouse
+    shebang: python
+    code: |-
+      # Выгрузка витрин HRBP HUB в ClickHouse (база Proteus CROSS → prod_proteus).
+      # replace — таблица пересобирается целиком: окно сдвигается каждый месяц, и старые
+      # слоты меняют смысл, дописывать нечего. ORDER BY — под фильтры датасета: куб
+      # режется по пути юнита, справочник — по id, доступ — по логину.
+      from proteus_py.database.clickhouse import gp_to_click
+
+      gp_to_click('hrbp_hub_calendar', 'prod_proteus.hrbp_hub_calendar',
+          gp_service='gp', upload_mode='replace', order_by_columns='(grain, idx)')
+      gp_to_click('hrbp_hub_unit', 'prod_proteus.hrbp_hub_unit',
+          gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(id)')
+      gp_to_click('hrbp_hub_access', 'prod_proteus.hrbp_hub_access',
+          gp_service='gp', upload_mode='replace', order_by_columns='(login)')
+      gp_to_click('hrbp_hub_kpi', 'prod_proteus.hrbp_hub_kpi',
+          gp_service='gp', upload_mode='replace', order_by_columns='(unit_id)')
+      gp_to_click('hrbp_hub_cube', 'prod_proteus.hrbp_hub_cube',
+          gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(path_s)')
+      gp_to_click('hrbp_hub_attr', 'prod_proteus.hrbp_hub_attr',
+          gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(attr_k, path_s)')
+    isEnabled: true
+    color: '#1BA6CE'
+  - sid: 01a0c821-3a80-7bec-ae45-2ac5a614cc14
+    title: Доступ к таблицам в Proteus
+    shebang: python
+    code: |-
+      # Владельцы таблиц в Proteus: кто может заводить на них датасеты и открывать в SQL Lab.
+      # Зрителям борда права на таблицы не нужны — они видят чарт через датасет.
+      # Впишите логины команды отчёта.
+      from proteus_py.database.clickhouse import set_table_owners
+
+      OWNERS = ['r.kazantsev']
+      for t in ['hrbp_hub_calendar', 'hrbp_hub_unit', 'hrbp_hub_access', 'hrbp_hub_kpi', 'hrbp_hub_cube', 'hrbp_hub_attr']:
+          set_table_owners(database='prod_proteus', table=t, usernames=OWNERS)
+    isEnabled: true
+  - sid: 01a0c821-3e68-7199-a8bf-bdb5baf52164
+    title: Обновить кеш борда
+    shebang: python_condition
+    code: |-
+      # Включить, когда борд HRBP HUB опубликован: slug борда — вместо 'hrbp-hub'.
+      # Учётные данные — те же переменные, что в ноуте Proteus Adoption.
+      from proteus_py.dashboard.refresh import refresh_dashboard
+
+      refresh_dashboard(
+          user_login=Z_ENV_CREDENTIAL_LOGIN_R_KAZANTSEV,
+          user_password=Z_ENV_CREDENTIAL_PASS_R_KAZANTSEV,
+          dashboard_slug='hrbp-hub',
+          retries=2,
+      );
+    isEnabled: false
+  - sid: 01a0c821-4250-7ea3-b905-87dcdb0b4fd1
+    title: Диагностика источников
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- Диагностика источников (выключен, запускать руками после первого прогона).
+      -- Отвечает на открытые вопросы business-context.md и filter-fields.md: какие
+      -- значения у разрезов на самом деле, покрытие regrettable-разметки, есть ли у
+      -- всех увольнений строка в день увольнения. Результаты — владельцу отчёта.
+      -- ============================================================================
+
+      -- 1. Значения разрезов численности в срезе (сверить с подписями отчёта).
+      select 'paint' as cut, paint as value, count(*) as hc from hh_src s join hh_param p on s.business_dt = p.data_dt where s.hc = 1 group by 1, 2
+      union all select 'it', it, count(*) from hh_src s join hh_param p on s.business_dt = p.data_dt where s.hc = 1 group by 1, 2
+      union all select 'staff', staff, count(*) from hh_src s join hh_param p on s.business_dt = p.data_dt where s.hc = 1 group by 1, 2
+      union all select 'hct', hct, count(*) from hh_src s join hh_param p on s.business_dt = p.data_dt group by 1, 2
+      union all select 'seniority', s.seniority || ' → джун ' || coalesce(j.jun, 0)::text, count(*)
+                from hh_src s join hh_param p on s.business_dt = p.data_dt left join hh_seniority j on j.seniority = s.seniority
+                where s.hc = 1 group by 1, 2
+      order by 1, 3 desc;
+
+      -- 2. Регrettable-разметка по месяцам увольнения: доля размеченных.
+      select date_trunc('month', fire_dt)::date as fire_month,
+             count(*)                                    as fires,
+             sum(rg)                                     as regrettable,
+             sum(nrg)                                    as non_regrettable,
+             sum(case when rg = 0 and nrg = 0 then 1 else 0 end) as not_marked,
+             sum(nr)                                     as reason_missing
+      from hh_fire
+      group by 1
+      order by 1;
+
+      -- 3. Увольнения без строки в день увольнения: company_fire_dt есть в более ранней
+      --    строке, а строки на сам день нет. Должно быть 0 — иначе событие теряется.
+      select count(*) as fires_without_fire_day_row
+      from (
+          select distinct e.mdm_employee_rk, e.company_fire_dt
+          from prod_v_emart.mdm_employee_structure_d e
+          join hh_param p on e.business_dt = p.last_month_end
+          where e.company_fire_dt between (select min(slot_start) from hh_calendar) and p.data_dt
+      ) f
+      left join hh_fire h on h.mdm_employee_rk = f.mdm_employee_rk and h.fire_dt = f.company_fire_dt
+      where h.mdm_employee_rk is null;
+
+      -- 4. Флаг regrettable вне дня увольнения (если много — разметка не «на день увольнения»,
+      --    и джойн по дате её теряет).
+      select count(*) as regret_flags_total,
+             sum(case when h.mdm_employee_rk is null then 1 else 0 end) as regret_flags_not_on_fire_day
+      from usr_cross_data.regrettable_n_non_regrettable_base r
+      left join hh_fire h on h.mdm_employee_rk = r.mdm_employee_rk and h.fire_dt = r.business_dt
+      where r.regrettable_fire_flg = 1
+        and r.business_dt >= (select min(slot_start) from hh_calendar);
+    isEnabled: false
+  - sid: 01a0c821-4638-7209-9c6a-fc92ff1425c4
+    title: HH · удалить времянки
+    shebang: gp
+    code: |-
+      -- Времянки ноута. Финальные hrbp_hub_* остаются: их читает выгрузка и проверки.
+      drop table if exists hh_src_raw;
+      drop table if exists hh_chain;
+      drop table if exists hh_unit_long;
+      drop table if exists hh_evt;
+      drop table if exists hh_cube_long;
+      drop table if exists hh_cube_win;
+      drop table if exists hh_attr_long;
+      drop table if exists hh_attr_win;
+    isEnabled: true

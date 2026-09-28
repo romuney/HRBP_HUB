@@ -1,0 +1,5 @@
+stand/.chdb*/
+stand/__pycache__/
+helicopter/__pycache__/
+__pycache__/
+proteus/.check-history.json
