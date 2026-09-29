@@ -12,8 +12,9 @@
       dict   1 строка — юниты пакетом: id, родитель, уровень, численность сейчас,
              текущий ли, rk, имя, число детей (j: поля через \t, строки через \n).
              Зона до DICT_FULL_MAX юнитов — целиком; больше (супер-HRBP, админ на
-             100 тыс. сотрудников) — путь до юнита с соседями, всё дерево «Команд»
-             (3 уровня или все), корни с детьми, корни зон HRBP, найденное поиском q_f
+             100 тыс. сотрудников) — путь до юнита с соседями, вся выбранная область, если
+             она не больше DICT_FULL_MAX (иначе — дерево «Команд»: 3 уровня или все), корни
+             с детьми, корни зон HRBP, найденное поиском q_f (сначала — внутри области)
       hrbps  1 строка — HRBP, чьи зоны внутри моей: логин, имя, корни, численность,
              пути корней (по ним чарт строит дерево «кто под кем»)
       base   вся компания под выбранными разрезами — база сравнения (hrbp_hub_base)
@@ -300,6 +301,9 @@ FROM (
       AND (has(ctx.anc, ifNull(u.id, ''))
            OR (hasAny(arrayMap(x -> ifNull(x, ''), u.path), ctx.roots)
                AND (ctx.zone_n <= {{ DICT_FULL_MAX }}
+                    {# выбранная область (юнит или зона HRBP) не больше DICT_FULL_MAX — целиком:
+                       дерево выбора юнита в ней полное, поиск по ней — в чарте, без запроса #}
+                    OR (ex.scope_n <= {{ DICT_FULL_MAX }} AND hasAny(arrayMap(x -> ifNull(x, ''), u.path), ctx.scope))
                     OR has(ex.sanc, ifNull(u.id, ''))
                     OR has(ex.sanc, ifNull(u.pid, ''))
                     OR has(ctx.roots, ifNull(u.pid, ''))
@@ -316,7 +320,8 @@ FROM (
                               FROM prod_proteus.hrbp_hub_unit h CROSS JOIN ctx
                               WHERE positionCaseInsensitiveUTF8(ifNull(h.nm, ''), {{ qs(q) }}) > 0
                                 AND hasAny(arrayMap(x -> ifNull(x, ''), h.path), ctx.roots)
-                              ORDER BY ifNull(h.lvl, 0), ifNull(h.nm, '')
+                              {# сначала найденное внутри выбранной области (зоны HRBP), потом остальное #}
+                              ORDER BY hasAny(arrayMap(x -> ifNull(x, ''), h.path), ctx.scope) DESC, ifNull(h.lvl, 0), ifNull(h.nm, '')
                               LIMIT 60)), ifNull(u.id, ''))
                     {%- endif %})))
   )
@@ -379,6 +384,7 @@ FROM (
       ',"q":', toJSONString({{ qs(q) }}),
       ',"zone_n":', toString(ctx.zone_n),
       ',"dict_mode":', toJSONString(if(ctx.zone_n <= {{ DICT_FULL_MAX }}, 'full', 'part')),
+      ',"scope_full":', toString(if(ctx.zone_n <= {{ DICT_FULL_MAX }} OR ex.scope_n <= {{ DICT_FULL_MAX }}, 1, 0)),
       {% for c in CUT_COLS %}',"f_{{ c }}":', toJSONString({{ qa(F[c]) }}),
       {% endfor %}
       ',"axis":', toJSONString('{{ axis }}'),

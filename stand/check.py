@@ -267,6 +267,7 @@ def main():
     ok(meta(rows3)['dict_mode'] == 'full' and dict_ids(rows3) == set(UT), 'маленькая зона: справочник целиком')
     acc, _ = ch.run("SELECT ifNull(root_id, '') AS r FROM prod_proteus.hrbp_hub_access WHERE ifNull(role, '') = 'hrbp'")
     hroots = {r['r'] for r in acc}
+    acc_all, _ = ch.run("SELECT ifNull(login, '') AS login, ifNull(root_id, '') AS r FROM prod_proteus.hrbp_hub_access WHERE ifNull(role, '') = 'hrbp'")
     for depth_f, dep in (([], 3), (['all'], 10)):
         flt = {'unit_f': [sid(tech.rk)]}
         if depth_f:
@@ -276,13 +277,36 @@ def main():
         kpi_units = {r['pid'] for r in by(rows, 'kpi')}
         scope = {sid(tech.rk)}
         sanc = set(UT[sid(tech.rk)]['path'])
+        small = m['scope_n'] <= 10
         want = {i for i, r in UT.items()
                 if i in sanc or r['pid'] in sanc or r['pid'] == sid(root) or i in kpi_units or i in hroots
-                or set(r['path'][max(0, len(r['path']) - 1 - dep):len(r['path']) - 1]) & scope}
+                or set(r['path'][max(0, len(r['path']) - 1 - dep):len(r['path']) - 1]) & scope
+                or (small and set(r['path']) & scope)}
         ok(m['dict_mode'] == 'part' and dict_ids(rows) == want,
            'большая зона, глубина %s: путь, соседи, дерево «Команд», цели, корни HRBP (%d из %d юнитов)' % (dep, len(want), len(UT)))
         t_ids = {r['id'] for r in rows if r['role'] in ('c', 'g', 'x') and r['id'] != '·'}
         ok(t_ids <= dict_ids(rows), 'все строки «Команд» (глубина %s) есть в справочнике' % dep)
+    # область не больше DICT_FULL_MAX при большой зоне — приезжает целиком (дерево выбора
+    # юнита в зоне HRBP полное, поиск по ней — в чарте)
+    sub_tech = {i for i, r in UT.items() if sid(tech.rk) in r['path']}
+    rows, _ = ch.dataset({'unit_f': [sid(tech.rk)]}, 'a.sergeeva', dict_full_max=len(sub_tech))
+    m = meta(rows)
+    ok(m['dict_mode'] == 'part' and m['scope_n'] == len(sub_tech) and m['scope_full'] == 1 and sub_tech <= dict_ids(rows),
+       'большая зона, область ≤ порога: вся ветка «Технологий» в справочнике (%d юнитов), scope_full = 1' % len(sub_tech))
+    rows, _ = ch.dataset({'unit_f': [sid(tech.rk)]}, 'a.sergeeva', dict_full_max=len(sub_tech) - 1)
+    ok(meta(rows)['scope_full'] == 0 and not sub_tech <= dict_ids(rows), 'область больше порога — окрестностью, scope_full = 0')
+    vz = [r for r in acc_all if r['login'] == 's.volkov']
+    vroots = sorted(r['r'] for r in vz)
+    sub_v = {i for i, r in UT.items() if set(vroots) & set(r['path'])}
+    rows, _ = ch.dataset({'unit_f': vroots}, 'a.sergeeva', dict_full_max=len(sub_v))
+    ok(meta(rows)['scope_full'] == 1 and sub_v <= dict_ids(rows), 'зона HRBP (s.volkov, %d юнитов) выбрана областью — в справочнике целиком' % len(sub_v))
+    # поиск: сначала находки внутри области — даже когда по всей зоне их больше лимита
+    qs_ = 'а'
+    allhits = [i for i, r in UT.items() if qs_ in r['nm'].lower()]
+    inside = {i for i in allhits if sid(tech.rk) in UT[i]['path']}
+    rows, _ = ch.dataset({'unit_f': [sid(tech.rk)], 'q_f': [qs_]}, 'a.sergeeva', dict_full_max=10)
+    ok(len(allhits) > 60 and inside <= dict_ids(rows) if len(inside) <= 60 else True,
+       'поиск «%s»: %d находок по зоне, %d внутри области — все внутренние в справочнике' % (qs_, len(allhits), len(inside)))
     rows, _ = ch.dataset({'unit_f': [sid(tech.rk)], 'q_f': ['ЯЧЕЙКА']}, 'a.sergeeva', dict_full_max=10)
     ok(meta(rows)['q'] == 'ЯЧЕЙКА' and yach in dict_ids(rows) and set(UT[yach]['path']) <= dict_ids(rows),
        'поиск по всей зоне: найденный юнит и его путь в справочнике')

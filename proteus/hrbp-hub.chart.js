@@ -67,9 +67,11 @@ var CFG = {
     staff: ['Штат', 'Не штат'],
     seniority: ['Intern', 'Junior', 'Junior+', 'Middle', 'Middle+', 'Senior', 'Senior+', 'Lead']
   },
+  // Группы метрик: панели «Сводки», вкладки «Команд» (плюс «Все метрики»), список «Метрики».
   blocks: [
-    { key: 'retention', name: 'Удержание и текучесть', hint: 'Закрепляемость новичков, нежелательные уходы, причины увольнений.' },
-    { key: 'structure', name: 'Структура команды', hint: 'Численность и доля джунов.' }
+    { key: 'retention', name: 'Удержание', tab: 'Удержание', hint: 'Закрепляемость новичков через 3 и 6 месяцев.' },
+    { key: 'turnover', name: 'Текучесть', tab: 'Текучесть', hint: 'Нежелательные и управляемые уходы, причины увольнений.' },
+    { key: 'structure', name: 'Структура команды', tab: 'Структура', hint: 'Численность и доля джунов.' }
   ],
   // num / den — компоненты куба; denDiv — знаменатель-сумма за окно → средняя.
   // better: higher | lower | flat (у flat цвета и целей нет — «больше» не значит «лучше»).
@@ -84,17 +86,17 @@ var CFG = {
       hint: 'Доля новичков, которые работают в компании через 6 месяцев после найма.',
       calc: 'Как на 3 месяцах, горизонт 6 мес (26 нед).',
       numL: 'продолжают работать', denL: 'новичков в когорте' },
-    { key: 'regret', block: 'retention', name: 'Regrettable текучесть', short: 'Regret',
+    { key: 'regret', block: 'turnover', name: 'Regrettable текучесть', short: 'Regret',
       fmt: 'pct', better: 'lower', num: 'rg', den: 'hcw', denDiv: { m: 12, w: 52 },
       hint: 'Годовой темп уходов ценных сотрудников (нежелательные увольнения).',
       calc: 'Regrettable-увольнения за 12 мес (52 нед) / средняя списочная численность за то же окно. Разметка — usr_cross_data.regrettable_n_non_regrettable_base.',
       numL: 'regrettable-увольнений за окно', denL: 'средняя численность' },
-    { key: 'nonregret', block: 'retention', name: 'Non regrettable текучесть', short: 'Non-reg.',
+    { key: 'nonregret', block: 'turnover', name: 'Non regrettable текучесть', short: 'Non-reg.',
       fmt: 'pct', better: 'flat', num: 'nrg', den: 'hcw', denDiv: { m: 12, w: 52 },
       hint: 'Текучесть без сожаления (управляемые уходы). Нейтральная: больше не значит лучше.',
       calc: 'Non-regrettable-увольнения за 12 мес (52 нед) / средняя численность за окно.',
       numL: 'non-regrettable-увольнений', denL: 'средняя численность' },
-    { key: 'exit_reasons', block: 'retention', name: 'Незаполненные причины увольнений', short: 'Без причины',
+    { key: 'exit_reasons', block: 'turnover', name: 'Незаполненные причины увольнений', short: 'Без причины',
       fmt: 'pct', better: 'lower', num: 'nr', den: 'hc',
       hint: 'Уволенные без проставленной причины (30+ дней после увольнения) от численности юнита. В бизнес-контексте — «Заполнение причин увольнений».',
       calc: 'Увольнения за 3 мес (13 нед) без причины в legal_position_dismissal_reason, с непустой датой и старше 30 дней / численность на конец периода.',
@@ -154,17 +156,23 @@ var CFG = {
     noAccess: 'Для вашего логина нет зоны HRBP в отчёте.',
     outOfZone: 'Запрошенный юнит вне вашей зоны — показана ваша зона.'
   },
-  // TeamPulse — токены макета (styles.css). Жёлтый в светофоре запрещён.
+  // Токены: текст — как в Proteus Adoption, акцент #2b6cff — синий шапки отчёта.
+  // Светофор подобран под акцент: у каждого сигнала фон пилюли, текст пилюли и
+  // марка графика (столбик, точка) — один тон, поэтому пилюля и столбик читаются
+  // одним цветом. Жёлтого в светофоре нет.
   colors: {
     bg: '#f4f5f7', card: '#ffffff', line: '#e7e9ee', line2: '#eef0f3',
-    ink: '#23272e', ink2: '#454b55', muted: '#8a909c', muted2: '#aab0bb',   // текст — как в Proteus Adoption
-    green: '#12b048', greenBg: '#bff2cd', greenTx: '#0a8f3c',
-    red: '#f51f1f', redBg: '#ffcccc', redTx: '#d11414',
+    ink: '#23272e', ink2: '#454b55', muted: '#8a909c', muted2: '#aab0bb',
+    green: '#2fb36b', greenBg: '#dbf5e6', greenTx: '#11804a',
+    red: '#ee6262', redBg: '#fde2e2', redTx: '#cb2e2e',
+    neutral: '#cdd3dc', neutralBg: '#eff1f5', neutralTx: '#5d6574',
     warn: '#f59300', warnBg: '#ffe6a0', warnTx: '#9a6500',
-    blue: '#3b6fe0', blueBg: '#eef3fe', act: '#2b6cff',
-    surface2: '#f3f4f6', hover: '#fafbfc', bench: '#9aa0ac',
-    cur: '#4f5766', prev: '#c7c8cc', kpi: '#2b6cff', label: '#3f4654', axis: '#8a909c',
-    axisLine: '#9ba4b5', axisStrong: '#3a3f4a', grid: '#eef0f4', now: '#b0b7c4',
+    blue: '#3b6fe0', blueBg: '#eef3fe', act: '#2b6cff', actInk: '#1f55d6',
+    surface2: '#f3f4f6', hover: '#fafbfc',
+    // Линии «период к периоду»: текущий — акцент, прошлый — светлый сине-серый,
+    // база — серый пунктир, цель — тёмный пунктир; заливка под текущим — 8 % акцента.
+    cur: '#2b6cff', curArea: 'rgba(43,108,255,.08)', prev: '#b4bdcc', bench: '#98a1b1', kpi: '#4b5262',
+    label: '#2f3440', axis: '#8a909c', axisLine: '#9ba4b5', axisStrong: '#3a3f4a', grid: '#e9ecf1', xh: '#b9c6de',
     series: ['#5f86c2', '#97dece', '#ac87c5', '#cdbf97', '#85cdfd', '#9fae6a', '#c98aa6', '#686d76']
   },
   // Типографика — профиль виджетов Proteus Adoption (DESIGN_SYSTEM.md §16): один стек
@@ -178,9 +186,13 @@ var CFG = {
     micro: 9.5, cap: 10.5, note: 11.5, control: 12, body: 12.5, title: 14.5, hero: 24,
     axis: 10.5, val: 11, dense: 10, chart: 13, legend: 12
   },
-  // Отступы — шкала 2…16 профиля; thH — высота строки шапки таблицы (под неё липнет «Итого»).
-  spacing: { gutter: 16, gap: 12, thH: 30 },
-  chart: { h: 236, hSmall: 200, bars: 300 }
+  // Отступы — шкала 2…16 профиля; thH — высота строки шапки таблицы (под неё липнет «Итого»),
+  // thG — строка групп метрик над ней («Все метрики» в «Командах»).
+  spacing: { gutter: 16, gap: 12, thH: 30, thG: 22 },
+  // Графики (Adoption, ДС 6.3): воздух над марками под подписи 26, ось X 30, отрисовка линии 760 мс.
+  chart: { h: 236, hSmall: 212, bars: 300, top: 26, axis: 30, drawMs: 760 },
+  // «Команды»: доля таблицы в раскладке «таблица | динамика» (перетаскивается разделителем).
+  split: { def: 0.6, min: 0.3, max: 0.8 }
 };
 
 // ---------- БЛОК 2: ВХОД + СОСТОЯНИЕ + ХЕЛПЕРЫ ----------
@@ -192,7 +204,7 @@ var rawData = (typeof data !== 'undefined' && Array.isArray(data)) ? data : [];
 // чтобы правки разных сессий не расходились.
 if (!window.__pvtState) window.__pvtState = {};
 var __S = window.__pvtState;
-if (!__S[CFG.ns]) __S[CFG.ns] = {
+var STATE0 = {
   tip: null,
   view: '',              // вкладка (data-view): '' = «Сводка»
   open: '',              // открытый поповер: 'unit' | 'hrbp' | 'cut:<разрез>' | 'metrics' | ''
@@ -202,10 +214,16 @@ if (!__S[CFG.ns]) __S[CFG.ns] = {
   treeOpen: {},          // раскрытые узлы дерева в выборе юнита
   hOpen: {},             // раскрытые узлы дерева HRBP
   depthNote: false,      // «Все уровни» недоступны для этой ветки — показать пояснение
-  openMetric: '',        // раскрытая строка сводки
+  openM: {},             // раскрытые строки сводки: ключ метрики → true (можно несколько)
   metricOff: {},         // метрики, снятые с показа
   focusOnly: false,      // «Только фокусные»
-  block: 'retention',    // подвкладка «Команд»
+  block: 'all',          // подвкладка «Команд»: 'all' — все метрики, иначе группа
+  split: 0,              // доля таблицы «Команд» (0 — по умолчанию CFG.split.def)
+  splitMode: 'both',     // 'both' | 'table' (таблица во всю ширину) | 'charts' (динамика во всю ширину)
+  lineOff: {},           // серии линий, выключенные в легенде: cur | prev | ref
+  drawn: {},             // графики, уже нарисованные с анимацией: ключ → подпись данных
+  hz: '',                // HRBP, чья зона выбрана (логин): выбор юнита сужается до неё
+  unitAll: false,        // выбор юнита при выбранном HRBP: показать всю зону видимости
   selTeam: '',           // выбранная строка «Команд» ('' — ИТОГО)
   openRows: {},          // раскрытые узлы «Команд»: ключ — путь узла от −1 через '/'
   dyn: 'yoy',            // «Год» | «12 недель» в «Командах»
@@ -219,6 +237,9 @@ if (!__S[CFG.ns]) __S[CFG.ns] = {
   pendT: null, lastSig: '',
   warn: ''               // предупреждение (не применился фильтр и т. п.)
 };
+if (!__S[CFG.ns]) __S[CFG.ns] = {};
+// Ключи, которых нет в состоянии прошлой версии скрипта (страницу не перезагружали), — по умолчанию.
+for (var k0 in STATE0) if (STATE0.hasOwnProperty(k0) && !__S[CFG.ns].hasOwnProperty(k0)) __S[CFG.ns][k0] = STATE0[k0];
 var state = __S[CFG.ns];
 
 function esc(s) {
@@ -297,7 +318,7 @@ function buildModel() {
   var M = { ok: false, missing: [], meta: null, cal: { m: [], w: [] }, L: -1, dataDt: '',
             units: {}, kids: {}, hrbps: [], base: null, scope: null, c: [], g: {}, x: {}, facets: {},
             tr: [], rules: [], role: 'none', scopeIds: [], roots: [], single: false,
-            sel: {}, axis: '', reqUnit: [], q: '', dictMode: 'full', zoneN: 0,
+            sel: {}, axis: '', reqUnit: [], q: '', dictMode: 'full', zoneN: 0, scopeFull: false,
             depth: '3', depthReq: '3', scopeN: 0, allMax: 0, hKids: {}, hTop: [], hBy: {} };
   if (!rawData.length) return M;
   var need = [F.role, F.id, F.pid, F.n, F.j];
@@ -353,6 +374,8 @@ function buildModel() {
   M.allMax = num(meta.all_max) || 0;
   M.q = meta.q || '';
   M.dictMode = meta.dict_mode || 'full';
+  // Выбранная область приехала в справочник целиком (не больше DICT_FULL_MAX юнитов).
+  M.scopeFull = num(meta.scope_full) === 1 || M.dictMode === 'full';
   M.zoneN = num(meta.zone_n) || 0;
   for (var cc = 0; cc < CFG.cuts.length; cc++) M.sel[CFG.cuts[cc].key] = (meta['f_' + CFG.cuts[cc].key] || []).slice();
   var cal = meta.cal || [];
@@ -622,24 +645,48 @@ function sigOf(o) {
 }
 // Строка фильтров копит выбор (юнит, HRBP, разрезы) и отправляет его одной кнопкой
 // «Применить»: staged() — применённое плюс набранное, stageDiff() — сколько фильтров изменено.
+// hz — HRBP, чья зона выбрана: в датасет не уходит (там только юниты), но сужает выбор
+// юнита до его зоны. Юнит и HRBP — один фильтр «чья зона и что в ней»: одно изменение.
 function staged() {
   var a = reqNow();
+  a.hz = hzNow();
   if (!state.stage) return a;
   a.unit = state.stage.unit.slice();
+  a.hz = state.stage.hz || '';
   for (var k in state.stage.cuts) if (state.stage.cuts.hasOwnProperty(k)) a.cuts[k] = state.stage.cuts[k].slice();
   return a;
 }
 function stageDiff() {
   if (!state.stage) return 0;
-  var a = reqNow(), b = staged(), n = sameSet(a.unit, b.unit) ? 0 : 1;
+  var a = reqNow(), b = staged(), n = sameSet(a.unit, b.unit) && hzNow() === b.hz ? 0 : 1;
   for (var i = 0; i < CFG.cuts.length; i++) if (!sameSet(a.cuts[CFG.cuts[i].key] || [], b.cuts[CFG.cuts[i].key] || [])) n++;
   return n;
 }
 function stageEdit(fn) {
-  if (!state.stage) { var a = reqNow(); state.stage = { unit: a.unit, cuts: a.cuts }; }
+  if (!state.stage) { var a = reqNow(); state.stage = { unit: a.unit, cuts: a.cuts, hz: hzNow() }; }
   fn(state.stage);
   if (!stageDiff()) state.stage = null;
 }
+// Применённый HRBP (логин): явный выбор, пока его зона содержит область отчёта; иначе —
+// HRBP, чьи корни ровно совпадают с областью (так выбор переживает перезагрузку страницы).
+function hzNow() {
+  var M = MODEL, h = state.hz ? M.hBy[state.hz] : null;
+  if (h && idsInside(M.scopeIds, h.roots)) return h.login;
+  if (defaultScope()) return '';
+  var z = zoneOwner(M.scopeIds);
+  return z ? z.login : '';
+}
+// Все юниты набора лежат внутри корней (на их путях есть один из корней).
+function idsInside(ids, roots) {
+  if (!ids.length) return false;
+  for (var i = 0; i < ids.length; i++) {
+    var p = pathTo(ids[i]), ok = false;
+    for (var j = 0; j < p.length && !ok; j++) if (roots.indexOf(p[j]) > -1) ok = true;
+    if (!ok) return false;
+  }
+  return true;
+}
+function stagedHz() { var z = staged().hz; return z && MODEL.hBy[z] ? MODEL.hBy[z] : null; }
 function maskOf(o) {
   var out = [];
   function add(col, vals) {
@@ -730,9 +777,11 @@ function tipHtml(o) {
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     if (!r) continue;
-    var mk = r.color ? '<i class="' + P + '-t-m' + (r.dash ? ' ' + P + '-dash' : '') + '" style="' + (r.dash ? 'border-top-color:' : 'background:') + r.color + '"></i>' : '';
+    // Маркер серии повторяет легенду: у линии — штрих (пунктир у базы и цели), у столбика — плашка.
+    var ln = r.dash || r.line;
+    var mk = r.color ? '<i class="' + P + '-t-m' + (ln ? ' ' + P + '-dash' + (r.line ? ' ' + P + '-solid' : '') : '') + '" style="' + (ln ? 'border-top-color:' : 'background:') + r.color + '"></i>' : '';
     s += '<span class="' + P + '-t-r' + (r.dim ? ' ' + P + '-dim' : '') + '">' + mk + '<span class="' + P + '-t-l">' + esc(r.label) + '</span>'
-      + (r.pill ? '<b class="' + P + '-cell ' + P + '-' + r.pill + ' ' + P + '-t-pill">' + esc(r.value) + '</b>' : '<b class="' + P + '-t-v">' + esc(r.value) + '</b>') + '</span>';
+      + (r.pill ? '<b class="' + P + '-pill ' + P + '-' + r.pill + ' ' + P + '-t-pill">' + esc(r.value) + '</b>' : '<b class="' + P + '-t-v">' + esc(r.value) + '</b>') + '</span>';
   }
   var notes = o.note ? (Object.prototype.toString.call(o.note) === '[object Array]' ? o.note : [o.note]) : [];
   for (var n = 0; n < notes.length; n++) if (notes[n]) s += '<span class="' + P + '-t-n">' + esc(notes[n]) + '</span>';
@@ -775,95 +824,178 @@ function lineScale(m, vals) {
 }
 function textW(s, px) { var w = 0; s = String(s); for (var i = 0; i < s.length; i++) { var c = s.charAt(i); w += (c === ',' || c === '.' || c === ' ' || c === THIN) ? 0.3 : (c === '%' ? 0.62 : 0.58); } return w * (px || 11); }
 
-// ---- SVG: линия «период к периоду» (год к году / 12 недель к предыдущим 12) ----
-// spec: {m, labels[12], cur[12], prev[12], ref[12], refKind 'kpi'|'bench'|'', boldIdx, nowIdx,
-//        heads[12] (заголовки подсказок), prevHeads[12], curName, prevName, refName}
-function svgLine(spec, W, H) {
-  var P = CFG.ns, C = CFG.colors, m = spec.m, n = spec.labels.length;
+// ---- SVG: линия «период к периоду» в стиле Proteus Adoption (ДС 6.2–6.5) ----
+// spec: {m, labels[12], cur[12], prev[12], ref[12]|null, refKind 'kpi'|'bench'|'', boldIdx,
+//        heads[12] (заголовки подсказок), prevHeads[12]|null, curName, prevName, refName, tips{cur,prev,ref}}
+// Текущий период — акцент с заливкой и подписью у каждой точки: подписи рисуются ПОСЛЕ всех
+// линий на белой подложке, поэтому чужая линия их не перечёркивает. Прошлый период — светлая
+// линия, ориентир — пунктир. Выключенная в легенде серия уходит из шкалы и из подсказки.
+// Наведение — одна хит-зона на весь график (data-hz): колонка по X курсора, перекрестие и
+// тултип со всеми сериями; соседние месяцы переключаются без мигания.
+function lineOn(k) { return !state.lineOff[k]; }
+function smoothPath(pts) {
+  // Сглаживание Adoption: касательная в каждой точке горизонтальна — кривая не выходит за значения.
+  var d = 'M' + pts[0][0].toFixed(1) + ' ' + pts[0][1].toFixed(1);
+  for (var i = 1; i < pts.length; i++) {
+    var dx = (pts[i][0] - pts[i - 1][0]) / 2;
+    d += 'C' + (pts[i - 1][0] + dx).toFixed(1) + ' ' + pts[i - 1][1].toFixed(1) + ' ' + (pts[i][0] - dx).toFixed(1) + ' ' + pts[i][1].toFixed(1)
+      + ' ' + pts[i][0].toFixed(1) + ' ' + pts[i][1].toFixed(1);
+  }
+  return d;
+}
+// Непрерывные куски ряда (пропуски рвут линию): [[[x, y, i], …], …]
+function runs(arr, X, Y) {
+  var out = [], cur = null;
+  for (var i = 0; i < arr.length; i++) {
+    if (arr[i] === null || arr[i] === undefined) { cur = null; continue; }
+    if (!cur) { cur = []; out.push(cur); }
+    cur.push([X(i), Y(arr[i]), i]);
+  }
+  return out;
+}
+function svgLine(spec, W, H, ctx) {
+  var P = CFG.ns, C = CFG.colors, G = CFG.chart, F = CFG.fonts, m = spec.m, n = spec.labels.length;
+  var anim = !!(ctx && ctx.anim);
+  var on = { cur: lineOn('cur'), prev: lineOn('prev'), ref: !!spec.ref && lineOn('ref') };
+  if (!on.cur && !on.prev && !on.ref) on.cur = true;
+  var refC = spec.refKind === 'kpi' ? C.kpi : C.bench;
   var all = [];
-  for (var i = 0; i < n; i++) { all.push(spec.cur[i]); all.push(spec.prev[i]); if (spec.ref) all.push(spec.ref[i]); }
+  for (var i = 0; i < n; i++) {
+    if (on.cur) all.push(spec.cur[i]);
+    if (on.prev) all.push(spec.prev[i]);
+    if (on.ref) all.push(spec.ref[i]);
+  }
   var sc = lineScale(m, all);
-  var kpiNow = null;
-  if (spec.refKind === 'kpi' && spec.ref) for (var k = n - 1; k >= 0; k--) if (spec.ref[k] !== null) { kpiNow = spec.ref[k]; break; }
-  var gl = Math.ceil(10 + Math.max(textW(axisFmt(m, sc.min)), textW(axisFmt(m, sc.max)), kpiNow !== null ? textW(axisFmt(m, kpiNow)) * 1.08 : 0) + 10);
-  var gr = 22, gt = 20, gb = 24;
+  var refNow = null;
+  if (on.ref) for (var k = n - 1; k >= 0; k--) if (spec.ref[k] !== null && spec.ref[k] !== undefined) { refNow = spec.ref[k]; break; }
+  var ticks = [sc.min, (sc.min + sc.max) / 2, sc.max], tw = 0;
+  for (var t0 = 0; t0 < ticks.length; t0++) tw = Math.max(tw, textW(axisFmt(m, ticks[t0]), F.axis));
+  if (refNow !== null) tw = Math.max(tw, textW(axisFmt(m, refNow), F.axis));
+  var gl = Math.ceil(tw + 14), gr = 16, gt = G.top, gb = G.axis;
   var pw = Math.max(40, W - gl - gr), ph = Math.max(40, H - gt - gb);
   function X(i) { return gl + (n <= 1 ? pw / 2 : pw * i / (n - 1)); }
   function Y(v) { return gt + ph - (v - sc.min) / (sc.max - sc.min) * ph; }
+  function dly(i) { return Math.round(150 + (G.drawMs - 160) * (n <= 1 ? 1 : i / (n - 1))); }
   var s = '<svg class="' + P + '-svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">';
-  // сетка: низ и верх коридора + подпись цели синим
-  var ticks = [sc.min, sc.max];
+  // сетка: три тонкие пунктирные линии с подписями слева; ориентир — подпись своим цветом
+  var refY = refNow !== null ? Y(refNow) : null;
   for (var t = 0; t < ticks.length; t++) {
     var y = Y(ticks[t]);
-    s += '<line x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="' + C.grid + '"/>';
-    s += '<text x="' + (gl - 10) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end" class="' + P + '-ax">' + esc(axisFmt(m, ticks[t])) + '</text>';
+    s += '<line x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="' + C.grid + '"' + (t ? ' stroke-dasharray="3 3"' : '') + '/>';
+    if (refY === null || Math.abs(refY - y) > 12) s += '<text x="' + (gl - 8) + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="end" class="' + P + '-ax">' + esc(axisFmt(m, ticks[t])) + '</text>';
   }
-  if (kpiNow !== null && kpiNow > sc.min && kpiNow < sc.max) {
-    s += '<text x="' + (gl - 10) + '" y="' + (Y(kpiNow) + 4).toFixed(1) + '" text-anchor="end" class="' + P + '-ax ' + P + '-axk">' + esc(axisFmt(m, kpiNow)) + '</text>';
+  if (refY !== null && refY >= gt - 2 && refY <= gt + ph + 2) {
+    s += '<text x="' + (gl - 8) + '" y="' + (refY + 3.5).toFixed(1) + '" text-anchor="end" class="' + P + '-ax ' + P + '-axk" style="fill:' + refC + '" data-s="ref">' + esc(axisFmt(m, refNow)) + '</text>';
   }
-  // ось X
-  s += '<line x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + (gt + ph) + '" y2="' + (gt + ph) + '" stroke="' + C.axisLine + '"/>';
+  // ось X: линия по ширине области, месяцы; текущий — 600
+  s += '<line x1="' + (gl - 4) + '" x2="' + (gl + pw + 4) + '" y1="' + (gt + ph + 0.5) + '" y2="' + (gt + ph + 0.5) + '" stroke="' + C.axisLine + '"/>';
   for (var xi = 0; xi < n; xi++) {
-    var x = X(xi);
-    s += '<line x1="' + x.toFixed(1) + '" x2="' + x.toFixed(1) + '" y1="' + (gt + ph) + '" y2="' + (gt + ph + 4) + '" stroke="' + C.axisLine + '"/>';
-    s += '<text x="' + x.toFixed(1) + '" y="' + (gt + ph + 16) + '" text-anchor="middle" class="' + P + '-ax' + (xi === spec.boldIdx ? ' ' + P + '-axb' : '') + '">' + esc(spec.labels[xi]) + '</text>';
+    s += '<text x="' + X(xi).toFixed(1) + '" y="' + (gt + ph + 15) + '" text-anchor="middle" class="' + P + '-ax' + (xi === spec.boldIdx ? ' ' + P + '-axb' : '') + '">' + esc(spec.labels[xi]) + '</text>';
   }
-  if (spec.nowIdx !== null && spec.nowIdx !== undefined && spec.nowIdx >= 0) {
-    s += '<line x1="' + X(spec.nowIdx).toFixed(1) + '" x2="' + X(spec.nowIdx).toFixed(1) + '" y1="' + gt + '" y2="' + (gt + ph) + '" stroke="' + C.now + '"/>';
-  }
-  function path(arr) {
-    var d = '', pen = false;
-    for (var i = 0; i < n; i++) {
-      if (arr[i] === null || arr[i] === undefined) { pen = false; continue; }
-      d += (pen ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(arr[i]).toFixed(1);
-      pen = true;
-    }
-    return d;
-  }
-  // прошлый период — бледная линия с точками
-  s += '<path d="' + path(spec.prev) + '" fill="none" stroke="' + C.prev + '" stroke-width="1.8" stroke-linejoin="round"/>';
-  for (var pi = 0; pi < n; pi++) if (spec.prev[pi] !== null) s += '<circle cx="' + X(pi).toFixed(1) + '" cy="' + Y(spec.prev[pi]).toFixed(1) + '" r="2" fill="' + C.prev + '"/>';
-  // текущий — тёмная линия с подписями
-  s += '<path d="' + path(spec.cur) + '" fill="none" stroke="' + C.cur + '" stroke-width="2.3" stroke-linejoin="round"/>';
-  var lastLbl = -100;
-  for (var ci = 0; ci < n; ci++) {
-    var v = spec.cur[ci];
-    if (v === null) continue;
-    var cx = X(ci), cy = Y(v);
-    s += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="2.6" fill="' + C.cur + '"/>';
-    var lbl = fmtVal(m, v);
-    var lw = textW(lbl, 10.5);
-    if (cx - lw / 2 > lastLbl + 2 || ci === spec.boldIdx) {
-      var tx = Math.min(Math.max(cx, gl + lw / 2), gl + pw - lw / 2 + 8);
-      s += '<text x="' + tx.toFixed(1) + '" y="' + (cy - 8).toFixed(1) + '" text-anchor="middle" class="' + P + '-vl">' + esc(lbl) + '</text>';
-      lastLbl = tx + lw / 2;
+  var rCur = on.cur ? runs(spec.cur, X, Y) : [], rPrev = on.prev ? runs(spec.prev, X, Y) : [], rRef = on.ref ? runs(spec.ref, X, Y) : [];
+  // заливка под текущим — открывается слева направо вместе с линией
+  if (rCur.length) {
+    var cid = P + '-clip' + (ctx ? ctx.ci : 0) + '-' + (++CLIP_N);
+    s += '<defs><clipPath id="' + cid + '"><rect x="0" y="0" height="' + H + '" width="' + (anim ? 0 : W) + '">'
+      + (anim ? '<animate attributeName="width" from="0" to="' + W + '" dur="' + (G.drawMs / 1000) + 's" fill="freeze" calcMode="spline" keyTimes="0;1" keySplines=".4 0 .2 1"/>' : '')
+      + '</rect></clipPath></defs>';
+    for (var ra = 0; ra < rCur.length; ra++) {
+      var pa = rCur[ra];
+      if (pa.length < 2) continue;
+      s += '<path d="' + smoothPath(pa) + 'L' + pa[pa.length - 1][0].toFixed(1) + ' ' + (gt + ph) + 'L' + pa[0][0].toFixed(1) + ' ' + (gt + ph) + 'Z" fill="' + C.curArea
+        + '" clip-path="url(#' + cid + ')" data-s="cur"/>';
     }
   }
-  // ориентир — поверх: пунктир не прячет линию под собой
-  if (spec.ref) {
-    s += '<path d="' + path(spec.ref) + '" fill="none" stroke="' + (spec.refKind === 'kpi' ? C.kpi : C.bench) + '" stroke-width="1.6" stroke-dasharray="5 4"/>';
+  // прошлый период — светлая линия с точками
+  for (var rp = 0; rp < rPrev.length; rp++) {
+    var pp = rPrev[rp];
+    if (pp.length > 1) s += '<path class="' + P + '-ln" pathLength="1" stroke-dasharray="1" d="' + smoothPath(pp) + '" fill="none" stroke="' + C.prev + '" stroke-width="1.8" stroke-linecap="round" data-s="prev"/>';
+    for (var q = 0; q < pp.length; q++) s += '<circle class="' + P + '-fd" data-d="' + dly(pp[q][2]) + '" cx="' + pp[q][0].toFixed(1) + '" cy="' + pp[q][1].toFixed(1) + '" r="2.4" fill="' + C.prev + '" stroke="#fff" stroke-width="1.2" data-s="prev"/>';
   }
-  // наведение: столбец на каждый слот
+  // ориентир — пунктир; не рисуется, а проявляется (ДС 6.5)
+  for (var rr = 0; rr < rRef.length; rr++) {
+    var pr = rRef[rr], dr = '';
+    for (var q2 = 0; q2 < pr.length; q2++) dr += (q2 ? 'L' : 'M') + pr[q2][0].toFixed(1) + ' ' + pr[q2][1].toFixed(1);
+    if (pr.length === 1) dr += 'l0.1 0';
+    s += '<path class="' + P + '-fd" data-d="120" d="' + dr + '" fill="none" stroke="' + refC + '" stroke-width="1.6" stroke-dasharray="' + (spec.refKind === 'kpi' ? '6 4' : '4 3') + '" data-s="ref"/>';
+  }
+  // текущий — акцентная линия с точками
+  for (var rc = 0; rc < rCur.length; rc++) {
+    var pc = rCur[rc];
+    if (pc.length > 1) s += '<path class="' + P + '-ln" pathLength="1" stroke-dasharray="1" d="' + smoothPath(pc) + '" fill="none" stroke="' + C.cur + '" stroke-width="2" stroke-linecap="round" data-s="cur"/>';
+    for (var q3 = 0; q3 < pc.length; q3++) s += '<circle class="' + P + '-fd" data-d="' + dly(pc[q3][2]) + '" cx="' + pc[q3][0].toFixed(1) + '" cy="' + pc[q3][1].toFixed(1) + '" r="3" fill="' + C.cur + '" stroke="#fff" stroke-width="1.6" data-s="cur"/>';
+  }
+  // подписи текущего — поверх всех линий, на белой подложке. Над точкой, если прошлый
+  // период ниже (или выключен), иначе под ней; наезжающую на соседку — на другую сторону.
+  var placed = [];
+  function hits(bx) {
+    for (var z = 0; z < placed.length; z++) {
+      var o = placed[z];
+      if (bx.x < o.x + o.w + 2 && o.x < bx.x + bx.w + 2 && bx.y < o.y + o.h && o.y < bx.y + bx.h) return true;
+    }
+    return false;
+  }
+  var lbl = '', order = [];
+  // Подпись текущего месяца ставится первой: соседние при столкновении уходят на другую
+  // сторону точки или пропускаются (их значения — в тултипе), а она не пропадает никогда.
+  if (spec.boldIdx >= 0 && spec.boldIdx < n) order.push(spec.boldIdx);
+  for (var oi = 0; oi < n; oi++) if (oi !== spec.boldIdx) order.push(oi);
+  if (on.cur) {
+    for (var oj = 0; oj < order.length; oj++) {
+      var ci = order[oj], v = spec.cur[ci];
+      if (v === null || v === undefined) continue;
+      var cx = X(ci), cy = Y(v), txt = fmtVal(m, v), lw = textW(txt, F.val) + 8;
+      var pv = on.prev ? spec.prev[ci] : null;
+      var up = pv === null || pv === undefined || v >= pv;
+      if (cy + 22 > gt + ph) up = true;
+      if (cy - 22 < 2) up = false;
+      var bx0 = Math.min(Math.max(cx - lw / 2, gl - 6), gl + pw + gr - lw - 1);
+      var tries = [up, !up], box = null;
+      for (var tr = 0; tr < 2 && !box; tr++) {
+        var yb = tries[tr] ? cy - 9 : cy + 17;
+        if (!tries[tr] && yb + 4 > gt + ph) continue;
+        var cand = { x: bx0, y: yb - 11, w: lw, h: 15 };
+        if (!hits(cand) || (ci === spec.boldIdx && tr === 1)) box = cand;
+      }
+      if (!box) continue;
+      placed.push(box);
+      lbl += '<g class="' + P + '-fd" data-d="' + dly(ci) + '" data-s="cur"><rect x="' + box.x.toFixed(1) + '" y="' + box.y.toFixed(1) + '" width="' + box.w.toFixed(1) + '" height="' + box.h + '" rx="4" class="' + P + '-vlb"/>'
+        + '<text x="' + (box.x + box.w / 2).toFixed(1) + '" y="' + (box.y + 11).toFixed(1) + '" text-anchor="middle" class="' + P + '-vl' + (ci === spec.boldIdx ? ' ' + P + '-vlc' : '') + '">' + esc(txt) + '</text></g>';
+    }
+  }
+  s += lbl;
+  // перекрестие: линия и маркеры серий на колонке под курсором (показывает БЛОК 6)
+  s += '<g class="' + P + '-xhg" data-xh="1" style="display:none"><line x1="0" x2="0" y1="' + gt + '" y2="' + (gt + ph) + '" stroke="' + C.xh + '" stroke-width="1"/>'
+    + (on.ref ? '<circle data-xs="ref" r="3.2" fill="#fff" stroke="' + refC + '" stroke-width="1.6"/>' : '')
+    + (on.prev ? '<circle data-xs="prev" r="3.6" fill="' + C.prev + '" stroke="#fff" stroke-width="1.6"/>' : '')
+    + (on.cur ? '<circle data-xs="cur" r="4.6" fill="' + C.cur + '" stroke="#fff" stroke-width="2"/>' : '') + '</g>';
+  // данные колонок для следящего тултипа
+  var xs = [], ys = { cur: [], prev: [], ref: [] }, tips = [];
   for (var hi = 0; hi < n; hi++) {
-    var rows = [];
-    var st = null;
-    if (spec.cur[hi] !== null && spec.ref && spec.ref[hi] !== null) {
+    xs.push(X(hi));
+    ys.cur.push(on.cur && spec.cur[hi] !== null ? Y(spec.cur[hi]) : null);
+    ys.prev.push(on.prev && spec.prev[hi] !== null ? Y(spec.prev[hi]) : null);
+    ys.ref.push(on.ref && spec.ref[hi] !== null && spec.ref[hi] !== undefined ? Y(spec.ref[hi]) : null);
+    var rows = [], st = null;
+    if (spec.cur[hi] !== null && spec.ref && spec.ref[hi] !== null && spec.ref[hi] !== undefined) {
       st = spec.refKind === 'kpi' ? stateForKpi(m, spec.cur[hi], spec.ref[hi]) : compareState(m, spec.cur[hi], spec.ref[hi]);
     }
-    if (spec.cur[hi] !== null) rows.push({ label: spec.curName, value: fmtVal(m, spec.cur[hi]), color: C.cur, pill: st && st !== 'neutral' && st !== 'warn' ? st : null });
-    if (spec.prev[hi] !== null) rows.push({ label: spec.prevName + (spec.prevHeads ? ' · ' + spec.prevHeads[hi] : ''), value: fmtVal(m, spec.prev[hi]), color: C.prev, dim: true });
-    if (spec.ref && spec.ref[hi] !== null) rows.push({ label: spec.refName, value: fmtVal(m, spec.ref[hi]), color: spec.refKind === 'kpi' ? C.kpi : C.bench, dash: true, dim: true });
+    if (on.cur && spec.cur[hi] !== null) rows.push({ label: spec.curName, value: fmtVal(m, spec.cur[hi]), color: C.cur, line: true, pill: st && st !== 'neutral' && st !== 'warn' ? st : null });
+    if (on.prev && spec.prev[hi] !== null) rows.push({ label: spec.prevName + (spec.prevHeads ? ' · ' + spec.prevHeads[hi] : ''), value: fmtVal(m, spec.prev[hi]), color: C.prev, line: true, dim: true });
+    if (on.ref && spec.ref[hi] !== null && spec.ref[hi] !== undefined) rows.push({ label: spec.refName, value: fmtVal(m, spec.ref[hi]), color: refC, dash: true, dim: true });
     if (!rows.length) rows.push({ label: 'нет данных', value: '—' });
-    var x0 = hi === 0 ? gl - 6 : (X(hi - 1) + X(hi)) / 2, x1 = hi === n - 1 ? gl + pw + 6 : (X(hi) + X(hi + 1)) / 2;
-    s += '<rect x="' + x0.toFixed(1) + '" y="' + gt + '" width="' + Math.max(1, x1 - x0).toFixed(1) + '" height="' + ph + '" fill="transparent" data-kind="pt"'
-      + tip({ title: spec.heads[hi], rows: rows, note: st ? STATE_TXT[st] : null }) + '/>';
+    tips.push(tipHtml({ title: spec.heads[hi], rows: rows, note: st && on.cur && on.ref ? STATE_TXT[st] : null }));
   }
+  if (ctx && CHARTS[ctx.ci]) CHARTS[ctx.ci].hz = { xs: xs, ys: ys, tips: tips };
+  s += '<rect class="' + P + '-hz" x="' + (gl - 8) + '" y="' + (gt - 6) + '" width="' + (pw + 16) + '" height="' + (ph + 6) + '" fill="transparent" data-hz="line" data-kind="pt" data-hc="' + (ctx ? ctx.ci : 0) + '"/>';
   return s + '</svg>';
 }
 
 // ---- SVG: группы столбиков по месяцам (трансформеры). Шкала от нуля всегда. ----
-// spec: {m, labels[12], series:[{name, color, data[12]}], boldIdx}
-function svgBars(spec, W, H) {
+// spec: {m, labels[12], series:[{name, color, data[12]}], boldIdx, heads[12]}
+// Месяц — одна группа с прозрачной полосой на всю высоту (data-tip на группе): между
+// столбиками нет щелей, тултип переходит от месяца к месяцу без мигания.
+function svgBars(spec, W, H, ctx) {
   var P = CFG.ns, C = CFG.colors, m = spec.m, n = spec.labels.length, k = spec.series.length;
   var mx = 0;
   for (var s0 = 0; s0 < k; s0++) for (var i0 = 0; i0 < n; i0++) { var v0 = spec.series[s0].data[i0]; if (v0 !== null && v0 > mx) mx = v0; }
@@ -877,27 +1009,29 @@ function svgBars(spec, W, H) {
     var tv = step * t;
     if (tv > max + 1e-9) break;
     var y = Y(tv);
-    s += '<line x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="' + C.grid + '"/>';
+    s += '<line x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="' + C.grid + '"' + (t ? ' stroke-dasharray="3 3"' : '') + '/>';
     s += '<text x="' + (gl - 10) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end" class="' + P + '-ax">' + esc(axisFmt(m, tv)) + '</text>';
   }
   for (var i = 0; i < n; i++) {
     var gx = gl + gw * i, x0 = gx + (gw - bw * k) / 2;
-    var rows = [];
+    var rows = [], bars = '';
     for (var j = 0; j < k; j++) {
       var v = spec.series[j].data[i];
       if (v === null) continue;
       var y1 = Y(v);
-      s += '<rect x="' + (x0 + j * bw).toFixed(1) + '" y="' + y1.toFixed(1) + '" width="' + Math.max(1, bw - 1).toFixed(1) + '" height="' + Math.max(0, gt + ph - y1).toFixed(1) + '" rx="2" fill="' + spec.series[j].color + '"/>';
+      bars += '<rect class="' + P + '-bar" data-d="' + (i * 12) + '" x="' + (x0 + j * bw).toFixed(1) + '" y="' + y1.toFixed(1) + '" width="' + Math.max(1, bw - 1).toFixed(1) + '" height="' + Math.max(0, gt + ph - y1).toFixed(1) + '" rx="2" fill="' + spec.series[j].color + '"/>';
       rows.push({ label: spec.series[j].name, value: fmtVal(m, v), color: spec.series[j].color });
     }
+    s += '<g class="' + P + '-bg"' + tip({ title: spec.heads[i], rows: rows.length ? rows : [{ label: 'нет данных', value: '—' }] }) + '>'
+      + '<rect class="' + P + '-hit" x="' + gx.toFixed(1) + '" y="' + gt + '" width="' + gw.toFixed(1) + '" height="' + ph + '"/>' + bars + '</g>';
     s += '<text x="' + (gx + gw / 2).toFixed(1) + '" y="' + (gt + ph + 16) + '" text-anchor="middle" class="' + P + '-ax' + (i === spec.boldIdx ? ' ' + P + '-axb' : '') + '">' + esc(spec.labels[i]) + '</text>';
-    s += '<rect x="' + gx.toFixed(1) + '" y="' + gt + '" width="' + gw.toFixed(1) + '" height="' + ph + '" fill="transparent" data-kind="bar"' + tip({ title: spec.heads[i], rows: rows.length ? rows : [{ label: 'нет данных', value: '—' }] }) + '/>';
   }
-  s += '<line x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + (gt + ph) + '" y2="' + (gt + ph) + '" stroke="' + C.axisLine + '"/>';
+  s += '<line x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + (gt + ph + 0.5) + '" y2="' + (gt + ph + 0.5) + '" stroke="' + C.axisLine + '"/>';
   return s + '</svg>';
 }
 
 // ---- спарклайн: столбики за 12 месяцев, цвет — оценка КАЖДОГО месяца ----
+// Колонка месяца — группа с полосой на всю высоту (без щелей): тултип едет по месяцам не мигая.
 function svgSpark(vals, states, tips) {
   var P = CFG.ns, w = 200, h = 40, n = vals.length, pad = 2, mx = 0;
   for (var i = 0; i < n; i++) if (vals[i] !== null && vals[i] > mx) mx = vals[i];
@@ -906,8 +1040,10 @@ function svgSpark(vals, states, tips) {
   for (var j = 0; j < n; j++) {
     var v = vals[j];
     var bh = v === null ? 0 : Math.max(2, v / mx * (h - 4));
-    s += '<rect x="' + (pad + j * bw).toFixed(1) + '" y="' + (h - bh).toFixed(1) + '" width="' + Math.max(1, bw - 2).toFixed(1) + '" height="' + bh.toFixed(1)
-      + '" rx="1.5" class="' + P + '-sb ' + P + '-' + (states[j] || 'neutral') + '"' + (tips && tips[j] ? tip(tips[j]) : '') + '/>';
+    s += '<g class="' + P + '-sbg"' + (tips && tips[j] ? tip(tips[j]) : '') + '>'
+      + '<rect class="' + P + '-hit" x="' + (pad + j * bw).toFixed(1) + '" y="0" width="' + bw.toFixed(1) + '" height="' + h + '"/>'
+      + '<rect x="' + (pad + j * bw + 1).toFixed(1) + '" y="' + (h - bh).toFixed(1) + '" width="' + Math.max(1, bw - 2).toFixed(1) + '" height="' + bh.toFixed(1)
+      + '" rx="1.5" class="' + P + '-sb ' + P + '-bar ' + P + '-' + (states[j] || 'neutral') + '" data-d="' + (j * 12) + '"/></g>';
   }
   s += '<rect x="0" y="' + (h - 1) + '" width="' + w + '" height="1" class="' + P + '-sbase"/>';
   return '<svg class="' + P + '-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' + s + '</svg>';
@@ -957,10 +1093,11 @@ function buildCSS() {
     P + '-tip ' + P + '-t-r:first-child{margin-top:0;}',
     P + '-tip ' + P + '-t-m{display:inline-block;flex:0 0 auto;width:10px;height:9px;border-radius:3px;}',
     P + '-tip ' + P + '-t-m' + P + '-dash{height:0;width:14px;border-radius:0;border-top:2px dashed;background:none;}',
+    P + '-tip ' + P + '-t-m' + P + '-solid{border-top-style:solid;}',
     P + '-tip ' + P + '-t-l{font-size:11px;font-weight:500;color:' + C.muted + ';min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
     P + '-tip ' + P + '-t-v{display:inline;margin:0 0 0 auto;font-size:' + F.body + 'px;font-weight:500;color:' + C.ink + ';white-space:nowrap;font-variant-numeric:tabular-nums;}',
     P + '-tip ' + P + '-t-r' + P + '-dim ' + P + '-t-v{color:' + C.muted + ';}',
-    P + '-tip ' + P + '-t-pill{margin:0 0 0 auto;padding:2px 8px;font-size:' + F.note + 'px;}',
+    P + '-tip ' + P + '-t-pill{margin:0 0 0 auto;}',
     P + '-tip ' + P + '-t-n{display:block;font-size:' + F.cap + 'px;line-height:1.35;font-weight:400;color:' + C.muted + ';margin-top:4px;}',
     P + '-tip ' + P + '-t-r+' + P + '-t-n{margin-top:6px;padding-top:5px;border-top:1px solid ' + C.line2 + ';}',
 
@@ -1042,6 +1179,8 @@ function buildCSS() {
     P + '-tl{color:' + C.muted2 + ';font-size:' + F.cap + 'px;font-weight:400;white-space:nowrap;}',
     P + '-th{color:' + C.muted + ';font-size:' + F.note + 'px;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:44px;text-align:right;}',
     P + '-thint ' + P + '-tn{color:' + C.act + ';font-weight:400;font-size:' + F.note + 'px;white-space:normal;}',
+    P + '-hzc{flex:0 1 auto !important;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;letter-spacing:0;font-size:' + F.note + 'px;font-weight:500;color:#2b5fd0;background:' + C.blueBg + ';border-radius:999px;padding:2px 8px;}',
+    P + '-hzt{display:inline-block;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.blueBg + ';color:#2b5fd0;margin-left:6px;vertical-align:1px;white-space:nowrap;}',
     P + '-tpath{display:block;color:' + C.muted + ';font-size:' + F.cap + 'px;font-weight:400;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
     P + '-gone{display:inline-block;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.surface2 + ';color:' + C.muted + ';margin-left:5px;vertical-align:1px;white-space:nowrap;}',
     // мини-вкладки внутри поповера (tiny: 22 в подложке 26)
@@ -1164,28 +1303,24 @@ function buildCSS() {
     P + '-go:hover,' + P + '-go:focus-visible{opacity:1;background:#e9eef4;color:' + C.act + ';outline:none;}',
     P + '-nw{white-space:nowrap;}',
 
-    // ---- ячейки сравнения, пилюли, метки ----
-    P + '-cell{display:inline-block;border-radius:7px;padding:5px 8px;font-weight:500;font-size:' + F.body + 'px;line-height:1.15;font-variant-numeric:tabular-nums;}',
-    P + '-cell' + P + '-good{background:' + C.greenBg + ';color:' + C.greenTx + ';}',
-    P + '-cell' + P + '-bad{background:' + C.redBg + ';color:' + C.redTx + ';}',
-    P + '-cell' + P + '-warn,' + P + '-cell' + P + '-neutral{background:' + C.surface2 + ';color:' + C.ink2 + ';}',
-    P + '-cref{display:block;font-size:' + F.cap + 'px;color:' + C.muted + ';font-weight:400;margin-top:2px;font-variant-numeric:tabular-nums;}',
-    P + '-tgt{font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;line-height:1.35;white-space:nowrap;text-align:right;margin-bottom:2px;}',
-    P + '-tgt b{color:' + C.ink2 + ';font-weight:500;display:block;font-size:' + F.body + 'px;}',
-    P + '-dm{display:inline-block;width:12px;border-top:2px dashed ' + C.bench + ';vertical-align:middle;margin-right:5px;}',
-    P + '-dm' + P + '-k{border-top-color:' + C.kpi + ';}',
-    // Пилюля изменения: 11,5 / 500, радиус 999, поля 2/8
-    P + '-delta{display:inline-flex;align-items:center;gap:4px;font-size:' + F.note + 'px;font-weight:500;padding:2px 8px;border-radius:999px;white-space:nowrap;cursor:help;font-variant-numeric:tabular-nums;}',
-    P + '-delta' + P + '-up{background:' + C.greenBg + ';color:' + C.greenTx + ';}',
-    P + '-delta' + P + '-down{background:' + C.redBg + ';color:' + C.redTx + ';}',
-    P + '-delta' + P + '-flat,' + P + '-delta' + P + '-neu{background:#f0f1f3;}',
-    P + '-delta' + P + '-flat{color:' + C.muted + ';}',
-    P + '-delta' + P + '-neu{color:' + C.ink2 + ';}',
+    // ---- пилюля — одна на отчёт: 11,5 / 500, высота 22, поля 0 8, радиус 999 ----
+    // Изменение, отклонение от ориентира, значение юнита в «Командах», пилюля в подсказке.
+    P + '-pill{display:inline-flex;align-items:center;justify-content:center;height:22px;padding:0 8px;border-radius:999px;font-size:' + F.note + 'px;font-weight:500;line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums;vertical-align:middle;}',
+    P + '-pill' + P + '-good{background:' + C.greenBg + ';color:' + C.greenTx + ';}',
+    P + '-pill' + P + '-bad{background:' + C.redBg + ';color:' + C.redTx + ';}',
+    P + '-pill' + P + '-warn,' + P + '-pill' + P + '-neutral,' + P + '-pill' + P + '-neu{background:' + C.neutralBg + ';color:' + C.neutralTx + ';}',
+    P + '-pill' + P + '-flat{background:' + C.neutralBg + ';color:' + C.muted + ';}',
+    P + '-cref{display:block;font-size:' + F.cap + 'px;color:' + C.muted + ';font-weight:400;margin-top:3px;font-variant-numeric:tabular-nums;}',
+    // Ориентир: «Цель ≤ 2,0%» / «База 92,0%» одной строкой, под ней пилюля отклонения.
+    P + '-tgt{font-size:' + F.body + 'px;color:' + C.ink2 + ';font-weight:500;line-height:1.3;white-space:nowrap;text-align:right;margin-bottom:4px;font-variant-numeric:tabular-nums;}',
+    P + '-tgl{color:' + C.muted + ';font-weight:400;font-size:' + F.note + 'px;margin-right:5px;}',
+    P + '-same{font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;white-space:nowrap;}',
     // Метка строки (флаг): 9 / 500, радиус 4, поля 1/5
     P + '-tag{display:inline-block;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.surface2 + ';color:' + C.ink2 + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
     P + '-tag' + P + '-own{background:' + C.warnBg + ';color:' + C.warnTx + ';}',
     P + '-more{display:inline-block;font-size:9px;font-weight:500;letter-spacing:.3px;padding:0 5px;border-radius:4px;border:1px dashed ' + C.line + ';color:' + C.muted + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
-    P + '-nocmp{font-size:11px;font-weight:400;color:' + C.muted + ';border-bottom:1px dotted ' + C.muted2 + ';white-space:nowrap;cursor:help;}',
+    // Без ориентира — словами в пунктирной рамке, а не прочерком (ДС 4.8).
+    P + '-nocmp{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px dashed ' + C.line + ';border-radius:999px;font-size:' + F.note + 'px;font-weight:400;color:' + C.muted + ';white-space:nowrap;}',
     // Значок справки ⓘ: 14 px, глиф 9 / 600, рамка muted2
     P + '-info{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid ' + C.muted2 + ';color:' + C.muted + ';font-size:9px;font-weight:600;font-style:normal;line-height:1;cursor:help;flex:0 0 auto;margin-left:6px;vertical-align:-2px;user-select:none;}',
     P + '-info:hover{border-color:' + C.act + ';color:' + C.act + ';}',
@@ -1207,35 +1342,89 @@ function buildCSS() {
     P + '-empty b{display:block;color:' + C.ink + ';font-size:15px;font-weight:600;margin-bottom:8px;}',
     P + '-tnote{margin-top:8px;font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;line-height:1.5;}',
 
-    // ---- графики: ось 10,5 / 400 (метка «сейчас» — 600), подписи значений 11 с белой обводкой 3 px ----
+    // ---- графики (Proteus Adoption, ДС 6): ось 10,5, подписи 11 на белой подложке ----
     P + '-spark{display:block;width:100%;height:40px;}',
     P + '-sbase{fill:' + C.line + ';}',
-    P + '-sb' + P + '-good{fill:#80cf9a;}',
-    P + '-sb' + P + '-bad{fill:#ef8c8c;}',
-    P + '-sb' + P + '-warn,' + P + '-sb' + P + '-neutral{fill:#c7c8cc;}',
+    // Столбики светофора — тон пилюли того же сигнала (фон пилюли светлее, текст — темнее).
+    P + '-sb' + P + '-good{fill:' + C.green + ';}',
+    P + '-sb' + P + '-bad{fill:' + C.red + ';}',
+    P + '-sb' + P + '-warn,' + P + '-sb' + P + '-neutral{fill:' + C.neutral + ';}',
+    // Прозрачная полоса колонки: попасть в неё легко, между колонками нет щелей (ДС 6.4).
+    P + '-hit{fill:' + C.act + ';fill-opacity:0;transition:fill-opacity .12s;}',
+    P + '-sbg:hover ' + P + '-hit,' + P + '-bg:hover ' + P + '-hit{fill-opacity:.06;}',
+    P + '-sbg:hover ' + P + '-sb,' + P + '-bg:hover ' + P + '-bar{filter:brightness(1.05) saturate(1.15);}',
+    P + '-bar{transform-box:fill-box;transform-origin:50% 100%;}',
     P + '-chart{width:100%;overflow:hidden;}',
     P + '-svg{display:block;overflow:visible;}',
     P + '-ax{font-size:' + F.axis + 'px;fill:' + C.axis + ';font-weight:400;}',
     P + '-axb{fill:' + C.axisStrong + ';font-weight:600;}',
-    P + '-axk{fill:' + C.kpi + ';font-weight:600;}',
-    P + '-vl{font-size:' + F.val + 'px;fill:' + C.label + ';font-weight:400;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round;}',
-    P + '-chh{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:12px 0 2px;flex-wrap:wrap;}',
-    P + '-cht{font-size:' + F.chart + 'px;font-weight:600;color:' + C.ink + ';}',
-    P + '-chl{display:flex;gap:12px;flex-wrap:wrap;font-size:' + F.legend + 'px;color:' + C.muted + ';font-weight:400;}',
+    P + '-axk{font-weight:500;}',
+    P + '-vlb{fill:#fff;fill-opacity:.94;}',
+    P + '-vl{font-size:' + F.val + 'px;fill:' + C.label + ';font-weight:400;font-variant-numeric:tabular-nums;}',
+    P + '-vlc{font-weight:600;fill:' + C.ink + ';}',
+    P + '-hz{cursor:crosshair;}',
+    // Заголовок графика — капитель серым (ПОЛЬЗОВАТЕЛИ ПО ПЕРИОДАМ в Adoption), легенда справа кнопками.
+    P + '-chb{min-width:0;}',
+    P + '-chh{display:flex;align-items:center;gap:12px;min-height:24px;margin:0 0 4px;flex-wrap:wrap;row-gap:4px;}',
+    P + '-cap{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.5px;color:' + C.muted + ';font-weight:500;}',
+    P + '-cht{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.5px;color:' + C.muted + ';font-weight:500;}',
+    P + '-chl{display:flex;gap:12px;flex-wrap:wrap;font-size:' + F.note + 'px;color:' + C.ink2 + ';font-weight:400;margin-left:auto;}',
+    P + '-lgd{display:inline-flex;gap:4px;margin-left:auto;flex-wrap:wrap;}',
+    P + '-lg{display:inline-flex;align-items:center;gap:6px;height:22px;border:1px solid ' + C.line2 + ';background:' + C.card + ';border-radius:999px;padding:0 10px 0 8px;font-size:' + F.note + 'px;color:' + C.ink2 + ';cursor:pointer;font-weight:500;white-space:nowrap;}',
+    P + '-lg:hover{border-color:#d8dce4;background:#fafbfc;}',
+    P + '-lg:focus{outline:none;}',
+    P + '-lg:focus-visible{border-color:' + C.act + ';}',
+    P + '-lg' + P + '-off{opacity:.45;}',
+    P + '-lg' + P + '-off ' + P + '-lgk{border-top-color:#c7c8cc !important;}',
+    P + '-lgk{display:inline-block;width:14px;height:0;border-top:2px solid;vertical-align:middle;}',
+    P + '-lgk' + P + '-dash{border-top-style:dashed;}',
     P + '-lgm{display:inline-block;width:14px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px;}',
     P + '-lgm' + P + '-dash{border-top-style:dashed;}',
     P + '-lgb{display:inline-block;width:10px;height:9px;border-radius:3px;vertical-align:middle;margin-right:5px;}',
-    P + '-dsplit{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding:10px 0 0;}',
-    P + '-dsplit::before{content:"";position:absolute;left:50%;top:10px;bottom:0;width:1px;background:' + C.line + ';}',
-    P + '-dsplit ' + P + '-dcol:first-child{padding:0 16px 0 12px;}',
-    P + '-dsplit ' + P + '-dcol+' + P + '-dcol{padding:0 12px 0 16px;}',
-    P + '-narrow ' + P + '-dsplit{grid-template-columns:minmax(0,1fr);padding:10px 12px 0;}',
+    // Наведение на пункт легенды гасит чужие серии (ДС 6.4).
+    P + '-chb [data-s]{transition:opacity .14s ease-out;}',
+    P + '-chb[data-hi] [data-s]{opacity:.16;}',
+    P + '-chb[data-hi="cur"] [data-s="cur"],' + P + '-chb[data-hi="prev"] [data-s="prev"],' + P + '-chb[data-hi="ref"] [data-s="ref"]{opacity:1;}',
+    // Раскрытая строка «Сводки»: два графика рядом, воздух 16 со всех сторон.
+    P + '-t tr' + P + '-opn td{background:#f7f9fd;}',
+    P + '-dsplit{position:relative;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding:14px 0 2px;}',
+    P + '-dsplit::before{content:"";position:absolute;left:50%;top:14px;bottom:0;width:1px;background:' + C.line + ';}',
+    P + '-dsplit ' + P + '-dcol:first-child{padding:0 20px 0 16px;}',
+    P + '-dsplit ' + P + '-dcol+' + P + '-dcol{padding:0 16px 0 20px;}',
+    P + '-narrow ' + P + '-dsplit{grid-template-columns:minmax(0,1fr);padding:12px 12px 0;}',
     P + '-narrow ' + P + '-dsplit::before{display:none;}',
     P + '-narrow ' + P + '-dsplit ' + P + '-dcol:first-child{padding:0 0 14px;}',
-    P + '-narrow ' + P + '-dsplit ' + P + '-dcol+' + P + '-dcol{padding:0;border-top:1px solid ' + C.line + ';}',
-    P + '-split{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,.8fr);gap:12px;align-items:start;}',
-    P + '-narrow ' + P + '-split{grid-template-columns:minmax(0,1fr);}',
+    P + '-narrow ' + P + '-dsplit ' + P + '-dcol+' + P + '-dcol{padding:14px 0 0;border-top:1px solid ' + C.line + ';}',
+    // «Команды»: таблица | разделитель 12 | динамика. Доля — стилем сетки (тянется мышью).
+    P + '-split{display:grid;gap:0;align-items:start;}',
+    P + '-split' + P + '-sp1{grid-template-columns:minmax(0,1fr) 40px;column-gap:12px;}',
+    P + '-split' + P + '-sp2c{grid-template-columns:40px minmax(0,1fr);column-gap:12px;}',
+    P + '-narrow ' + P + '-split{grid-template-columns:minmax(0,1fr) !important;row-gap:12px;}',
     P + '-split ' + P + '-pb' + P + '-tbl{max-height:680px;}',
+    // Таблица едет рядом с графиками при прокрутке — выбранная строка остаётся перед глазами.
+    P + '-split>' + P + '-tpan{position:sticky;top:8px;}',
+    P + '-narrow ' + P + '-split>' + P + '-tpan{position:static;}',
+    P + '-gut{position:relative;align-self:stretch;cursor:col-resize;display:flex;justify-content:center;outline:none;}',
+    P + '-gut i{position:sticky;top:40%;display:block;width:4px;height:44px;margin-top:120px;border-radius:999px;background:' + C.line + ';transition:background .12s,height .12s;}',
+    P + '-gut:hover i,' + P + '-gut:focus-visible i,' + P + '-drag ' + P + '-gut i{background:' + C.act + ';height:64px;}',
+    P + '-narrow ' + P + '-gut{display:none;}',
+    P + '-drag,' + P + '-drag *{cursor:col-resize !important;user-select:none !important;}',
+    P + '-rail{display:flex;flex-direction:column;align-items:center;gap:8px;width:40px;min-height:220px;padding:12px 0;border:1px solid ' + C.line + ';border-radius:12px;background:' + C.card + ';color:' + C.muted + ';cursor:pointer;font-size:' + F.note + 'px;font-weight:500;}',
+    P + '-rail:hover{color:' + C.act + ';border-color:#cfdcfb;background:' + C.blueBg + ';}',
+    P + '-rail span{writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:.3px;}',
+    P + '-rail i{font-style:normal;font-size:11px;}',
+    P + '-ib{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;background:transparent;border-radius:7px;color:' + C.muted + ';cursor:pointer;padding:0;flex:0 0 auto;}',
+    P + '-ib:hover{background:#eef1f5;color:' + C.ink + ';}',
+    P + '-ib' + P + '-on{color:' + C.act + ';}',
+    P + '-pbtn{display:inline-flex;align-items:center;gap:6px;}',
+    // Группы метрик над колонками («Все метрики»): строка 22 над шапкой, линия между группами.
+    P + '-t tr' + P + '-thg th{height:' + CFG.spacing.thG + 'px;padding:6px 8px 0;border-bottom:0;text-align:center;color:' + C.muted2 + ';letter-spacing:.5px;}',
+    P + '-t tr' + P + '-thg th' + P + '-l{vertical-align:bottom;text-align:left;padding:0 8px 9px 12px;color:' + C.muted + ';letter-spacing:.3px;border-bottom:1px solid ' + C.line + ';}',
+    // Узкая таблица не сжимает имена в столбик — прокручивается внутри панели.
+    P + '-tpan ' + P + '-t td' + P + '-l:first-child,' + P + '-tpan ' + P + '-t th' + P + '-l{min-width:210px;}',
+    P + '-t' + P + '-g2 thead tr+tr th{top:' + CFG.spacing.thG + 'px;}',
+    P + '-t' + P + '-g2 tr' + P + '-tot td{top:' + (CFG.spacing.thG + CFG.spacing.thH) + 'px;}',
+    P + '-t th' + P + '-gs,' + P + '-t td' + P + '-gs{border-left:1px solid ' + C.line2 + ';}',
     // стопка графиков: зазор 26 (chart-gap профиля)
     P + '-dyn{display:flex;flex-direction:column;gap:26px;}',
 
@@ -1264,7 +1453,7 @@ function hEmpty(title, text) {
 function hPanel(o) {
   var P = CFG.ns;
   return '<div class="' + P + '-panel' + (o.cls ? ' ' + o.cls : '') + '">'
-    + '<div class="' + P + '-ph"><div class="' + P + '-pht"><span>' + esc(o.title) + '</span>'
+    + '<div class="' + P + '-ph"><div class="' + P + '-pht"><span>' + esc(o.title) + (o.info || '') + '</span>'
     + (o.sub ? '<span class="' + P + '-phs">' + esc(o.sub) + '</span>' : '') + '</div>' + (o.tabs || '') + '</div>'
     + '<div class="' + P + '-pb' + (o.tbl ? ' ' + P + '-tbl' : '') + '">' + o.body + '</div></div>';
 }
@@ -1309,13 +1498,16 @@ function hSel(name, options, value, cls) {
   }
   return s + '</select><i class="' + P + '-selc">▾</i></span>';
 }
-function hDelta(m, d, text) {
-  var P = CFG.ns;
-  if (d === null || d === undefined) return '<span class="' + P + '-delta ' + P + '-flat"' + tip({ title: 'Изменение', text: 'Нет значения за один из периодов.' }) + '>—</span>';
-  return '<span class="' + P + '-delta ' + P + '-' + deltaClass(m, d) + '"'
-    + tip({ title: 'Изменение', text: text, rows: [{ label: 'значение', value: fmtDelta(m, d) }],
-            note: m.better === 'flat' ? 'Нейтральная метрика: цвет не ставится.' : null })
-    + '>' + esc(fmtDelta(m, d)) + '</span>';
+// Пилюля — ОДНА на отчёт: изменение, отклонение от ориентира, значение в «Командах», пилюля
+// в подсказке. Размер у всех один (11,5 / 500, высота 22), различается только цвет.
+var PILL_OF = { up: 'good', down: 'bad', flat: 'flat', neu: 'neu' };
+function hPill(st, text) { return '<span class="' + CFG.ns + '-pill ' + CFG.ns + '-' + st + '">' + esc(text) + '</span>'; }
+// Ячейка изменения: подсказка на всей ячейке — между соседними ячейками тултип не мигает.
+function deltaTd(m, d, text) {
+  if (d === null || d === undefined) return '<td' + tip({ title: 'Изменение', text: 'Нет значения за один из периодов.' }) + '>' + hPill('flat', '—') + '</td>';
+  return '<td' + tip({ title: 'Изменение', text: text, rows: [{ label: 'значение', value: fmtDelta(m, d) }],
+                       note: m.better === 'flat' ? 'Нейтральная метрика: цвет не ставится.' : null }) + '>'
+    + hPill(PILL_OF[deltaClass(m, d)] || 'flat', fmtDelta(m, d)) + '</td>';
 }
 function dirText(m) { return m.better === 'flat' ? 'больше не значит лучше' : (m.better === 'higher' ? 'выше — лучше' : 'ниже — лучше'); }
 function pageHead(title, ledeHtml) {
@@ -1373,41 +1565,44 @@ function legendHTML(right) {
   var dz = 'Отклонение до 5% от ориентира не считается значимым — ни в плюс, ни в минус. Для цели 4,0% это коридор 3,8–4,2%, для 80% — 76–84%.';
   return '<div class="' + P + '-legend' + (right ? ' ' + P + '-r' : '') + '"><span class="' + P + '-lh">Цвет значения</span>'
     + '<span class="' + P + '-sw"' + tip({ title: 'Зелёный', text: 'Метрика лучше ориентира больше чем на 5%.', note: 'Ориентир — цель, если она есть, иначе база сравнения.' })
-    + '><span class="' + P + '-dot" style="background:' + C.greenBg + '"></span> лучше ориентира</span>'
+    + '><span class="' + P + '-dot" style="background:' + C.green + '"></span> лучше ориентира</span>'
     + '<span class="' + P + '-sw"' + tip({ title: 'Красный', text: 'Метрика хуже ориентира больше чем на 5%.', note: '«Лучше» у каждой метрики своё: у текучести — меньше, у закрепляемости — больше.' })
-    + '><span class="' + P + '-dot" style="background:' + C.redBg + '"></span> хуже ориентира</span>'
+    + '><span class="' + P + '-dot" style="background:' + C.red + '"></span> хуже ориентира</span>'
     + '<span class="' + P + '-sw"' + tip({ title: 'Серый — мёртвая зона ±5%', text: dz, note: 'Серым красится и метрика без ориентира: у «больше не значит лучше» цвета быть не может.' })
-    + '><span class="' + P + '-dot" style="background:' + C.surface2 + '"></span> в пределах ±5% или без ориентира</span></div>';
+    + '><span class="' + P + '-dot" style="background:' + C.neutral + '"></span> в пределах ±5% или без ориентира</span></div>';
 }
-// Ячейка ориентира: всегда строка ориентира + пилюля, чтобы строки были одной высоты.
-function cmpCell(m, v, bl) {
+// Ячейка ориентира: подпись и значение одной строкой («Цель ≤ 2,0%», «База 92,0%»), под ней —
+// пилюля отклонения. Без ориентира — «не сравнивается» словами, а не прочерком (прочерк
+// читается как «не загрузилось»). Подсказка — на всей ячейке.
+function cmpTd(m, v, bl) {
   var P = CFG.ns;
   if (bl.kind === 'kpi') {
     var dk = deltaOf(m, v, bl.ref);
-    return '<div class="' + P + '-tgt"><b>' + esc(fmtVal(m, bl.ref)) + '</b><i class="' + P + '-dm ' + P + '-k"></i>цель, ' + (m.better === 'higher' ? 'не ниже' : 'не выше') + '</div>'
-      + '<span class="' + P + '-cell ' + P + '-' + bl.state + '"' + tip({ title: 'Сравнение с целью',
-        text: 'У метрики есть утверждённая цель, поэтому база сравнения рядом не показывается.',
+    return '<td class="' + P + '-vs"' + tip({ title: 'Сравнение с целью',
+        text: 'У метрики есть утверждённая цель — сравнение идёт с ней, а не с базой.',
         rows: [{ label: 'факт', value: fmtVal(m, v) }, { label: 'цель', value: fmtVal(m, bl.ref), color: CFG.colors.kpi, dash: true },
                { label: 'отклонение', value: fmtDelta(m, dk) }],
-        note: [(bl.inherited ? 'Цель унаследована с уровня «' : 'Цель стоит на юните «') + unitName(MODEL, bl.owner) + '».', STATE_TXT[bl.state]] })
-      + '>' + esc(fmtDelta(m, dk)) + '</span>';
+        note: [(bl.inherited ? 'Цель унаследована с уровня «' : 'Цель стоит на юните «') + unitName(MODEL, bl.owner) + '».', STATE_TXT[bl.state]] }) + '>'
+      + '<div class="' + P + '-tgt"><span class="' + P + '-tgl">Цель ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</div>'
+      + hPill(bl.state, fmtDelta(m, dk)) + '</td>';
   }
   if (bl.kind === 'bench' && benchSelf()) {
-    return '<div class="' + P + '-tgt"><b>' + esc(fmtVal(m, bl.ref)) + '</b><i class="' + P + '-dm"></i>база</div>'
-      + '<span class="' + P + '-nocmp"' + tip({ title: 'Юнит совпадает с базой', text: 'Выбрана вся компания: база сравнения — это она же под теми же разрезами. Отклонение появится на юнитах ниже.' }) + '>юнит = база</span>';
+    return '<td class="' + P + '-vs"' + tip({ title: 'Юнит совпадает с базой', text: 'Выбрана вся компания: база сравнения — это она же под теми же разрезами. Отклонение появится на юнитах ниже.' }) + '>'
+      + '<div class="' + P + '-tgt"><span class="' + P + '-tgl">База</span>' + esc(fmtVal(m, bl.ref)) + '</div>'
+      + '<span class="' + P + '-same">юнит = база</span></td>';
   }
   if (bl.kind === 'bench') {
     var db = deltaOf(m, v, bl.ref);
-    return '<div class="' + P + '-tgt"><b>' + esc(fmtVal(m, bl.ref)) + '</b><i class="' + P + '-dm"></i>база</div>'
-      + '<span class="' + P + '-cell ' + P + '-' + bl.state + '"' + tip({ title: 'Сравнение с базой',
+    return '<td class="' + P + '-vs"' + tip({ title: 'Сравнение с базой',
         rows: [{ label: 'факт', value: fmtVal(m, v) }, { label: benchLabel(), value: fmtVal(m, bl.ref), color: CFG.colors.bench, dash: true },
                { label: 'отклонение', value: fmtDelta(m, db) }],
-        note: 'База — вся компания под теми же разрезами численности. Мёртвая зона ±5%: внутри неё отклонение серое.' })
-      + '>' + esc(fmtDelta(m, db)) + '</span>';
+        note: 'База — вся компания под теми же разрезами численности. Мёртвая зона ±5%: внутри неё отклонение серое.' }) + '>'
+      + '<div class="' + P + '-tgt"><span class="' + P + '-tgl">База</span>' + esc(fmtVal(m, bl.ref)) + '</div>'
+      + hPill(bl.state, fmtDelta(m, db)) + '</td>';
   }
   var why = m.better === 'flat' ? 'У этой метрики «больше» не значит «лучше»: оценивать её цветом было бы неправдой.'
     : 'Абсолютная величина: сравнение со средней по компании показывало бы масштаб, а не оценку.';
-  return '<div class="' + P + '-tgt"><b>—</b>ориентира нет</div><span class="' + P + '-nocmp"' + tip({ title: 'Сравнение отключено', text: why }) + '>не сравнивается</span>';
+  return '<td class="' + P + '-vs"' + tip({ title: 'Сравнение отключено', text: why }) + '><span class="' + P + '-nocmp">не сравнивается</span></td>';
 }
 
 // ---- юнит отчёта и доступ ----
@@ -1466,8 +1661,9 @@ function headHTML() {
 }
 // ---- строка фильтров: юнит и HRBP (выбор копится до «Применить») ----
 // Подпись набора юнитов: вся зона, один юнит, зона HRBP или «N юнитов».
-function unitsLabel(ids) {
-  var M = MODEL;
+function unitsLabel(ids, hz) {
+  var M = MODEL, h = hz ? M.hBy[hz] : null;
+  if (h && (sameSet(ids, h.roots) || (!ids.length && sameSet(h.roots, M.roots)))) return 'Вся зона HRBP';
   if (!ids.length || sameSet(ids, M.roots)) return M.role === 'hrbp' ? 'Моя зона' : 'Вся зона';
   if (ids.length === 1) return unitName(M, ids[0]);
   var z = zoneOwner(ids);
@@ -1476,21 +1672,27 @@ function unitsLabel(ids) {
 function stagedUnit() { return staged().unit; }
 function unitChanged() { return !sameSet(stagedUnit(), reqNow().unit); }
 function unitDDHTML() {
-  var P = CFG.ns, open = state.open === 'unit', ids = stagedUnit();
+  var P = CFG.ns, open = state.open === 'unit', st = staged(), ids = st.unit, h = stagedHz();
   var chain = ids.length === 1 ? pathTo(ids[0]) : [], names = [];
   for (var i = 0; i < chain.length; i++) names.push(unitName(MODEL, chain[i]));
+  var lbl = unitsLabel(ids, st.hz);
   var s = '<div class="' + P + '-dd" data-scope="unit">';
   s += '<button class="' + P + '-ddb ' + P + '-ddu' + (ids.length ? ' ' + P + '-set' : '') + (unitChanged() ? ' ' + P + '-chg' : '') + (open ? ' ' + P + '-on' : '')
     + '" data-action="open" data-pop="unit" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '"'
-    + (open ? '' : tip({ title: 'Юнит отчёта', text: names.length ? names.join(' › ') : unitsLabel(ids),
-        note: unitChanged() ? 'Выбран, но ещё не применён — кнопка «Применить».' : 'Сводка, команды и цели — по этому юниту.' })) + '>'
-    + '<span class="' + P + '-ddl">Юнит:</span><span class="' + P + '-ddv">' + esc(unitsLabel(ids)) + '</span><span class="' + P + '-ddc">▾</span></button>';
+    + (open ? '' : tip({ title: 'Юнит отчёта', text: names.length ? names.join(' › ') : (h ? 'Зона HRBP «' + h.nm + '»: ' + hrbpRootsText(h) : lbl),
+        note: unitChanged() ? 'Выбран, но ещё не применён — кнопка «Применить».' : (h ? 'Выбор юнита — внутри зоны этого HRBP.' : 'Сводка, команды и цели — по этому юниту.') })) + '>'
+    + '<span class="' + P + '-ddl">Юнит:</span><span class="' + P + '-ddv">' + esc(lbl) + '</span><span class="' + P + '-ddc">▾</span></button>';
   if (open) {
+    var inHz = h && !state.unitAll;
     s += '<div class="' + P + '-pop ' + P + '-wide" tabindex="-1">'
-      + '<div class="' + P + '-poph"><span>Юнит отчёта</span></div>'
-      + hSearch('unit', 'Поиск юнита по названию')
+      + '<div class="' + P + '-poph"><span>' + (inHz ? 'Юнит в зоне HRBP' : 'Юнит отчёта') + '</span>'
+      + (h ? '<span class="' + P + '-hzc">' + esc(h.nm) + '</span>' : '') + '</div>'
+      + hSearch('unit', inHz ? 'Поиск юнита в зоне ' + h.nm : 'Поиск юнита по названию')
       + '<div class="' + P + '-list" data-plist="unit">' + unitListHTML() + '</div>'
-      + '<div class="' + P + '-popf"><span>Выбор применится кнопкой «Применить». Цифра справа — численность сейчас.</span></div></div>';
+      + '<div class="' + P + '-popf"><span>' + (h
+          ? (inHz ? 'Показана только зона HRBP. ' : 'Показана вся зона видимости, зона HRBP отмечена. ')
+            + '<button class="' + P + '-lnk" data-action="unitall">' + (inHz ? 'Вся зона видимости' : 'Только зона HRBP') + '</button>'
+          : 'Выбор применится кнопкой «Применить». Цифра справа — численность сейчас.') + '</span></div></div>';
   }
   return s + '</div>';
 }
@@ -1515,9 +1717,18 @@ function treeRows(id, depth, cur, out) {
   out.n++;
   // Большая зона: справочник приходит окрестностью — дети узла могут быть не загружены (nk > 0).
   var kids = kidsOf(id), more = !kids.length && u.nk > 0, open = treeOpen(id, depth);
-  out.s += '<div class="' + P + '-tr' + (id === cur ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="' + esc(id) + '" style="padding-left:' + (9 + depth * 16) + 'px">'
+  // Корень компактного дерева зоны HRBP — с путём сверху (где эта зона в компании);
+  // во всей зоне видимости корни зоны выбранного HRBP помечены.
+  var path = '';
+  if (out.withPath && depth === 0) {
+    var ch = pathTo(id), nm = [];
+    for (var c = Math.max(0, ch.length - 4); c < ch.length - 1; c++) nm.push(unitName(MODEL, ch[c]));
+    if (nm.length) path = '<span class="' + P + '-tpath">' + esc(nm.join(' › ')) + '</span>';
+  }
+  var mark = out.hzRoots && out.hzRoots.indexOf(id) > -1 ? '<span class="' + P + '-hzt">зона HRBP</span>' : '';
+  out.s += '<div class="' + P + '-tr' + (id === cur ? ' ' + P + '-cur' : '') + (mark ? ' ' + P + '-hzr' : '') + '" data-action="pick" data-id="' + esc(id) + '" style="padding-left:' + (9 + depth * 16) + 'px">'
     + (kids.length || more ? '<button class="' + P + '-tw" data-action="tree" data-id="' + esc(id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button>' : '<span class="' + P + '-tsp"></span>')
-    + '<span class="' + P + '-tn">' + esc(u.nm) + (u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>') + '</span>'
+    + '<span class="' + P + '-tn">' + esc(u.nm) + (u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>') + mark + path + '</span>'
     + '<span class="' + P + '-tl">' + esc(levelShort(u.lvl)) + '</span><span class="' + P + '-th">' + fmtInt(u.hc) + '</span></div>';
   if (!open) return;
   if (more) {
@@ -1528,18 +1739,30 @@ function treeRows(id, depth, cur, out) {
   }
   for (var i = 0; i < kids.length; i++) treeRows(kids[i], depth + 1, cur, out);
 }
+// Юнит внутри зоны HRBP (на пути юнита есть один из её корней).
+function inHzZone(id, h) { return !h || idsInside([id], h.roots); }
+// Поиск юнита уходит в датасет, только если справочник неполон там, где ищем: большая зона
+// без HRBP — всегда; зона HRBP — если она не приехала целиком (область ≠ зона или > порога).
+function searchRemote() {
+  var M = MODEL, h = stagedHz();
+  if (M.dictMode !== 'part') return false;
+  if (h && !state.unitAll) return !(M.scopeFull && sameSet(h.roots, M.scopeIds));
+  return true;
+}
 function searchPending() { return !!state.qT || (!!state.pend && !!String(state.q || '').replace(/^\s+|\s+$/g, '')); }
 function unitListHTML() {
   var P = CFG.ns, M = MODEL, q = String(state.q || '').replace(/^\s+|\s+$/g, '').toLowerCase();
-  var ids = stagedUnit(), cur = ids.length === 1 ? ids[0] : '';
+  var ids = stagedUnit(), cur = ids.length === 1 ? ids[0] : '', h = stagedHz(), inHz = h && !state.unitAll;
   if (!q) {
-    var all = !ids.length || sameSet(ids, M.roots);
+    // Выбран HRBP — компактное дерево его зоны (как видит её сам HRBP); иначе — вся зона видимости.
+    var top = inHz ? h.roots : M.roots;
+    var all = inHz ? (sameSet(ids, h.roots) || (!ids.length && sameSet(h.roots, M.roots))) : (!ids.length || sameSet(ids, M.roots));
     var s = '<div class="' + P + '-tr' + (all ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="">'
-      + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + (M.role === 'hrbp' ? 'Вся моя зона' : 'Вся зона видимости') + '</span>'
-      + '<span class="' + P + '-tl">' + M.roots.length + ' ' + plural(M.roots.length, 'корень', 'корня', 'корней') + '</span>'
-      + '<span class="' + P + '-th">' + fmtInt(zoneHc(M.roots)) + '</span></div>';
-    var out = { s: '', n: 0 };
-    var roots = M.roots.slice().sort(function (a, b) { return unitName(M, a) < unitName(M, b) ? -1 : 1; });
+      + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + (inHz ? 'Вся зона HRBP' : (M.role === 'hrbp' ? 'Вся моя зона' : 'Вся зона видимости')) + '</span>'
+      + '<span class="' + P + '-tl">' + top.length + ' ' + plural(top.length, 'корень', 'корня', 'корней') + '</span>'
+      + '<span class="' + P + '-th">' + fmtInt(zoneHc(top)) + '</span></div>';
+    var out = { s: '', n: 0, withPath: inHz, hzRoots: h && !inHz ? h.roots : null };
+    var roots = top.slice().sort(function (a, b) { return unitName(M, a) < unitName(M, b) ? -1 : 1; });
     for (var i = 0; i < roots.length; i++) treeRows(roots[i], 0, cur, out);
     return s + out.s;
   }
@@ -1547,13 +1770,13 @@ function unitListHTML() {
   for (var id in M.units) {
     if (!M.units.hasOwnProperty(id)) continue;
     var u = M.units[id], nm = u.nm.toLowerCase(), at = nm.indexOf(q);
-    if (at < 0 || !inZone(id)) continue;
+    if (at < 0 || !inZone(id) || (inHz && !inHzZone(id, h))) continue;
     hits.push({ id: id, u: u, rank: (at === 0 ? 0 : 1) * 100 + u.lvl });
   }
   // Большая зона: справочник — окрестность юнита; остальное ищет датасет (q_f) сам,
   // после паузы в наборе — без Enter.
   var r = '';
-  if (M.dictMode === 'part') {
+  if (searchRemote()) {
     var done = M.q && M.q.toLowerCase() === q;
     r += done
       ? '<div class="' + P + '-nores">Найдено по всей зоне: ' + hits.length + '</div>'
@@ -1561,7 +1784,7 @@ function unitListHTML() {
          ? '<div class="' + P + '-nores">' + (searchPending() ? 'Ищу «' + esc(state.q) + '» по всей зоне…' : 'Ищу по всей зоне (' + fmtInt(M.zoneN) + ' юнитов)…') + '</div>'
          : '<div class="' + P + '-nores">Введите от ' + CFG.searchMin + ' букв — найдём по всей зоне</div>');
   }
-  if (!hits.length) return r + (M.dictMode === 'part' && !(M.q && M.q.toLowerCase() === q) ? '' : '<div class="' + P + '-nores">Ничего не найдено</div>');
+  if (!hits.length) return r + (searchRemote() && !(M.q && M.q.toLowerCase() === q) ? '' : '<div class="' + P + '-nores">Ничего не найдено</div>');
   hits.sort(function (a, b) { return a.rank - b.rank || (a.u.nm < b.u.nm ? -1 : 1); });
   for (var k = 0; k < hits.length && k < 80; k++) {
     var h = hits[k], chain = pathTo(h.id), names = [];
@@ -1576,7 +1799,13 @@ function unitListHTML() {
 }
 // ---- HRBP: дерево «кто под кем» (по вложенности зон) с поиском ----
 function hrbpVisible() { var M = MODEL; return M.hrbps.length > 1 || (M.hrbps.length === 1 && M.role !== 'hrbp'); }
-function hrbpOpen(login, depth) { return state.hOpen.hasOwnProperty(login) ? !!state.hOpen[login] : depth === 0 && MODEL.hrbps.length <= 40; }
+function hrbpOpen(login, depth) {
+  if (state.hOpen.hasOwnProperty(login)) return !!state.hOpen[login];
+  // По умолчанию раскрыт верх небольшого дерева и путь до выбранного HRBP.
+  var h = stagedHz(), up = h ? h.parent : '';
+  while (up) { if (up === login) return true; up = MODEL.hBy[up] ? MODEL.hBy[up].parent : ''; }
+  return depth === 0 && MODEL.hrbps.length <= 40;
+}
 function hrbpRootsText(h) {
   var names = [];
   for (var i = 0; i < h.roots.length && i < 2; i++) names.push(unitName(MODEL, h.roots[i]));
@@ -1604,12 +1833,14 @@ function hrbpTreeRows(login, depth, cur, out) {
 }
 function hrbpListHTML() {
   var P = CFG.ns, M = MODEL, q = String(state.q || '').replace(/^\s+|\s+$/g, '').toLowerCase();
-  var owner = zoneOwner(stagedUnit().length ? stagedUnit() : M.roots), cur = owner ? owner.login : '';
+  var owner = stagedHz(), cur = owner ? owner.login : '';
   if (!M.hrbps.length) return '<div class="' + P + '-nores">Других зон внутри вашей нет</div>';
   if (!q) {
     var out = { s: '', n: 0 };
     for (var i = 0; i < M.hTop.length; i++) hrbpTreeRows(M.hTop[i], 0, cur, out);
-    return out.s;
+    return '<div class="' + P + '-tr' + (!cur ? ' ' + P + '-cur' : '') + '" data-action="hpick" data-id="">'
+      + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">Все HRBP<span class="' + P + '-tpath">без выбора — ' + (M.role === 'hrbp' ? 'вся моя зона' : 'вся зона видимости') + '</span></span>'
+      + '<span class="' + P + '-th">' + fmtInt(zoneHc(M.roots)) + '</span></div>' + out.s;
   }
   var hits = [];
   for (var j = 0; j < M.hrbps.length; j++) {
@@ -1623,10 +1854,9 @@ function hrbpListHTML() {
   return s;
 }
 function hrbpDDHTML() {
-  var P = CFG.ns, open = state.open === 'hrbp', ids = stagedUnit();
-  var owner = ids.length ? zoneOwner(ids) : null;
+  var P = CFG.ns, open = state.open === 'hrbp', owner = stagedHz(), chg = (owner ? owner.login : '') !== hzNow();
   var s = '<div class="' + P + '-dd" data-scope="hrbp">';
-  s += '<button class="' + P + '-ddb' + (owner ? ' ' + P + '-set' : '') + (owner && unitChanged() ? ' ' + P + '-chg' : '') + (open ? ' ' + P + '-on' : '')
+  s += '<button class="' + P + '-ddb' + (owner ? ' ' + P + '-set' : '') + (chg ? ' ' + P + '-chg' : '') + (open ? ' ' + P + '-on' : '')
     + '" data-action="open" data-pop="hrbp" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '"'
     + (open ? '' : tip({ title: 'Зона HRBP', text: owner ? owner.nm + ': ' + hrbpRootsText(owner) : 'Выберите HRBP — отчёт покажет его зону.',
         note: 'HRBP вложены по зонам: кто покрывает чужую зону, тот выше.' })) + '>'
@@ -1761,10 +1991,22 @@ function noticesHTML() {
 // ---- графики: спецификации линий и блок с заголовком ----
 // Графики последней сборки: плейсхолдер [data-ci] + функция рисования от ширины.
 // Смена ширины ячейки перерисовывает ТОЛЬКО их (repaint в БЛОКЕ 6), без render().
-var CHARTS = [];
-function chartSlot(kind, draw) {
-  CHARTS.push({ kind: kind, draw: draw });
-  return '<div class="' + CFG.ns + '-chart" data-cw="' + kind + '" data-ci="' + (CHARTS.length - 1) + '">' + draw(cwOf(kind)) + '</div>';
+// Реестр графиков экрана: relayout перерисует их по месту, БЛОК 6 — анимирует и ведёт
+// следящий тултип (hz — колонки линии). key — устойчивое имя графика: с анимацией график
+// рисуется, когда впервые показан с этими данными (раскрыли строку, выбрали команду, пришёл
+// ответ), а не на каждый клик и не при ресайзе (ДС 6.5).
+var CHARTS = [], CLIP_N = 0;
+function dataSig() { return MODEL.__dsig || (MODEL.__dsig = sigOf(reqEcho()) + '|' + rawData.length + '|' + MODEL.L); }
+function canAnim() {
+  if (typeof Element === 'undefined' || !Element.prototype.animate) return false;
+  return !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+function chartSlot(kind, key, draw) {
+  if (state.drawnSig !== dataSig()) { state.drawn = {}; state.drawnSig = dataSig(); }
+  var ci = CHARTS.length, anim = !!key && !state.drawn[key] && canAnim();
+  if (key) state.drawn[key] = true;
+  CHARTS.push({ kind: kind, key: key, draw: draw, anim: anim, hz: null });
+  return '<div class="' + CFG.ns + '-chart" data-cw="' + kind + '" data-ci="' + ci + '">' + draw(cwOf(kind), { ci: ci, anim: anim }) + '</div>';
 }
 function cwOf(kind) {
   var d = { half: 460, side: 480, wide: 960 };
@@ -1788,8 +2030,11 @@ function yoySpec(unitId, ser, m) {
   if (rk === 'kpi') ref = targetSeries(unitId, m.key, 'm').slice(12, 24);
   else if (rk === 'bench') { ref = []; for (var b = 0; b < 12; b++) ref.push(12 + b <= L ? mval(M.base, 'm', m, 12 + b) : null); }
   var y = dparts(M.cal.m[L].s).y;
-  return { m: m, labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: L - 12, nowIdx: null, heads: heads, prevHeads: null,
-           curName: String(y), prevName: String(y - 1), refName: rk === 'kpi' ? 'цель' : 'база · ' + benchLabel() };
+  return { m: m, labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: L - 12, heads: heads, prevHeads: null,
+           curName: String(y), prevName: String(y - 1), refName: rk === 'kpi' ? 'цель' : 'база · ' + benchLabel(),
+           tips: { cur: 'Значения ' + y + ' года на конец закрытых месяцев. Незакрытый месяц не показывается.',
+                   prev: 'Те же месяцы ' + (y - 1) + ' года — с чем сравнивается «год к году».',
+                   ref: rk === 'kpi' ? 'Цель юнита — своя или ближайшая выше по дереву — на каждый месяц.' : 'База — вся компания под теми же разрезами численности.' } };
 }
 function weekSpec(unitId, ser, m) {
   var M = MODEL, Lw = lastIdx('w'), cur = [], prev = [], labels = [], heads = [], prevHeads = [], ref = null;
@@ -1804,16 +2049,32 @@ function weekSpec(unitId, ser, m) {
   var rk = refKind(unitId, m, 'w', Lw);
   if (rk === 'kpi') ref = targetSeries(unitId, m.key, 'w').slice(Lw - 11, Lw + 1);
   else if (rk === 'bench') { ref = []; for (var b = 0; b < 12; b++) ref.push(mval(M.base, 'w', m, Lw - 11 + b)); }
-  return { m: m, labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: 11, nowIdx: null, heads: heads, prevHeads: prevHeads,
-           curName: 'последние 12 нед.', prevName: 'предыдущие 12', refName: rk === 'kpi' ? 'цель' : 'база · ' + benchLabel() };
+  return { m: m, labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: 11, heads: heads, prevHeads: prevHeads,
+           curName: 'последние 12 нед.', prevName: 'предыдущие 12', refName: rk === 'kpi' ? 'цель' : 'база · ' + benchLabel(),
+           tips: { cur: 'Последние 12 закрытых недель (пн–вс). Окна недельных метрик — 13, 26 и 52 недели.',
+                   prev: '12 недель перед ними — неделя к неделе на 12 назад.',
+                   ref: rk === 'kpi' ? 'Цель юнита — своя или ближайшая выше по дереву.' : 'База — вся компания под теми же разрезами численности.' } };
 }
-function chartBlock(kind, title, spec, H) {
+// Заголовок графика — капитель серым (как «ПОЛЬЗОВАТЕЛИ ПО ПЕРИОДАМ» в Proteus Adoption),
+// справа легенда-кнопки: клик выключает линию на всех графиках, наведение подсвечивает её.
+function chartBlock(kind, key, title, spec, H) {
   var P = CFG.ns, C = CFG.colors;
-  var lg = '<span><i class="' + P + '-lgm" style="border-top-color:' + C.cur + '"></i>' + esc(spec.curName) + '</span>'
-    + '<span><i class="' + P + '-lgm" style="border-top-color:' + C.prev + '"></i>' + esc(spec.prevName) + '</span>'
-    + (spec.ref ? '<span><i class="' + P + '-lgm ' + P + '-dash" style="border-top-color:' + (spec.refKind === 'kpi' ? C.kpi : C.bench) + '"></i>' + (spec.refKind === 'kpi' ? 'цель' : 'база') + '</span>' : '');
-  return '<div class="' + P + '-chh"><span class="' + P + '-cht">' + esc(title) + '</span><span class="' + P + '-chl">' + lg + '</span></div>'
-    + chartSlot(kind, function (w) { return svgLine(spec, w, H); });
+  var items = [{ k: 'cur', l: spec.curName, c: C.cur }, { k: 'prev', l: spec.prevName, c: C.prev }];
+  if (spec.ref) items.push({ k: 'ref', l: spec.refKind === 'kpi' ? 'цель' : 'база', c: spec.refKind === 'kpi' ? C.kpi : C.bench, dash: true });
+  // Все линии графика выключены (их гасили на других графиках) — текущая рисуется всё равно (svgLine).
+  var nOn = 0;
+  for (var j = 0; j < items.length; j++) if (lineOn(items[j].k)) nOn++;
+  var forced = nOn === 0, lg = '';
+  if (forced) nOn = 1;
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i], off = !lineOn(it.k) && !(forced && it.k === 'cur'), lock = !off && nOn <= 1;
+    lg += '<button type="button" class="' + P + '-lg' + (off ? ' ' + P + '-off' : '') + '" data-action="lg" data-key="' + it.k + '" data-lgs="' + it.k + '" aria-pressed="' + (off ? 'false' : 'true') + '"' + (lock ? ' data-lock="1"' : '')
+      + tip({ title: it.l, text: spec.tips ? spec.tips[it.k] : '', note: lock ? 'Последнюю линию выключить нельзя.' : (off ? 'Клик — вернуть линию на графики.' : 'Клик — убрать линию со всех графиков.') }) + '>'
+      + '<i class="' + P + '-lgk' + (it.dash ? ' ' + P + '-dash' : '') + '" style="border-top-color:' + it.c + '"></i>' + esc(it.l) + '</button>';
+  }
+  return '<div class="' + P + '-chb" data-chb="1"><div class="' + P + '-chh"><span class="' + P + '-cap">' + esc(title) + '</span>'
+    + '<span class="' + P + '-lgd" role="group" aria-label="Линии графика">' + lg + '</span></div>'
+    + chartSlot(kind, key, function (w, ctx) { return svgLine(spec, w, H, ctx); }) + '</div>';
 }
 // Спарклайн строки: 12 закрытых месяцев, цвет — оценка каждого месяца.
 function sparkHTML(unitId, ser, m) {
@@ -1883,11 +2144,14 @@ function inScope(id) {
   for (var i = 0; i < p.length; i++) if (MODEL.scopeIds.indexOf(p[i]) > -1) return true;
   return false;
 }
+// Метрики, строки которых раскрыты на «Сводке» (раскрыть можно несколько сразу).
+function opOpen(mk) { return !!state.openM[mk]; }
 function onepagerHTML() {
   var P = CFG.ns, M = MODEL, L = M.L, u = scopeUnit();
-  var s = pageHead('Сводка', 'Юнит: <b>' + esc(scopeLabel()) + '</b>. Разрезы численности: <b>' + esc(selLabel()) + '</b>. '
-    + 'Метрики без утверждённой цели сравниваются с базой <b>' + esc(benchLabel()) + '</b> — она собирается из тех же разрезов, но по всей компании. '
-    + 'У метрик с целью сравнение идёт с целью. Клик по строке раскрывает динамику: год к году и 12 недель.');
+  var s = pageHead('Сводка', '<b>' + esc(scopeLabel()) + '</b> · ' + esc(monthLow(L)) + ' · ' + esc(selLabel())
+    + hInfo({ title: 'Как читать сводку', text: 'Значение метрики за последний закрытый месяц сравнивается с ориентиром: с целью, если она утверждена (своя или унаследованная сверху), иначе — с базой.',
+              rows: [{ label: 'база', value: benchLabel() }],
+              note: ['База собирается из тех же разрезов численности, но по всей компании.', 'Клик по строке раскрывает динамику: год к году и 12 недель. Раскрыть можно несколько строк.'] }));
   if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Под текущими разрезами в выбранном юните нет сотрудников за два года. Снимите один из разрезов в строке фильтров.');
   if (!selMetrics('').length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в списке «Метрики» строки фильтров.');
   s += kpiCardsHTML() + legendHTML(true);
@@ -1904,40 +2168,44 @@ function onepagerHTML() {
     if (!items.length) continue;
     any = true;
     items.sort(function (a, c) { return (a.bl.kind === 'kpi' ? 0 : 1) - (c.bl.kind === 'kpi' ? 0 : 1); });
-    var rows = '';
+    var rows = '', nOpen = 0;
     for (var k = 0; k < items.length; k++) {
-      var it = items[k], mk = it.m.key, open = state.openMetric === mk;
+      var it = items[k], mk = it.m.key, open = opOpen(mk);
+      if (open) nOpen++;
       var hid = hiddenRules(u, mk);
       if (it.bl.kind === 'kpi' && it.bl.inherited) {
         var more = hiddenRules(it.bl.owner, mk);
         for (var h = 0; h < more.length; h++) if (hid.indexOf(more[h]) < 0) hid.push(more[h]);
       }
       var calc = it.m.calc + (it.m.num === 'r3n' || it.m.num === 'r6n' ? (M.meta.ret_base === 'active' ? ' Сейчас база — active_hire_dt.' : '') : '');
-      rows += '<tr class="' + P + '-row" data-action="openm" data-key="' + mk + '" aria-expanded="' + (open ? 'true' : 'false') + '">'
-        + '<td class="' + P + '-l"><span class="' + P + '-rl">' + hCaret(open, 'openm', mk, 'Показать динамику')
+      rows += '<tr class="' + P + '-row' + (open ? ' ' + P + '-opn' : '') + '" data-action="openm" data-key="' + mk + '" aria-expanded="' + (open ? 'true' : 'false') + '">'
+        + '<td class="' + P + '-l"><span class="' + P + '-rl">' + hCaret(open, 'openm', mk, open ? 'Скрыть динамику' : 'Показать динамику')
         + '<span class="' + P + '-rb">' + esc(it.m.name) + hInfo({ title: it.m.name, text: it.m.hint, note: calc })
         + focusTag(it.m, it.bl) + moreFocus(hid, false)
         + '<span class="' + P + '-us">' + dirText(it.m) + '</span></span></span></td>'
         + '<td class="' + P + '-lead">' + esc(fmtVal(it.m, it.v)) + '</td>'
-        + '<td class="' + P + '-vs">' + cmpCell(it.m, it.v, it.bl) + '</td>'
-        + '<td>' + hDelta(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 1)), 'Сравнение с предыдущим месяцем (' + monthLow(L - 1) + ').') + '</td>'
-        + '<td>' + hDelta(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 12)), 'Сравнение с тем же месяцем прошлого года (' + monthLow(L - 12) + ').') + '</td>'
+        + cmpTd(it.m, it.v, it.bl)
+        + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 1)), 'Сравнение с предыдущим месяцем (' + monthLow(L - 1) + ').')
+        + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 12)), 'Сравнение с тем же месяцем прошлого года (' + monthLow(L - 12) + ').')
         + '<td class="' + P + '-spk">' + sparkHTML(u, M.scope, it.m) + '</td></tr>';
       if (open) {
         rows += '<tr class="' + P + '-det"><td colspan="6"><div class="' + P + '-dsplit">'
-          + '<div class="' + P + '-dcol">' + chartBlock('half', 'Год к году', yoySpec(u, M.scope, it.m), CFG.chart.h) + '</div>'
-          + '<div class="' + P + '-dcol">' + chartBlock('half', '12 недель к предыдущим 12', weekSpec(u, M.scope, it.m), CFG.chart.h) + '</div>'
+          + '<div class="' + P + '-dcol">' + chartBlock('half', 'op:' + mk + ':yoy:' + u, 'Год к году', yoySpec(u, M.scope, it.m), CFG.chart.h) + '</div>'
+          + '<div class="' + P + '-dcol">' + chartBlock('half', 'op:' + mk + ':wow:' + u, '12 недель к предыдущим 12', weekSpec(u, M.scope, it.m), CFG.chart.h) + '</div>'
           + '</div></td></tr>';
       }
     }
+    var allOpen = nOpen === items.length;
     var tbl = '<table class="' + P + '-t ' + P + '-fix ' + P + '-op"><colgroup><col style="width:30%"><col style="width:10%"><col style="width:15%">'
       + '<col style="width:11%"><col style="width:11%"><col style="width:23%"></colgroup>'
-      + '<thead><tr><th class="' + P + '-l">Метрика</th><th>Значение<span class="' + P + '-hc">' + esc(monthFull(L)) + '</span></th>'
+      + '<thead><tr><th class="' + P + '-l"><span class="' + P + '-rl">'
+      + hCaret(allOpen, 'openall', blk.key, allOpen ? 'Свернуть все' : 'Раскрыть все', { title: allOpen ? 'Свернуть все' : 'Раскрыть все', text: 'Динамика всех метрик блока — год к году и 12 недель.' })
+      + '<span class="' + P + '-rb">Метрика</span></span></th><th>Значение<span class="' + P + '-hc">' + esc(monthFull(L)) + '</span></th>'
       + '<th class="' + P + '-vs">Ориентир<span class="' + P + '-hc">цель или база</span></th>'
       + '<th>Изменение<span class="' + P + '-hc">к ' + esc(monthDat(L - 1)) + '</span></th>'
       + '<th>Год к году<span class="' + P + '-hc">к ' + esc(monthDat(L - 12)) + '</span></th>'
-      + '<th class="' + P + '-c">12 мес</th></tr></thead><tbody>' + rows + '</tbody></table>';
-    s += '<div class="' + P + '-gap">' + hPanel({ title: blk.name, sub: blk.hint + ' · клик по строке раскрывает динамику', body: tbl, tbl: true }) + '</div>';
+      + '<th class="' + P + '-c">12 мес<span class="' + P + '-hc">цвет — к ориентиру месяца</span></th></tr></thead><tbody>' + rows + '</tbody></table>';
+    s += '<div class="' + P + '-gap">' + hPanel({ title: blk.name, sub: blk.hint, body: tbl, tbl: true }) + '</div>';
   }
   if (!any) s += hEmpty('Под фильтром «Только фокусные» метрик не осталось', 'На этом юните и выше по ветке целей по выбранным метрикам нет. Выключите тумблер или поставьте цель — вкладка «Цели».');
   return s;
@@ -2012,11 +2280,13 @@ function nameGo(name, go) {
   var sp = name.lastIndexOf(' ');
   return (sp > 0 ? esc(name.slice(0, sp + 1)) : '') + '<span class="' + CFG.ns + '-nw">' + esc(sp > 0 ? name.slice(sp + 1) : name) + go + '</span>';
 }
-function unitCell(unitId, ser, m, selected) {
-  var P = CFG.ns, L = MODEL.L, v = mval(ser, 'm', m, L), txt = fmtVal(m, v);
-  if (v === null) return '<td class="' + P + '-muted">' + esc(txt) + '</td>';
+// Значение юнита в «Командах»: пилюля светофора (та же, что на «Сводке»), подсказка — на всей
+// ячейке, поэтому тултип переходит от значения к значению без мигания.
+function unitCell(unitId, ser, m, selected, cls) {
+  var P = CFG.ns, L = MODEL.L, v = mval(ser, 'm', m, L), txt = fmtVal(m, v), c = cls ? ' class="' + cls + '"' : '';
+  if (v === null) return '<td class="' + P + '-muted' + (cls ? ' ' + cls : '') + '">' + esc(txt) + '</td>';
   var bl = baseline(unitId, m, v, 'm', L);
-  if (bl.kind === 'none') return '<td>' + esc(txt) + '</td>';
+  if (bl.kind === 'none') return '<td' + c + tip({ title: m.name, text: 'Ориентира у метрики нет: ' + (m.better === 'flat' ? '«больше» не значит «лучше».' : 'абсолютная величина.'), rows: [{ label: 'факт', value: txt }] }) + '>' + esc(txt) + '</td>';
   var t = bl.kind === 'kpi'
     ? { title: m.name, text: bl.inherited ? 'Цель унаследована с уровня «' + unitName(MODEL, bl.owner) + '».' : 'Цель стоит на этом юните.',
         rows: [{ label: 'факт', value: txt }, { label: 'цель', value: fmtVal(m, bl.ref), dash: true, color: CFG.colors.kpi }, { label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, bl.ref)) }],
@@ -2024,7 +2294,7 @@ function unitCell(unitId, ser, m, selected) {
     : { title: m.name, text: 'Утверждённой цели нет — сравнение с базой.',
         rows: [{ label: 'факт', value: txt }, { label: benchLabel(), value: fmtVal(m, bl.ref), dash: true, color: CFG.colors.bench }, { label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, bl.ref)) }],
         note: STATE_TXT[bl.state] };
-  return '<td><span class="' + P + '-cell ' + P + '-' + bl.state + '"' + tip(t) + '>' + esc(txt) + '</span>'
+  return '<td' + c + tip(t) + '>' + hPill(bl.state, txt)
     + (selected ? '<span class="' + P + '-cref">' + (bl.kind === 'kpi' ? 'цель ' : 'база ') + esc(fmtVal(m, bl.ref)) + '</span>' : '') + '</td>';
 }
 function ownLive(unitId, keys) {
@@ -2035,17 +2305,32 @@ function ownLive(unitId, keys) {
   }
   return n;
 }
+// Кнопка раскладки «таблица | динамика» в шапке панели: во всю ширину / вернуть обе.
+var EXPAND_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>';
+var SHRINK_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10h-6V4M4 14h6v6M14 10l7-7M10 14l-7 7"/></svg>';
+function splitBtn(side) {
+  var P = CFG.ns, mode = state.splitMode || 'both';
+  if (state.narrow) return '';
+  var wide = mode === side, lbl = wide ? 'Вернуть ' + (side === 'table' ? 'динамику' : 'таблицу') + ' рядом' : (side === 'table' ? 'Таблица' : 'Динамика') + ' во всю ширину';
+  return '<button type="button" class="' + P + '-ib' + (wide ? ' ' + P + '-on' : '') + '" data-action="split" data-key="' + (wide ? 'both' : side) + '" aria-label="' + esc(lbl) + '"'
+    + tip({ title: lbl, text: wide ? 'Две колонки: таблица слева, графики справа.' : 'Ширину колонок можно и тянуть — за разделитель между ними; двойной клик возвращает как было.' }) + '>'
+    + (wide ? SHRINK_SVG : EXPAND_SVG) + '</button>';
+}
+// Свёрнутая колонка — узкая полоса с подписью: клик возвращает обе колонки.
+function splitRail(label, arrow) {
+  var P = CFG.ns;
+  return '<button type="button" class="' + P + '-rail" data-action="split" data-key="both" aria-label="Показать: ' + esc(label) + '"'
+    + tip({ title: label, text: 'Вернуть две колонки: таблица слева, графики справа.' }) + '><i>' + arrow + '</i><span>' + esc(label) + '</span></button>';
+}
 function teamsHTML() {
   var P = CFG.ns, M = MODEL, L = M.L;
-  var s = pageHead('Команды', 'Юниты ниже выбранного — сразу на 3 уровня вниз (или все уровни — переключатель «Глубина»). Каретка раскрывает уровень, стрелка → делает юнит юнитом отчёта. '
-    + 'Цветом отмечено само значение: у метрик с целью — относительно цели, у остальных — относительно базы <b>' + esc(benchLabel()) + '</b>. '
-    + 'Клик по строке показывает ориентиры под значениями и меняет графики справа.');
-  var live = [];
-  for (var b = 0; b < CFG.blocks.length; b++) if (selMetrics(CFG.blocks[b].key).length) live.push([CFG.blocks[b].key, CFG.blocks[b].name]);
-  if (!live.length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в списке «Метрики» строки фильтров.');
-  var blk = live[0][0];
+  var s = pageHead('Команды', '<b>' + esc(scopeLabel()) + '</b> · ' + (M.depth === 'all' ? 'все уровни вниз' : 'на 3 уровня вниз') + ' · ' + esc(monthLow(L)));
+  var live = [['all', 'Все метрики']];
+  for (var b = 0; b < CFG.blocks.length; b++) if (selMetrics(CFG.blocks[b].key).length) live.push([CFG.blocks[b].key, CFG.blocks[b].tab || CFG.blocks[b].name]);
+  if (live.length === 1) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в списке «Метрики» строки фильтров.');
+  var blk = 'all';
   for (var q = 0; q < live.length; q++) if (live[q][0] === state.block) blk = state.block;
-  var mets = selMetrics(blk), keys = [];
+  var mets = selMetrics(blk === 'all' ? '' : blk), keys = [];
   for (var mk = 0; mk < mets.length; mk++) keys.push(mets[mk].key);
   s += '<div class="' + P + '-tools">' + hSubs(live, blk, 'block') + '<span class="' + P + '-sp2"></span>' + depthHTML() + '</div>';
   if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Снимите один из разрезов в строке фильтров.');
@@ -2062,14 +2347,28 @@ function teamsHTML() {
   var allOpen = expandable.length > 0;
   for (var e2 = 0; e2 < expandable.length; e2++) if (!state.openRows[expandable[e2]]) allOpen = false;
 
-  var t = '<table class="' + P + '-t"><thead><tr><th class="' + P + '-l">Юнит</th>';
-  for (var h = 0; h < mets.length; h++) t += '<th' + tip({ title: mets[h].name, text: mets[h].hint }) + '>' + esc(mets[h].short) + '</th>';
+  // «Все метрики»: над колонками — строка групп, между группами — вертикальная линия.
+  var grouped = blk === 'all', gcls = {}, head2 = '';
+  if (grouped) {
+    head2 = '<tr class="' + P + '-thg"><th class="' + P + '-l" rowspan="2">Юнит</th>';
+    var prevB = '';
+    for (var gb = 0; gb < CFG.blocks.length; gb++) {
+      var gm = selMetrics(CFG.blocks[gb].key);
+      if (!gm.length) continue;
+      head2 += '<th colspan="' + gm.length + '" class="' + P + '-grp' + (prevB ? ' ' + P + '-gs' : '') + '">' + esc(CFG.blocks[gb].tab || CFG.blocks[gb].name) + '</th>';
+      if (prevB) gcls[gm[0].key] = P + '-gs';
+      prevB = CFG.blocks[gb].key;
+    }
+    head2 += '</tr><tr>';
+  }
+  var t = '<table class="' + P + '-t' + (grouped ? ' ' + P + '-g2' : '') + '"><thead>' + (grouped ? head2 : '<tr><th class="' + P + '-l">Юнит</th>');
+  for (var h = 0; h < mets.length; h++) t += '<th' + (gcls[mets[h].key] ? ' class="' + gcls[mets[h].key] + '"' : '') + tip({ title: mets[h].name, text: mets[h].hint }) + '>' + esc(mets[h].short) + '</th>';
   t += '</tr></thead><tbody>';
   t += '<tr class="' + P + '-row ' + P + '-tot' + (!sel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="">'
     + '<td class="' + P + '-l"><span class="' + P + '-rl">'
     + (expandable.length ? hCaret(allOpen, 'expall', allOpen ? '0' : '1', allOpen ? 'Свернуть всё' : 'Развернуть всё', { title: allOpen ? 'Свернуть всё' : 'Развернуть всё', text: 'Все уровни, которые приехали, — сразу.' }) : '<span class="' + P + '-cars"></span>')
     + '<span class="' + P + '-rb">ИТОГО · ' + esc(scopeLabel()) + '<span class="' + P + '-us">' + fmtInt(hcOf(M.scope)) + ' чел</span></span></span></td>';
-  for (var tm = 0; tm < mets.length; tm++) t += unitCell(scopeUnit(), M.scope, mets[tm], !sel);
+  for (var tm = 0; tm < mets.length; tm++) t += unitCell(scopeUnit(), M.scope, mets[tm], !sel, gcls[mets[tm].key]);
   t += '</tr>';
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i];
@@ -2095,7 +2394,7 @@ function teamsHTML() {
       + (below ? ' · <span class="' + P + '-below"' + tip({ title: 'Ниже ещё ' + below + ' ' + plural(below, 'подразделение', 'подразделения', 'подразделений'),
           text: 'Показаны 3 уровня вниз. Глубже — переключатель «Глубина: Все уровни» или стрелка → (юнит станет юнитом отчёта).' }) + '>ниже ещё ' + below + '</span>' : '')
       + '</span></span></span></td>';
-    for (var mm = 0; mm < mets.length; mm++) t += unitCell(uid, row.ser, mets[mm], isSel);
+    for (var mm = 0; mm < mets.length; mm++) t += unitCell(uid, row.ser, mets[mm], isSel, gcls[mets[mm].key]);
     t += '</tr>';
   }
   if (!rows.length) {
@@ -2104,21 +2403,34 @@ function teamsHTML() {
       + '</span></td></tr>';
   }
   t += '</tbody></table>';
-  var cur = sel || { lvl: 0, id: '', ser: M.scope };
-  var cu = sel ? rowUnit(sel) : scopeUnit(), right = '<div class="' + P + '-dyn">';
+  var cur = sel || { lvl: 0, id: '', ser: M.scope, key: '' };
+  var cu = sel ? rowUnit(sel) : scopeUnit(), dyn = state.dyn === 'wow' ? 'wow' : 'yoy', right = '<div class="' + P + '-dyn">';
   for (var cm = 0; cm < mets.length; cm++) {
-    var spec = state.dyn === 'wow' ? weekSpec(cu, cur.ser, mets[cm]) : yoySpec(cu, cur.ser, mets[cm]);
-    right += '<div>' + chartBlock('side', mets[cm].name, spec, CFG.chart.hSmall) + '</div>';
+    var spec = dyn === 'wow' ? weekSpec(cu, cur.ser, mets[cm]) : yoySpec(cu, cur.ser, mets[cm]);
+    right += chartBlock('side', 'tm:' + mets[cm].key + ':' + dyn + ':' + cu + ':' + cur.key, mets[cm].name, spec, CFG.chart.hSmall);
   }
   right += '</div>';
-  s += legendHTML(false) + '<div class="' + P + '-split">'
-    + hPanel({ title: 'Юниты', sub: 'клик по строке меняет графики справа и показывает ориентиры под значениями', body: t, tbl: true })
-    + hPanel({ title: 'Динамика', sub: sel ? rowName(sel) : 'ИТОГО · ' + scopeLabel(), body: right,
-               tabs: hSubs([['yoy', 'Год'], ['wow', '12 недель']], state.dyn === 'wow' ? 'wow' : 'yoy', 'dyn') })
-    + '</div>';
-  s += '<div class="' + P + '-tnote">Цели наследуются вниз по дереву: значение юнита сравнивается с ближайшей целью на нём самом или выше по ветке. '
-    + 'Значения — за ' + esc(monthLow(L)) + '. «Напрямую в …» — сотрудники, закреплённые за самим юнитом, а не за его подразделениями.</div>';
+  var info = hInfo({ title: 'Как читать таблицу', text: 'Значения — за ' + monthLow(L) + '. Цвет — к ориентиру юнита: к цели (своей или ближайшей выше по дереву), иначе к базе «' + benchLabel() + '».',
+    note: ['Каретка раскрывает уровень, стрелка → делает юнит юнитом отчёта.', '«Напрямую в …» — сотрудники, закреплённые за самим юнитом, а не за его подразделениями.'] });
+  var mode = state.narrow ? 'both' : (state.splitMode || 'both');
+  var left = hPanel({ cls: P + '-tpan', title: 'Юниты', info: info, sub: 'клик по строке — графики справа и ориентиры под значениями', body: t, tbl: true, tabs: splitBtn('table') });
+  var rightP = hPanel({ cls: P + '-dpan', title: 'Динамика', sub: sel ? rowName(sel) : 'ИТОГО · ' + scopeLabel(), body: right,
+    tabs: '<span class="' + P + '-pbtn">' + hSubs([['yoy', 'Год'], ['wow', '12 недель']], dyn, 'dyn') + splitBtn('charts') + '</span>' });
+  var sh = state.split || CFG.split.def;
+  s += legendHTML(false);
+  if (mode === 'table') s += '<div class="' + P + '-split ' + P + '-sp1">' + left + splitRail('Динамика', '◂') + '</div>';
+  else if (mode === 'charts') s += '<div class="' + P + '-split ' + P + '-sp2c">' + splitRail('Юниты', '▸') + rightP + '</div>';
+  else {
+    s += '<div class="' + P + '-split" data-split-box="1" style="grid-template-columns:' + splitCols(sh) + '">' + left
+      + '<div class="' + P + '-gut" data-split="1" role="separator" aria-orientation="vertical" aria-label="Ширина таблицы" aria-valuemin="' + Math.round(CFG.split.min * 100)
+      + '" aria-valuemax="' + Math.round(CFG.split.max * 100) + '" aria-valuenow="' + Math.round(sh * 100) + '" tabindex="0"'
+      + tip({ title: 'Ширина колонок', text: 'Потяните, чтобы дать больше места таблице или графикам. Двойной клик — как было; стрелки ← → — с клавиатуры.' }) + '><i></i></div>'
+      + rightP + '</div>';
+  }
   return s;
+}
+function splitCols(sh) {
+  return state.narrow ? 'minmax(0,1fr)' : 'minmax(0,' + (sh * 100).toFixed(2) + 'fr) 12px minmax(0,' + ((1 - sh) * 100).toFixed(2) + 'fr)';
 }
 
 // ---- вкладка «Трансформеры» ----
@@ -2202,8 +2514,8 @@ function transformHTML() {
       sp.series.push({ name: series[si].name, color: col, data: data });
       lg += '<span><i class="' + P + '-lgb" style="background:' + col + '"></i>' + esc(series[si].name) + '</span>';
     }
-    var body = '<div class="' + P + '-chh"><span class="' + P + '-cht">' + esc(fmtVal(m, mval(M.scope, 'm', m, L))) + ' · итого за ' + esc(monthLow(L)) + '</span><span class="' + P + '-chl">' + lg + '</span></div>'
-      + chartSlot('wide', function (w) { return svgBars(sp, w, CFG.chart.bars); });
+    var body = '<div class="' + P + '-chh"><span class="' + P + '-cap">' + esc(fmtVal(m, mval(M.scope, 'm', m, L))) + ' · итого за ' + esc(monthLow(L)) + '</span><span class="' + P + '-chl">' + lg + '</span></div>'
+      + chartSlot('wide', 'tf:' + axis + ':' + m.key + ':' + scopeUnit(), function (w, ctx) { return svgBars(sp, w, CFG.chart.bars, ctx); });
     return s + hPanel({ title: m.name + ' · ось «' + axisLabel(axis) + '»', sub: 'последние 12 месяцев' + (rest.length ? ' · 7 крупнейших значений, остальные — «Прочие»' : ''), body: body });
   }
   var th = '<table class="' + P + '-t"><thead><tr><th class="' + P + '-l">' + esc(axisLabel(axis)) + '</th>';
@@ -2423,15 +2735,23 @@ function buildHTML() {
     // Твоё дело — только содержимое и якорь. Видимость и позицию считает showTip.
     function showTip(html, rect) {
       var tip = getTip();
-      tip.innerHTML = html;
+      // За курсором showTip зовётся на каждом mousemove — HTML меняем, только если он другой.
+      if (tip.__h !== html) { tip.innerHTML = html; tip.__h = html; }
       tip.style.display = 'block';
       tip.style.left = '0px';
       tip.style.top = '0px';
       var t = tip.getBoundingClientRect();
-      var pad = 6, gap = 8;
-      var left = rect.left + rect.width / 2 - t.width / 2;
-      var top = rect.top + rect.height + gap;
-      if (top + t.height > window.innerHeight - pad) top = rect.top - t.height - gap;
+      var pad = 6, gap = 8, left, top;
+      if (rect.pt) {
+        // Якорь — курсор (как в Proteus Adoption): справа-снизу, у края окна — зеркально.
+        left = rect.left + 14; top = rect.top + 18;
+        if (left + t.width > window.innerWidth - pad) left = rect.left - t.width - 14;
+        if (top + t.height > window.innerHeight - pad) top = rect.top - t.height - 14;
+      } else {
+        left = rect.left + rect.width / 2 - t.width / 2;
+        top = rect.top + rect.height + gap;
+        if (top + t.height > window.innerHeight - pad) top = rect.top - t.height - gap;
+      }
       left = Math.max(pad, Math.min(left, window.innerWidth - t.width - pad));
       top = Math.max(pad, Math.min(top, window.innerHeight - t.height - pad));
       tip.style.left = Math.round(left) + 'px';
@@ -2442,6 +2762,7 @@ function buildHTML() {
       var tip = getTip();
       tip.style.opacity = '0';
       tip.style.display = 'none';
+      tip.__h = null;
     }
 
     // Показ/скрытие тултипа НЕ требует полного render(): hover меняет только
@@ -2452,6 +2773,27 @@ function buildHTML() {
       if (!state.tip) { hideTip(); return; }
       // data-tip несёт ГОТОВЫЙ html плашки (tipHtml при сборке разметки).
       showTip(state.tip.key || '', state.tip.rect);
+    }
+    // Анимация появления (ДС 6.5): только у графиков, впервые показанных с этими данными
+    // (CHARTS[i].anim), — не на ресайз и не на наведение. Web Animations, fill 'backwards':
+    // после конца анимации элемент живёт по своему CSS (подсветка легенды работает).
+    function animateCharts() {
+      var boxes = overlay.querySelectorAll('[data-ci]');
+      for (var b = 0; b < boxes.length; b++) {
+        var ch = CHARTS[+boxes[b].getAttribute('data-ci')];
+        if (!ch || !ch.anim) continue;
+        ch.anim = false;
+        var run = function (sel, frames, o) {
+          var els = boxes[b].querySelectorAll(sel);
+          for (var i = 0; i < els.length; i++) {
+            var d = +(els[i].getAttribute('data-d') || 0);
+            try { els[i].animate(frames, { duration: o.dur, easing: o.ease, delay: (o.delay || 0) + d, fill: 'backwards' }); } catch (er) { /* без анимации */ }
+          }
+        };
+        run('.' + CFG.ns + '-ln', [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { dur: CFG.chart.drawMs, ease: 'cubic-bezier(.4,0,.2,1)' });
+        run('.' + CFG.ns + '-fd', [{ opacity: 0 }, { opacity: 1 }], { dur: 320, ease: 'ease-out' });
+        run('.' + CFG.ns + '-bar', [{ transform: 'scaleY(0)' }, { transform: 'scaleY(1)' }], { dur: 480, ease: 'cubic-bezier(.22,.61,.36,1)' });
+      }
     }
 
     // Ширины графиков меряются по плейсхолдерам [data-cw] после вставки
@@ -2485,8 +2827,8 @@ function buildHTML() {
       if (!a && !b) return false;
       var els = overlay.querySelectorAll('[data-ci]');
       for (var k = 0; k < els.length; k++) {
-        var ch = CHARTS[+els[k].getAttribute('data-ci')];
-        if (ch) els[k].innerHTML = ch.draw(cwOf(ch.kind));
+        var ci = +els[k].getAttribute('data-ci'), ch = CHARTS[ci];
+        if (ch) els[k].innerHTML = ch.draw(cwOf(ch.kind), { ci: ci, anim: ch.anim });
       }
       return true;
     }
@@ -2500,6 +2842,8 @@ function buildHTML() {
       var pl = overlay.querySelector('[data-plist]'), pst = pl ? pl.scrollTop : 0;
       overlay.innerHTML = buildHTML();
       relayout();
+      animateCharts();
+      state.hzCur = null;
       overlay.scrollTop = st;
       overlay.scrollLeft = sl;
       var pl2 = overlay.querySelector('[data-plist]');
@@ -2523,32 +2867,77 @@ function buildHTML() {
       return null;
     }
 
-    function onOver(e) {
-      var el = trigger(e.target, 'data-tip');
-      if (!el) return;
-      // Якорь — rect ЦЕЛИ как есть; содержимое плашки лежит готовым
-      // html в самом data-tip (tipHtml при сборке разметки).
-      state.tip = {
-        rect: el.getBoundingClientRect(),
-        kind: el.getAttribute('data-kind') || '',
-        key: el.getAttribute('data-tip') || ''
-      };
-      renderTip();
+    // ── НАВЕДЕНИЕ: тултип едет за курсором и не мигает ──
+    // Цель — ближайший [data-tip] (подсказка у всей ячейки таблицы, у колонки спарклайна)
+    // или хит-зона линии [data-hz] (колонка — по X курсора, перекрестие и все серии сразу).
+    // Между соседними целями тултип НЕ гаснет — меняется только содержимое; ушёл в пустоту —
+    // гаснет через TIP_HIDE мс (щели между ячейками и столбиками не мигают).
+    var TIP_HIDE = 110, tipHideT = null;
+    function curPt(e) { return { left: e.clientX, top: e.clientY, width: 0, height: 0, pt: true }; }
+    function cancelHide() { if (tipHideT) { clearTimeout(tipHideT); tipHideT = null; } }
+    function dropTip() { cancelHide(); state.tip = null; clearXh(); hideTip(); }
+    function scheduleHide() {
+      if (tipHideT || (!state.tip && !state.hzCur)) return;
+      tipHideT = setTimeout(function () { tipHideT = null; state.tip = null; clearXh(); hideTip(); }, TIP_HIDE);
     }
-
-    function onOut(e) {
-      var el = trigger(e.target, 'data-tip');
-      if (!el) return;
-      // Переход курсора на ДОЧЕРНИЙ узел той же цели тултип не гасит,
-      // иначе он мигает посреди наведения.
-      var to = e.relatedTarget;
-      while (to) {
-        if (to === el) return;
-        to = to.parentNode;
+    function clearXh() {
+      var c = state.hzCur;
+      state.hzCur = null;
+      if (c && c.g) c.g.style.display = 'none';
+    }
+    // Колонка линии под курсором: перекрестие, маркеры серий, содержимое — только при смене колонки.
+    function hzMove(hz, e) {
+      var ch = CHARTS[+hz.getAttribute('data-hc')], svg = hz.ownerSVGElement;
+      if (!ch || !ch.hz || !svg) return;
+      var r = svg.getBoundingClientRect(), x = e.clientX - r.left, xs = ch.hz.xs, i = 0;
+      for (var k = 1; k < xs.length; k++) if (Math.abs(xs[k] - x) < Math.abs(xs[i] - x)) i = k;
+      var c = state.hzCur;
+      if (!c || c.hz !== hz || c.i !== i) {
+        if (c && c.hz !== hz) clearXh();
+        var g = svg.querySelector('[data-xh]');
+        if (g) {
+          var ln = g.querySelector('line');
+          if (ln) { ln.setAttribute('x1', xs[i].toFixed(1)); ln.setAttribute('x2', xs[i].toFixed(1)); }
+          var dots = g.querySelectorAll('[data-xs]');
+          for (var d = 0; d < dots.length; d++) {
+            var yv = ch.hz.ys[dots[d].getAttribute('data-xs')][i];
+            if (yv === null || yv === undefined) { dots[d].style.display = 'none'; continue; }
+            dots[d].style.display = '';
+            dots[d].setAttribute('cx', xs[i].toFixed(1));
+            dots[d].setAttribute('cy', yv.toFixed(1));
+          }
+          g.style.display = '';
+        }
+        state.hzCur = { hz: hz, i: i, g: g };
       }
-      state.tip = null;
-      hideTip();
+      state.tip = { rect: curPt(e), key: ch.hz.tips[i], kind: 'pt', hz: true };
+      showTip(state.tip.key, state.tip.rect);
     }
+    // Наведение на пункт легенды гасит чужие серии своего графика.
+    function legendHi(el) {
+      var box = el ? trigger(el, 'data-chb') : null, cur = state.hiBox;
+      if (cur && cur !== box) cur.removeAttribute('data-hi');
+      state.hiBox = box;
+      if (box) box.setAttribute('data-hi', el.getAttribute('data-lgs'));
+    }
+    function onMove(e) {
+      if (state.dragging) return;
+      var lg = trigger(e.target, 'data-lgs');
+      if (lg || state.hiBox) legendHi(lg);
+      var hz = trigger(e.target, 'data-hz');
+      if (hz) { cancelHide(); hzMove(hz, e); return; }
+      var el = trigger(e.target, 'data-tip');
+      // Кнопка с раскрытым поповером подсказку не показывает: меню и так перед глазами.
+      if (el && el.getAttribute('aria-expanded') === 'true' && el.getAttribute('data-pop')) el = null;
+      if (!el) { scheduleHide(); return; }
+      cancelHide();
+      if (state.hzCur) clearXh();
+      var html = el.getAttribute('data-tip') || '';
+      if (!html) { scheduleHide(); return; }
+      state.tip = { rect: curPt(e), key: html, kind: el.getAttribute('data-kind') || '' };
+      showTip(html, state.tip.rect);
+    }
+    function onLeave() { legendHi(null); dropTip(); }
 
     // ── ЭМИССИЯ КРОСС-ФИЛЬТРА ──
     // Чарт фильтрует САМ СЕБЯ (самовлияние включено в дашборде). Эмит ставит
@@ -2604,10 +2993,54 @@ function buildHTML() {
     function searchZone() {
       if (state.qT) { clearTimeout(state.qT); state.qT = null; }
       var q = String(state.q || '').replace(/^\s+|\s+$/g, '');
-      if (q.length < CFG.searchMin || MODEL.dictMode !== 'part' || q.toLowerCase() === String(MODEL.q || '').toLowerCase()) { refreshList(); return; }
+      if (q.length < CFG.searchMin || !searchRemote() || q.toLowerCase() === String(MODEL.q || '').toLowerCase()) { refreshList(); return; }
       var n = reqNow();
       n.q = q.slice(0, 60);
       emit(n, true);
+    }
+    function forgetDrawn(prefix) {
+      for (var k in state.drawn) if (state.drawn.hasOwnProperty(k) && k.indexOf(prefix) === 0) delete state.drawn[k];
+    }
+    // ── РАЗДЕЛИТЕЛЬ «таблица | динамика» («Команды») ──
+    // Тянется мышью: доля пишется в стиль сетки на лету (без render), графики справа
+    // перерисовываются по новой ширине через relayout раз в кадр. Двойной клик — как было.
+    function setSplit(box, sh) {
+      sh = Math.max(CFG.split.min, Math.min(CFG.split.max, sh));
+      state.split = sh;
+      if (box) {
+        box.style.gridTemplateColumns = splitCols(sh);
+        var g = box.querySelector('[data-split]');
+        if (g) g.setAttribute('aria-valuenow', String(Math.round(sh * 100)));
+      }
+    }
+    function onDown(e) {
+      var g = trigger(e.target, 'data-split');
+      if (!g || (e.button !== undefined && e.button !== 0)) return;
+      var box = g.parentNode, r = box.getBoundingClientRect();
+      e.preventDefault();
+      dropTip();
+      state.dragging = true;
+      overlay.classList.add(CFG.ns + '-drag');
+      var raf = null;
+      var move = function (ev) {
+        setSplit(box, (ev.clientX - r.left - 6) / Math.max(1, r.width - 12));
+        if (raf === null) raf = setTimeout(function () { raf = null; relayout(); }, 60);
+      };
+      var up = function () {
+        document.removeEventListener('mousemove', move, true);
+        document.removeEventListener('mouseup', up, true);
+        state.dragging = false;
+        overlay.classList.remove(CFG.ns + '-drag');
+        relayout();
+      };
+      document.addEventListener('mousemove', move, true);
+      document.addEventListener('mouseup', up, true);
+    }
+    function onDbl(e) {
+      var g = trigger(e.target, 'data-split');
+      if (!g) return;
+      setSplit(g.parentNode, CFG.split.def);
+      relayout();
     }
     // Трансформеры: ось грузится лениво — один раз на ось, когда вкладку открыли.
     function ensureAxis() {
@@ -2690,15 +3123,27 @@ function buildHTML() {
       if (act === 'unit') { emit(withUnit(id ? [id] : MODEL.roots)); return; }
       // Строка фильтров копит выбор: юнит, зона HRBP, разрезы — до «Применить».
       if (act === 'pick' || act === 'hpick') {
-        var ids = [];
-        if (act === 'pick') ids = id ? [id] : [];
-        else if (MODEL.hBy[id]) ids = sameSet(MODEL.hBy[id].roots, MODEL.roots) ? [] : MODEL.hBy[id].roots.slice();
-        stageEdit(function (st) { st.unit = ids; });
+        stageEdit(function (st) {
+          var h = st.hz ? MODEL.hBy[st.hz] : null;
+          if (act === 'pick') {
+            // «Вся зона HRBP» — корни выбранного HRBP; юнит — внутри его зоны, HRBP остаётся.
+            st.unit = id ? [id] : (h && !sameSet(h.roots, MODEL.roots) ? h.roots.slice() : []);
+            if (id && h && !inHzZone(id, h)) st.hz = '';
+            return;
+          }
+          var nh = id ? MODEL.hBy[id] : null;
+          if (nh) { st.hz = nh.login; st.unit = sameSet(nh.roots, MODEL.roots) ? [] : nh.roots.slice(); return; }
+          // «Все HRBP»: зона снятого HRBP становится всей зоной; выбранный внутри неё юнит остаётся.
+          if (h && (!st.unit.length || sameSet(st.unit, h.roots))) st.unit = [];
+          st.hz = '';
+        });
+        if (act === 'hpick') state.unitAll = false;
         state.open = '';
         state.q = '';
         render();
         return;
       }
+      if (act === 'unitall') { state.unitAll = !state.unitAll; state.q = ''; render(); focusPop(); return; }
       if (act === 'htree') { state.hOpen[id] = !hrbpOpen(id, MODEL.hTop.indexOf(id) > -1 ? 0 : 1); render(); return; }
       if (act === 'clearcut' || act === 'cutnone') {
         stageEdit(function (st) { st.cuts[key] = []; });
@@ -2709,6 +3154,8 @@ function buildHTML() {
         if (!stageDiff() || state.pend) return;
         var na = staged();
         if (!sameSet(na.unit, reqNow().unit)) { state.openRows = {}; state.selTeam = ''; }
+        state.hz = na.hz || '';
+        if (!stageDiff()) state.stage = null;
         emit(na);
         return;
       }
@@ -2722,14 +3169,39 @@ function buildHTML() {
       if (act === 'reset') {
         state.metricOff = {};
         state.focusOnly = false;
-        state.openMetric = '';
+        state.openM = {};
         state.selTeam = '';
         state.openRows = {};
         state.stage = null;
+        state.hz = '';
         emit({ unit: [], cuts: {}, axis: MODEL.axis || '', depth: MODEL.depthReq, q: '' });
         return;
       }
-      if (act === 'openm') { state.openMetric = state.openMetric === key ? '' : key; render(); return; }
+      // Строки «Сводки» раскрываются независимо: можно смотреть несколько динамик сразу.
+      // Свёрнутая строка при следующем раскрытии снова рисуется с анимацией.
+      if (act === 'openm') {
+        if (state.openM[key]) { delete state.openM[key]; forgetDrawn('op:' + key + ':'); } else state.openM[key] = true;
+        render();
+        return;
+      }
+      if (act === 'openall') {
+        var bm = selMetrics(key), allOn = true;
+        for (var bo = 0; bo < bm.length; bo++) if (!state.openM[bm[bo].key]) allOn = false;
+        for (var bo2 = 0; bo2 < bm.length; bo2++) {
+          if (allOn) { delete state.openM[bm[bo2].key]; forgetDrawn('op:' + bm[bo2].key + ':'); } else state.openM[bm[bo2].key] = true;
+        }
+        render();
+        return;
+      }
+      if (act === 'lg') {
+        if (a.getAttribute('data-lock')) return;
+        state.lineOff[key] = !state.lineOff[key];
+        render();
+        var again = overlay.querySelector('[data-action="lg"][data-key="' + key + '"]');
+        if (again && again.focus) again.focus();
+        return;
+      }
+      if (act === 'split') { state.splitMode = key === 'table' || key === 'charts' ? key : 'both'; state.tip = null; render(); return; }
       if (act === 'block') { state.block = key; state.selTeam = ''; render(); return; }
       if (act === 'team') { state.selTeam = key; render(); return; }
       // Раскрытие — только вид: все уровни глубины уже в ответе.
@@ -2810,7 +3282,7 @@ function buildHTML() {
       if (ps !== null) {
         state.q = t.value;
         // Большая зона: поиск по всей зоне сам уходит после паузы в наборе — без Enter.
-        if (ps === 'unit' && MODEL.dictMode === 'part') {
+        if (ps === 'unit' && searchRemote()) {
           if (state.qT) clearTimeout(state.qT);
           state.qT = String(state.q).replace(/^\s+|\s+$/g, '').length >= CFG.searchMin
             ? setTimeout(function () { state.qT = null; searchZone(); }, CFG.searchDelay) : null;
@@ -2825,6 +3297,12 @@ function buildHTML() {
     // Escape закрывает открытый поповер (smoke E24); Enter в поиске юнита — поиск по всей зоне.
     function onKeydown(e) {
       var k = e.keyCode || e.which;
+      if ((k === 37 || k === 39) && e.target && e.target.getAttribute && e.target.getAttribute('data-split')) {
+        e.preventDefault();
+        setSplit(e.target.parentNode, (state.split || CFG.split.def) + (k === 39 ? 0.05 : -0.05));
+        relayout();
+        return;
+      }
       if (k === 13 && e.target && e.target.getAttribute && e.target.getAttribute('data-psearch') === 'unit') {
         e.preventDefault();
         searchZone();
@@ -2843,8 +3321,10 @@ function buildHTML() {
       }
     }
 
-    overlay.addEventListener('mouseover', onOver);
-    overlay.addEventListener('mouseout', onOut);
+    overlay.addEventListener('mousemove', onMove);
+    overlay.addEventListener('mouseleave', onLeave);
+    overlay.addEventListener('mousedown', onDown);
+    overlay.addEventListener('dblclick', onDbl);
     overlay.addEventListener('click', onClick);
     overlay.addEventListener('change', onChange);
     overlay.addEventListener('input', onInput);
@@ -2875,6 +3355,8 @@ function buildHTML() {
     if (state.pend && Date.now() - state.pend.at > CFG.pendingWarnMs) { state.pend = null; state.warn = CFG.text.notApplied; }
     if (state.lastSig && state.lastSig === echo && state.warn === CFG.text.notApplied) state.warn = '';
     armPend();
+    // HRBP держится, пока область внутри его зоны (стрелка → в чужую зону его снимает).
+    state.hz = hzNow();
     // Набранное применилось (ответ совпал с набором) — строка фильтров снова «чистая».
     if (state.stage && !stageDiff()) state.stage = null;
 
