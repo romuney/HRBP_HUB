@@ -140,7 +140,6 @@ var CFG = {
   levels: { 1: 'Компания' },
   searchMin: 2,              // с какой длины строки поиск идёт по всей зоне
   searchDelay: 500,          // пауза ввода перед поиском по всей зоне, мс
-  tourKey: 'hrbp-hub.tour',  // память браузера: приглашение к туру «Как работать» уже закрывали
   tabs: [
     { key: 'onepager', label: 'Сводка' }, { key: 'teams', label: 'Команды' },
     { key: 'transform', label: 'Трансформеры' }, { key: 'goals', label: 'Цели' },
@@ -156,15 +155,16 @@ var CFG = {
   },
   // Токены: текст — как в Proteus Adoption, акцент #2b6cff — синий шапки отчёта.
   // Светофор подобран под акцент: у каждого сигнала фон пилюли, текст пилюли и
-  // марка графика (столбик спарклайна, точка легенды) — один тон. Марка — тон фона
-  // пилюли на ступень плотнее (green / red / neutral): бледная, как пилюля, и не
-  // перебивает синюю линию. Жёлтого в светофоре нет.
+  // марка графика (столбик спарклайна, точка легенды) — один тон. Марка (green / red /
+  // neutral) — посередине между фоном пилюли и насыщенным сигналом: насыщенные столбики
+  // были самым ярким пятном «Сводки», тон фона пилюли — слишком бледным. Не ярче синей
+  // линии. Жёлтого в светофоре нет.
   colors: {
     bg: '#f4f5f7', card: '#ffffff', line: '#e7e9ee', line2: '#eef0f3',
     ink: '#23272e', ink2: '#454b55', muted: '#8a909c', muted2: '#aab0bb',
-    green: '#c1ebd4', greenBg: '#dbf5e6', greenTx: '#11804a',
-    red: '#fbcfcf', redBg: '#fde2e2', redTx: '#cb2e2e',
-    neutral: '#e1e5eb', neutralBg: '#eff1f5', neutralTx: '#5d6574',
+    green: '#7fd2a5', greenBg: '#dbf5e6', greenTx: '#11804a',
+    red: '#f59e9e', redBg: '#fde2e2', redTx: '#cb2e2e',
+    neutral: '#d8dde4', neutralBg: '#eff1f5', neutralTx: '#5d6574',
     warn: '#f59300', warnBg: '#ffe6a0', warnTx: '#9a6500',
     blue: '#3b6fe0', blueBg: '#eef3fe', act: '#2b6cff', actInk: '#1f55d6',
     surface2: '#f3f4f6', hover: '#fafbfc',
@@ -237,8 +237,7 @@ var STATE0 = {
   pend: null,            // {sig, at} — эмит ушёл, ждём ответ с тем же эхом
   pendT: null, lastSig: '',
   warn: '',              // предупреждение (не применился фильтр и т. п.)
-  tour: null,            // идущий тур «Как работать»: {view, i, dir, shown, key, was, busy}
-  tourSeen: null         // приглашение к туру закрыто (null — память браузера ещё не читали)
+  tour: null             // идущий тур «Как работать»: {view, i, dir, shown, key, was, busy}
 };
 if (!__S[CFG.ns]) __S[CFG.ns] = {};
 // Ключи, которых нет в состоянии прошлой версии скрипта (страницу не перезагружали), — по умолчанию.
@@ -294,10 +293,6 @@ function splitRecords(s) {
   for (var i = 0; i < lines.length; i++) if (lines[i] !== '') out.push(lines[i].split('\t'));
   return out;
 }
-// Память браузера — только для приглашения к туру. Песочница может её не дать:
-// тогда приглашение закрывается до перезагрузки страницы, а не навсегда.
-function lsGet(k) { try { return window.localStorage ? window.localStorage.getItem(k) : null; } catch (er) { return null; } }
-function lsSet(k, v) { try { if (window.localStorage) window.localStorage.setItem(k, v); } catch (er) { return; } }
 function pad2(n) { return (n < 10 ? '0' : '') + n; }
 function isoOf(p) { return p ? p.y + '-' + pad2(p.m + 1) + '-' + pad2(p.d) : ''; }
 
@@ -1356,14 +1351,14 @@ function buildCSS() {
     // ---- графики (Proteus Adoption, ДС 6): ось 10,5, подписи 11 на белой подложке ----
     P + '-spark{display:block;width:100%;height:40px;}',
     P + '-sbase{fill:' + C.line + ';}',
-    // Столбики светофора — тон пилюли того же сигнала (фон пилюли на ступень плотнее).
+    // Столбики светофора — тон того же сигнала, что у пилюли, посередине между её фоном и насыщенным.
     P + '-sb' + P + '-good{fill:' + C.green + ';}',
     P + '-sb' + P + '-bad{fill:' + C.red + ';}',
     P + '-sb' + P + '-warn,' + P + '-sb' + P + '-neutral{fill:' + C.neutral + ';}',
     // Прозрачная полоса колонки: попасть в неё легко, между колонками нет щелей (ДС 6.4).
     P + '-hit{fill:' + C.act + ';fill-opacity:0;transition:fill-opacity .12s;}',
     P + '-sbg:hover ' + P + '-hit{fill-opacity:.06;}',
-    P + '-sbg:hover ' + P + '-sb{filter:brightness(.93) saturate(1.4);}',
+    P + '-sbg:hover ' + P + '-sb{filter:brightness(.92) saturate(1.2);}',
     P + '-bar{transform-box:fill-box;transform-origin:50% 100%;}',
     P + '-chart{width:100%;overflow:hidden;}',
     P + '-svg{display:block;overflow:visible;}',
@@ -1455,12 +1450,9 @@ function buildCSS() {
     P + '-root ' + P + '-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:' + C.muted + ';font-weight:400;}',
     P + '-steps{margin:0;padding-left:18px;color:' + C.ink2 + ';font-size:' + F.body + 'px;line-height:1.6;}',
 
-    // ---- тур «Как работать»: кнопка в шапке, приглашение, слой тура ----
+    // ---- тур «Как работать»: кнопка в шапке, слой тура ----
     P + '-help{color:' + C.act + ';}',
     P + '-help:hover{background:' + C.blueBg + ';border-color:#cfdcfb;}',
-    P + '-inv{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}',
-    P + '-invt{flex:1 1 320px;min-width:0;}',
-    P + '-invb{display:inline-flex;gap:8px;}',
     // Слой тура живёт В BODY, как тултип: шрифт и position:fixed — явно. Затемнение — четыре
     // шторки вокруг цели (клик мимо цели не проходит), пятая — поверх цели, если она «только смотреть».
     P + '-tour{font-family:' + CFG.fonts.family + ';display:none;}',
@@ -2757,7 +2749,8 @@ function catalogHTML() {
   return s + '</div>';
 }
 
-// ---- тур «Как работать» (ДС §10: справка при первом входе, дальше — кнопкой) ----
+// ---- тур «Как работать»: справка — кнопкой в шапке (ДС §10). Показа «при первом входе» нет:
+// Proteus не помнит, заходил ли человек раньше, и приглашение висело бы при каждом входе. ----
 // Шаги по вкладкам. sel — что подсветить: селектор внутри overlay или функция root → элемент
 // или список; all — подсветить все найденные разом (rings — рамкой вокруг каждого: строка
 // фильтров переносится, и общая рамка захватила бы соседей); lock — подсвеченное не кликается (там
@@ -2767,20 +2760,7 @@ function catalogHTML() {
 var HELP_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + '<circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.6-2.7 2.6"/><path d="M12 16.6h.01"/></svg>';
 var TOUR_NEXT = { onepager: 'teams', teams: 'transform', transform: 'goals', goals: 'catalog' };
-function tourSeen() {
-  if (state.tourSeen === null) state.tourSeen = lsGet(CFG.tourKey) === '1';
-  return state.tourSeen;
-}
 function tabLabel(v) { for (var i = 0; i < CFG.tabs.length; i++) if (CFG.tabs[i].key === v) return CFG.tabs[i].label; return v; }
-// Приглашение при первом входе — строкой под фильтрами, не модальным окном: отчёт сразу
-// доступен, а закрытое приглашение помнит браузер.
-function inviteHTML() {
-  var P = CFG.ns;
-  return '<div class="' + P + '-notes"><div class="' + P + '-note ' + P + '-ninfo ' + P + '-inv">'
-    + '<span class="' + P + '-invt"><b>Впервые в HRBP HUB?</b> Покажем за минуту прямо на отчёте, что где: фильтры, цвета, таблицы и графики.</span>'
-    + '<span class="' + P + '-invb"><button type="button" class="' + P + '-btn ' + P + '-pri" data-tact="invite">Показать</button>'
-    + '<button type="button" class="' + P + '-btn ' + P + '-ghost" data-tact="later">Не сейчас</button></span></div></div>';
-}
 // Первый шаг полного тура: как читать отчёт — четыре правила (ДС §10).
 function tourIntroHTML() {
   return '<ul class="' + CFG.ns + '-tul">'
@@ -2916,7 +2896,6 @@ function buildHTML() {
   }
   h.push(filterBarHTML());
   h.push(noticesHTML());
-  if (!state.tour && !tourSeen()) h.push(inviteHTML());
   h.push('<div class="' + P + '-content" role="tabpanel">' + tabHTML(v) + '</div>');
   h.push('</div>');
   return buildCSS() + h.join('');
@@ -3162,9 +3141,7 @@ function buildHTML() {
       t.i = i; t.dir = dir; t.shown = -1;
       tourShow();
     }
-    function tourMark() { state.tourSeen = true; lsSet(CFG.tourKey, '1'); }
     function tourStart(view) {
-      tourMark();
       state.open = ''; state.q = ''; state.tip = null;
       hideTip();
       state.view = view;
@@ -3229,8 +3206,6 @@ function buildHTML() {
     }
     function tourAct(a) {
       if (a === 'tour') { tourStart(state.view || 'onepager'); return; }
-      if (a === 'invite') { tourStart('onepager'); return; }
-      if (a === 'later') { tourMark(); render(); return; }
       if (!state.tour) return;
       if (a === 'next') tourGo(state.tour.i + 1, 1);
       else if (a === 'back') tourGo(state.tour.i - 1, -1);
@@ -3588,7 +3563,7 @@ function buildHTML() {
     }
 
     function onClick(e) {
-      // Тур «Как работать»: кнопка в шапке и приглашение при первом входе.
+      // Тур «Как работать»: кнопка в шапке.
       var ta = trigger(e.target, 'data-tact');
       if (ta) { tourAct(ta.getAttribute('data-tact')); return; }
       // Клик мимо открытого поповера закрывает его; data-scope — на обёртке

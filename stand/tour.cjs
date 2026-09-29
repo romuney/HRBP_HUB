@@ -1,8 +1,8 @@
 // Проход тура «Как работать» на живом стенде (stand/live.py должен работать):
 //   NODE_PATH=$(npm root -g) node stand/tour.cjs 'http://127.0.0.1:8765/?user=b.kotov' <каталог> [ширина] [высота] [0|1 — кадры]
-// Новый контекст браузера = чистая память: приглашение → весь тур по вкладкам (по «Дальше — тур
-// по вкладке …»), показ «нажми — будет», затем: приглашение не вернулось после перезагрузки,
-// кнопка в шапке запускает тур текущей вкладки, стрелки листают, Esc закрывает.
+// Кнопка «Как работать» на «Сводке» → весь тур по вкладкам (по «Дальше — тур по вкладке …»),
+// показ «нажми — будет»; затем кнопка в шапке на «Командах» запускает тур этой вкладки,
+// стрелки листают, Esc закрывает.
 // Печатает каждый шаг (вкладка, номер, заголовок, где рамка и карточка, влезла ли карточка в окно).
 const { chromium } = require('playwright');
 const [,, url, out, w, h, shotsArg] = process.argv;
@@ -17,10 +17,9 @@ const shots = shotsArg !== '0';
   await page.goto(url);
   await page.waitForFunction(() => window.__runs > 0 && document.querySelector('.hh-root'), null, { timeout: 60000 });
   await page.waitForTimeout(700);
-  const inv = await page.$('[data-tact="invite"]');
-  console.log('INVITE', !!inv);
-  if (shots) await page.screenshot({ path: out + '/t00-invite.png' });
-  await page.click('[data-tact="invite"]');
+  // Приглашения «при первом входе» нет (Proteus не помнит первый вход) — тур только кнопкой.
+  console.log('INVITE', !!(await page.$('[data-tact="invite"]')));
+  await page.click('[data-tact="tour"]');
   await page.waitForTimeout(500);
   const seen = [];
   for (let n = 0; n < 60; n++) {
@@ -59,11 +58,6 @@ const shots = shotsArg !== '0';
     await page.click('.hh-tcard .hh-pri[data-tact="close"]');
     await page.waitForTimeout(400);
   }
-  // Приглашение не возвращается после перезагрузки (память браузера).
-  await page.reload();
-  await page.waitForFunction(() => window.__runs > 0 && document.querySelector('.hh-root'), null, { timeout: 60000 });
-  await page.waitForTimeout(600);
-  console.log('INVITE AFTER RELOAD', !!(await page.$('[data-tact="invite"]')));
   // Кнопка в шапке — тур по текущей вкладке; Esc закрывает.
   await page.click('[data-view="teams"]');
   await page.waitForTimeout(500);
