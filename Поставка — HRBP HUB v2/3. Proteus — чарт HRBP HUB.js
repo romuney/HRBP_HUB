@@ -140,9 +140,6 @@ var CFG = {
   levels: { 1: 'Компания' },
   searchMin: 2,              // с какой длины строки поиск идёт по всей зоне
   searchDelay: 500,          // пауза ввода перед поиском по всей зоне, мс
-  // Глубина «Команд»: 3 уровня вниз по умолчанию; «все» — пока ветка юнита не больше
-  // порога датасета (meta.all_max), иначе ответ — мегабайты.
-  depths: [['3', '3 уровня'], ['all', 'Все уровни']],
   tabs: [
     { key: 'onepager', label: 'Сводка' }, { key: 'teams', label: 'Команды' },
     { key: 'transform', label: 'Трансформеры' }, { key: 'goals', label: 'Цели' },
@@ -158,14 +155,15 @@ var CFG = {
   },
   // Токены: текст — как в Proteus Adoption, акцент #2b6cff — синий шапки отчёта.
   // Светофор подобран под акцент: у каждого сигнала фон пилюли, текст пилюли и
-  // марка графика (столбик, точка) — один тон, поэтому пилюля и столбик читаются
-  // одним цветом. Жёлтого в светофоре нет.
+  // марка графика (столбик спарклайна, точка легенды) — один тон. Марка — тон фона
+  // пилюли на ступень плотнее (green / red / neutral): бледная, как пилюля, и не
+  // перебивает синюю линию. Жёлтого в светофоре нет.
   colors: {
     bg: '#f4f5f7', card: '#ffffff', line: '#e7e9ee', line2: '#eef0f3',
     ink: '#23272e', ink2: '#454b55', muted: '#8a909c', muted2: '#aab0bb',
-    green: '#2fb36b', greenBg: '#dbf5e6', greenTx: '#11804a',
-    red: '#ee6262', redBg: '#fde2e2', redTx: '#cb2e2e',
-    neutral: '#cdd3dc', neutralBg: '#eff1f5', neutralTx: '#5d6574',
+    green: '#c1ebd4', greenBg: '#dbf5e6', greenTx: '#11804a',
+    red: '#fbcfcf', redBg: '#fde2e2', redTx: '#cb2e2e',
+    neutral: '#e1e5eb', neutralBg: '#eff1f5', neutralTx: '#5d6574',
     warn: '#f59300', warnBg: '#ffe6a0', warnTx: '#9a6500',
     blue: '#3b6fe0', blueBg: '#eef3fe', act: '#2b6cff', actInk: '#1f55d6',
     surface2: '#f3f4f6', hover: '#fafbfc',
@@ -213,7 +211,6 @@ var STATE0 = {
   qT: null,              // таймер поиска по всей зоне
   treeOpen: {},          // раскрытые узлы дерева в выборе юнита
   hOpen: {},             // раскрытые узлы дерева HRBP
-  depthNote: false,      // «Все уровни» недоступны для этой ветки — показать пояснение
   openM: {},             // раскрытые строки сводки: ключ метрики → true (можно несколько)
   metricOff: {},         // метрики, снятые с показа
   focusOnly: false,      // «Только фокусные»
@@ -230,7 +227,7 @@ var STATE0 = {
   unitBack: [],          // «← Назад»: юниты отчёта до переходов (стек, до 10)
   openRows: {},          // раскрытые узлы «Команд»: ключ — путь узла от −1 через '/'
   dyn: 'yoy',            // «Год» | «12 недель» в «Командах»
-  tfMetric: 'regret', tfMode: 'dyn', tfAxis: '',
+  tfMetric: 'regret', tfAxis: '',
   axisTried: {},         // оси трансформеров, которые уже запрашивались
   kd: {},                // черновик новой цели (вкладка «Цели»)
   copied: '',
@@ -630,8 +627,9 @@ function selMetrics(block) {
 function reqNow() {
   var cuts = {};
   for (var i = 0; i < CFG.cuts.length; i++) cuts[CFG.cuts[i].key] = (MODEL.sel[CFG.cuts[i].key] || []).slice();
+  // Глубина «Команд» — всегда 3 уровня (depth_f не шлётся): глубже — «Открыть юнит».
   return { unit: sameSet(MODEL.scopeIds, MODEL.roots) ? [] : MODEL.scopeIds.slice(), cuts: cuts, axis: MODEL.axis || '',
-           depth: MODEL.depthReq, q: '' };
+           depth: '3', q: '' };
 }
 // Эхо запроса: что датасет получил (req_unit — как пришло, до проверки доступа).
 function reqEcho() {
@@ -994,45 +992,6 @@ function svgLine(spec, W, H, ctx) {
   return s + '</svg>';
 }
 
-// ---- SVG: группы столбиков по месяцам (трансформеры). Шкала от нуля всегда. ----
-// spec: {m, labels[12], series:[{name, color, data[12]}], boldIdx, heads[12]}
-// Месяц — одна группа с прозрачной полосой на всю высоту (data-tip на группе): между
-// столбиками нет щелей, тултип переходит от месяца к месяцу без мигания.
-function svgBars(spec, W, H, ctx) {
-  var P = CFG.ns, C = CFG.colors, m = spec.m, n = spec.labels.length, k = spec.series.length;
-  var mx = 0;
-  for (var s0 = 0; s0 < k; s0++) for (var i0 = 0; i0 < n; i0++) { var v0 = spec.series[s0].data[i0]; if (v0 !== null && v0 > mx) mx = v0; }
-  var step = niceStep(Math.max(mx, 1e-6) / 4), max = Math.ceil(Math.max(mx, 1e-6) / step) * step;
-  var gl = Math.ceil(10 + textW(axisFmt(m, max)) + 10), gr = 16, gt = 12, gb = 24;
-  var pw = Math.max(40, W - gl - gr), ph = Math.max(40, H - gt - gb);
-  var gw = pw / n, bw = Math.max(2, Math.min(16, (gw - 10) / Math.max(k, 1)));
-  function Y(v) { return gt + ph - v / max * ph; }
-  var s = '<svg class="' + P + '-svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">';
-  for (var t = 0; t <= 4; t++) {
-    var tv = step * t;
-    if (tv > max + 1e-9) break;
-    var y = Y(tv);
-    s += '<line x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="' + C.grid + '"' + (t ? ' stroke-dasharray="3 3"' : '') + '/>';
-    s += '<text x="' + (gl - 10) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="end" class="' + P + '-ax">' + esc(axisFmt(m, tv)) + '</text>';
-  }
-  for (var i = 0; i < n; i++) {
-    var gx = gl + gw * i, x0 = gx + (gw - bw * k) / 2;
-    var rows = [], bars = '';
-    for (var j = 0; j < k; j++) {
-      var v = spec.series[j].data[i];
-      if (v === null) continue;
-      var y1 = Y(v);
-      bars += '<rect class="' + P + '-bar" data-d="' + (i * 12) + '" x="' + (x0 + j * bw).toFixed(1) + '" y="' + y1.toFixed(1) + '" width="' + Math.max(1, bw - 1).toFixed(1) + '" height="' + Math.max(0, gt + ph - y1).toFixed(1) + '" rx="2" fill="' + spec.series[j].color + '"/>';
-      rows.push({ label: spec.series[j].name, value: fmtVal(m, v), color: spec.series[j].color });
-    }
-    s += '<g class="' + P + '-bg"' + tip({ title: spec.heads[i], rows: rows.length ? rows : [{ label: 'нет данных', value: '—' }] }) + '>'
-      + '<rect class="' + P + '-hit" x="' + gx.toFixed(1) + '" y="' + gt + '" width="' + gw.toFixed(1) + '" height="' + ph + '"/>' + bars + '</g>';
-    s += '<text x="' + (gx + gw / 2).toFixed(1) + '" y="' + (gt + ph + 16) + '" text-anchor="middle" class="' + P + '-ax' + (i === spec.boldIdx ? ' ' + P + '-axb' : '') + '">' + esc(spec.labels[i]) + '</text>';
-  }
-  s += '<line x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + (gt + ph + 0.5) + '" y2="' + (gt + ph + 0.5) + '" stroke="' + C.axisLine + '"/>';
-  return s + '</svg>';
-}
-
 // ---- спарклайн: столбики за 12 месяцев, цвет — оценка КАЖДОГО месяца ----
 // Колонка месяца — группа с полосой на всю высоту (без щелей): тултип едет по месяцам не мигая.
 function svgSpark(vals, states, tips) {
@@ -1241,6 +1200,11 @@ function buildCSS() {
     P + '-ph{padding:14px 16px;font-weight:600;font-size:' + F.title + 'px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;color:' + C.ink + ';}',
     P + '-pht{display:flex;flex-direction:column;gap:2px;min-width:0;}',
     P + '-phs{font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;}',
+    // «Динамика»: длинное имя юнита — одной строкой с «…», кнопки шапки не переносятся под него.
+    P + '-dpan ' + P + '-ph{flex-wrap:nowrap;}',
+    P + '-dpan ' + P + '-pht{flex:1 1 auto;}',
+    P + '-dpan ' + P + '-pht>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    P + '-dpan ' + P + '-pbtn{flex:0 0 auto;}',
     P + '-pb{padding:14px 16px;}',
     P + '-pb' + P + '-tbl{padding:0 16px 4px;overflow:auto;}',
     // вкладки панели: 28 в подложке 34 (подложка 3, gap 3, радиус 12/9)
@@ -1290,7 +1254,15 @@ function buildCSS() {
     P + '-t tr' + P + '-det:hover td{background:' + C.hover + ';}',
     P + '-t td' + P + '-spk{padding:8px 16px;text-align:center;}',
     P + '-rl{display:flex;align-items:flex-start;}',
-    P + '-rb{min-width:0;}',
+    // Имя юнита — одной строкой с «…»: предел — от ширины панели (--hh-nmw, measureNames),
+    // целиком — у выбранной строки и в подсказке. Метки (★ Фокус, +N) не обрезаются.
+    P + '-rb{min-width:0;flex:0 1 auto;margin-right:6px;max-width:var(--' + CFG.ns + '-nmw,260px);}',
+    P + '-nml{display:flex;align-items:baseline;min-width:0;}',
+    P + '-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    P + '-nml>' + P + '-tag,' + P + '-nml>' + P + '-more,' + P + '-nml>' + P + '-gone{flex:0 0 auto;}',
+    // «ИТОГО» выбрана по умолчанию и остаётся в одну строку: её имя целиком — в строке над таблицей.
+    // Находки поиска (-fnd) — тоже целиком: совпадение не прячется за «…».
+    P + '-t tr' + P + '-sel:not(' + P + '-tot) ' + P + '-nm,' + P + '-t tr' + P + '-fnd ' + P + '-nm{white-space:normal;overflow:visible;}',
     P + '-ind{display:inline-block;flex:0 0 auto;align-self:stretch;position:relative;}',
     P + '-t tr' + P + '-lv2 ' + P + '-ind::after{content:"";position:absolute;right:7px;top:3px;width:8px;height:8px;border-left:1px solid ' + C.line + ';border-bottom:1px solid ' + C.line + ';border-bottom-left-radius:3px;}',
     P + '-us{display:block;font-size:' + F.cap + 'px;color:' + C.muted + ';font-weight:400;margin-top:2px;}',
@@ -1300,23 +1272,30 @@ function buildCSS() {
     P + '-car:hover{background:#eef1f5;color:' + C.ink + ';}',
     P + '-car' + P + '-open{color:' + C.act + ';}',
     P + '-cars{display:inline-block;width:26px;flex:0 0 auto;}',
-    // «Открыть юнит →» — только у выбранной строки: клик по строке её выбирает и никуда не уводит.
-    P + '-drill{display:inline-flex;align-items:center;height:22px;margin-top:4px;padding:0 9px;border:1px solid #cfdcfb;border-radius:999px;background:' + C.card + ';color:' + C.act + ';font-size:' + F.note + 'px;font-weight:500;cursor:pointer;white-space:nowrap;}',
-    P + '-drill:hover,' + P + '-drill:focus-visible{background:' + C.blueBg + ';border-color:' + C.act + ';outline:none;}',
+    // «Открыть юнит» — иконка 28 × 28 только у выбранной строки, место под неё (-dsl) есть в каждой
+    // строке: иконка всегда у правого края колонки имён, клик по строке её выбирает и никуда не уводит.
+    P + '-dsl{display:inline-block;width:28px;height:28px;flex:0 0 auto;}',
+    P + '-rl>' + P + '-drill,' + P + '-rl>' + P + '-dsl{margin:-4px -4px -4px auto;align-self:center;}',
+    P + '-ib' + P + '-drill{color:' + C.act + ';}',
+    P + '-ib' + P + '-drill:hover,' + P + '-ib' + P + '-drill:focus-visible{background:' + C.blueBg + ';color:' + C.actInk + ';outline:none;}',
+    // Подсказка о глубине в строке инструментов: 3 уровня, глубже — иконкой.
+    P + '-dhint{display:inline-flex;align-items:center;gap:6px;align-self:center;font-size:' + F.note + 'px;color:' + C.muted + ';cursor:help;white-space:nowrap;}',
+    P + '-dhint svg{color:' + C.act + ';flex:0 0 auto;}',
     // Путь юнита отчёта и навигация над таблицей.
     P + '-navs{display:inline-flex;gap:6px;margin-right:10px;vertical-align:middle;}',
     P + '-nb{display:inline-flex;align-items:center;height:22px;padding:0 9px;border:1px solid ' + C.line + ';border-radius:999px;background:' + C.card + ';color:' + C.ink2 + ';font-size:' + F.note + 'px;font-weight:500;cursor:pointer;white-space:nowrap;}',
     P + '-nb:hover{border-color:#cfdcfb;color:' + C.act + ';background:' + C.blueBg + ';}',
     P + '-crumbs{display:inline;}',
-    P + '-cb{display:inline;border:0;background:transparent;padding:0;font:inherit;color:' + C.ink2 + ';cursor:pointer;}',
-    P + '-cb:hover,' + P + '-cb:focus-visible{color:' + C.act + ';text-decoration:underline;outline:none;}',
+    // Звено пути — одной строкой с «…» (имя целиком — в подсказке); текущий юнит — целиком.
+    P + '-crb{display:inline-block;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;border:0;background:transparent;padding:0;font:inherit;color:' + C.ink2 + ';cursor:pointer;}',
+    P + '-crb:hover,' + P + '-crb:focus-visible{color:' + C.act + ';text-decoration:underline;outline:none;}',
     P + '-csep{color:' + C.muted2 + ';margin:0 6px;}',
     P + '-lede ' + P + '-crumbs b{color:' + C.ink + ';font-weight:500;}',
     // Поиск по таблице «Команд» в шапке панели; совпадение подсвечено тоном акцента.
     P + '-tsw{position:relative;display:inline-block;width:220px;color:' + C.muted + ';}',
     P + '-tsw svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none;}',
     P + '-tsw ' + P + '-srch{font-size:' + F.control + 'px;}',
-    P + '-narrow ' + P + '-tsw{width:170px;}',
+    P + '-narrow ' + P + '-tsw{width:190px;}',
     P + '-hl{background:#dfe8ff;color:' + C.actInk + ';border-radius:3px;padding:0 1px;}',
     P + '-t tr' + P + '-anc td' + P + '-l{color:' + C.muted + ';}',
     // Сортировка по колонке: стрелка только у активной (профиль Adoption).
@@ -1368,14 +1347,14 @@ function buildCSS() {
     // ---- графики (Proteus Adoption, ДС 6): ось 10,5, подписи 11 на белой подложке ----
     P + '-spark{display:block;width:100%;height:40px;}',
     P + '-sbase{fill:' + C.line + ';}',
-    // Столбики светофора — тон пилюли того же сигнала (фон пилюли светлее, текст — темнее).
+    // Столбики светофора — тон пилюли того же сигнала (фон пилюли на ступень плотнее).
     P + '-sb' + P + '-good{fill:' + C.green + ';}',
     P + '-sb' + P + '-bad{fill:' + C.red + ';}',
     P + '-sb' + P + '-warn,' + P + '-sb' + P + '-neutral{fill:' + C.neutral + ';}',
     // Прозрачная полоса колонки: попасть в неё легко, между колонками нет щелей (ДС 6.4).
     P + '-hit{fill:' + C.act + ';fill-opacity:0;transition:fill-opacity .12s;}',
-    P + '-sbg:hover ' + P + '-hit,' + P + '-bg:hover ' + P + '-hit{fill-opacity:.06;}',
-    P + '-sbg:hover ' + P + '-sb,' + P + '-bg:hover ' + P + '-bar{filter:brightness(1.05) saturate(1.15);}',
+    P + '-sbg:hover ' + P + '-hit{fill-opacity:.06;}',
+    P + '-sbg:hover ' + P + '-sb{filter:brightness(.93) saturate(1.4);}',
     P + '-bar{transform-box:fill-box;transform-origin:50% 100%;}',
     P + '-chart{width:100%;overflow:hidden;}',
     P + '-svg{display:block;overflow:visible;}',
@@ -1526,9 +1505,10 @@ function hSel(name, options, value, cls) {
 var PILL_OF = { up: 'good', down: 'bad', flat: 'flat', neu: 'neu' };
 function hPill(st, text) { return '<span class="' + CFG.ns + '-pill ' + CFG.ns + '-' + st + '">' + esc(text) + '</span>'; }
 // Ячейка изменения: подсказка на всей ячейке — между соседними ячейками тултип не мигает.
-function deltaTd(m, d, text) {
-  if (d === null || d === undefined) return '<td' + tip({ title: 'Изменение', text: 'Нет значения за один из периодов.' }) + '>' + hPill('flat', '—') + '</td>';
-  return '<td' + tip({ title: 'Изменение', text: text, rows: [{ label: 'значение', value: fmtDelta(m, d) }],
+function deltaTd(m, d, text, cls) {
+  var c = cls ? ' class="' + cls + '"' : '';
+  if (d === null || d === undefined) return '<td' + c + tip({ title: 'Изменение', text: 'Нет значения за один из периодов.' }) + '>' + hPill('flat', '—') + '</td>';
+  return '<td' + c + tip({ title: 'Изменение', text: text, rows: [{ label: 'значение', value: fmtDelta(m, d) }],
                        note: m.better === 'flat' ? 'Нейтральная метрика: цвет не ставится.' : null }) + '>'
     + hPill(PILL_OF[deltaClass(m, d)] || 'flat', fmtDelta(m, d)) + '</td>';
 }
@@ -2240,7 +2220,7 @@ function byHc(a, b) {
   if (a.id === '·' || b.id === '·') return a.id === '·' ? 1 : -1;
   return hcOf(b.ser) - hcOf(a.ser) || (unitName(MODEL, a.id) < unitName(MODEL, b.id) ? -1 : 1);
 }
-// Дерево «Команд»: датасет отдаёт юнит и 3 уровня вниз (режим «Все уровни» — до 12-го):
+// Дерево «Команд»: датасет отдаёт юнит и 3 уровня вниз (depth_f = all — до 12-го, чарт его не шлёт):
 // −1 — c, −2 — g (pid — узел −1), глубже — x (pid — путь родителя от −1 через '/').
 // Узел дерева — путь от −1 (pfx): после реорганизации один юнит стоит под двумя
 // родителями, и его подразделения в каждом месте свои. Догрузки при раскрытии нет.
@@ -2311,25 +2291,6 @@ function hlText(name, q) {
   if (at < 0) return esc(name);
   return esc(name.slice(0, at)) + '<mark class="' + CFG.ns + '-hl">' + esc(name.slice(at, at + q.length)) + '</mark>' + esc(name.slice(at + q.length));
 }
-// Переключатель глубины над таблицей «Команд»: запрос сразу, без «Применить».
-function depthHTML() {
-  var P = CFG.ns, M = MODEL, big = M.allMax > 0 && M.scopeN > M.allMax, s = '<span class="' + P + '-lh">Глубина</span><div class="' + P + '-subs" role="tablist">';
-  for (var i = 0; i < CFG.depths.length; i++) {
-    var k = CFG.depths[i][0], on = k === M.depthReq;
-    s += '<button class="' + P + '-sub' + (on ? ' ' + P + '-on' : '') + '" role="tab" aria-selected="' + (on ? 'true' : 'false') + '" data-action="depth" data-key="' + k + '"'
-      + tip(k === 'all'
-        ? { title: 'Все уровни', text: big ? 'Для юнита до ' + fmtInt(M.allMax) + ' подразделений — здесь ' + fmtInt(M.scopeN) + '. Выберите строку поменьше и нажмите «Открыть юнит».'
-                                         : 'Всё дерево до 12-го уровня одним запросом.' }
-        : { title: '3 уровня', text: 'Три уровня вниз от выбранного юнита — сразу, без догрузки при раскрытии.' })
-      + '>' + esc(CFG.depths[i][1]) + '</button>';
-  }
-  s += '</div>';
-  if (state.depthNote || (M.depthReq === 'all' && M.depth !== 'all')) {
-    s += '<span class="' + P + '-dnote">Все уровни — для юнита до ' + fmtInt(M.allMax) + ' подразделений, здесь ' + fmtInt(M.scopeN)
-      + '. Выберите строку поменьше и нажмите «Открыть юнит».</span>';
-  }
-  return s;
-}
 // Юнит, чьи цели действуют на строку: «·» — сотрудники прямо в родителе.
 function rowUnit(r) { return r.id !== '·' ? r.id : (r.lvl === 1 ? scopeUnit() : r.pid); }
 function rowName(r) {
@@ -2361,6 +2322,15 @@ function ownLive(unitId, keys) {
   }
   return n;
 }
+// «Открыть юнит» — иконка (вход в юнит), а не текст: у выбранной строки — у правого края
+// колонки имён (одно место во всех строках), и в шапке «Динамики» рядом с «Год / 12 недель».
+var OPEN_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<path d="M14 3h5a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-5"/><path d="M9 16l4-4-4-4"/><path d="M13 12H3"/></svg>';
+function drillBtn(id) {
+  var P = CFG.ns, nm = unitName(MODEL, id);
+  return '<button type="button" class="' + P + '-ib ' + P + '-drill" data-action="unit" data-id="' + esc(id) + '" aria-label="Открыть юнит ' + esc(nm) + '"'
+    + tip({ title: 'Открыть юнит', text: 'Отчёт переключится на «' + nm + '»: сводка, команды (3 уровня ниже него) и цели — по нему.', note: 'Вернуться — «← Назад» или путь над таблицей.' }) + '>' + OPEN_SVG + '</button>';
+}
 // Кнопка раскладки «таблица | динамика» в шапке панели: во всю ширину / вернуть обе.
 var EXPAND_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>';
 var SHRINK_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10h-6V4M4 14h6v6M14 10l7-7M10 14l-7 7"/></svg>';
@@ -2383,7 +2353,7 @@ function splitRail(label, arrow) {
 function crumbsHTML() {
   var P = CFG.ns, M = MODEL, parts = [], hz = hzNow(), h = hz ? M.hBy[hz] : null;
   function cb(key, id, name, tipText) {
-    return '<button type="button" class="' + P + '-cb" data-action="crumb" data-key="' + key + '" data-id="' + esc(id) + '"'
+    return '<button type="button" class="' + P + '-crb" data-action="crumb" data-key="' + key + '" data-id="' + esc(id) + '"'
       + tip({ title: 'Перейти: ' + name, text: tipText || 'Сводка, команды и цели — по этому юниту.' }) + '>' + esc(name) + '</button>';
   }
   var nav = '', up = null;
@@ -2412,7 +2382,7 @@ function crumbsHTML() {
 // Всё, что нужно таблице «Команд»: колонки, строки (с поиском и сортировкой), выбранная строка.
 // Таблица перерисовывается отдельно от страницы, когда набирают поиск (поле не теряет фокус).
 function teamsCtx() {
-  var M = MODEL, live = [['all', 'Все метрики']];
+  var live = [['all', 'Все метрики']];
   for (var b = 0; b < CFG.blocks.length; b++) if (selMetrics(CFG.blocks[b].key).length) live.push([CFG.blocks[b].key, CFG.blocks[b].tab || CFG.blocks[b].name]);
   var blk = 'all';
   for (var q = 0; q < live.length; q++) if (live[q][0] === state.block) blk = state.block;
@@ -2455,7 +2425,7 @@ function teamsTableHTML(tc) {
   // «Все метрики»: над колонками — строка групп, между группами — вертикальная линия.
   var grouped = tc.blk === 'all', gcls = {}, head2 = '';
   if (grouped) {
-    head2 = '<tr class="' + P + '-thg">' + sortTh('name', 'Юнит', P + '-l', { title: 'Юнит', text: 'Юниты на 3 уровня вниз от юнита отчёта (или все уровни — переключатель «Глубина»).' }, ' rowspan="2"');
+    head2 = '<tr class="' + P + '-thg">' + sortTh('name', 'Юнит', P + '-l', { title: 'Юнит', text: 'Юниты на 3 уровня вниз от юнита отчёта. Глубже — выберите строку и откройте её юнит иконкой у правого края.' }, ' rowspan="2"');
     var prevB = '';
     for (var gb = 0; gb < CFG.blocks.length; gb++) {
       var gm = selMetrics(CFG.blocks[gb].key);
@@ -2467,13 +2437,13 @@ function teamsTableHTML(tc) {
     head2 += '</tr><tr>';
   }
   var t = '<table class="' + P + '-t' + (grouped ? ' ' + P + '-g2' : '') + '"><thead>'
-    + (grouped ? head2 : '<tr>' + sortTh('name', 'Юнит', P + '-l', { title: 'Юнит', text: 'Юниты на 3 уровня вниз от юнита отчёта (или все уровни — переключатель «Глубина»).' }));
+    + (grouped ? head2 : '<tr>' + sortTh('name', 'Юнит', P + '-l', { title: 'Юнит', text: 'Юниты на 3 уровня вниз от юнита отчёта. Глубже — выберите строку и откройте её юнит иконкой у правого края.' }));
   for (var h = 0; h < mets.length; h++) t += sortTh(mets[h].key, mets[h].short, gcls[mets[h].key] || '', { title: mets[h].name, text: mets[h].hint });
   t += '</tr></thead><tbody>';
   t += '<tr class="' + P + '-row ' + P + '-tot' + (!sel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="">'
     + '<td class="' + P + '-l"><span class="' + P + '-rl">'
-    + (tc.expandable.length && !tc.tq ? hCaret(tc.allOpen, 'expall', tc.allOpen ? '0' : '1', tc.allOpen ? 'Свернуть всё' : 'Развернуть всё', { title: tc.allOpen ? 'Свернуть всё' : 'Развернуть всё', text: 'Все уровни, которые приехали, — сразу.' }) : '<span class="' + P + '-cars"></span>')
-    + '<span class="' + P + '-rb">ИТОГО · ' + esc(scopeLabel()) + '<span class="' + P + '-us">' + fmtInt(hcOf(M.scope)) + ' чел</span></span></span></td>';
+    + (tc.expandable.length && !tc.tq ? hCaret(tc.allOpen, 'expall', tc.allOpen ? '0' : '1', tc.allOpen ? 'Свернуть всё' : 'Развернуть всё', { title: tc.allOpen ? 'Свернуть всё' : 'Развернуть всё', text: 'Все три уровня — сразу.' }) : '<span class="' + P + '-cars"></span>')
+    + '<span class="' + P + '-rb"><span class="' + P + '-nml"><span class="' + P + '-nm"' + tip({ title: 'ИТОГО · ' + scopeLabel(), text: 'Юнит отчёта целиком.' }) + '>ИТОГО · ' + esc(scopeLabel()) + '</span></span><span class="' + P + '-us">' + fmtInt(hcOf(M.scope)) + ' чел</span></span></span></td>';
   for (var tm = 0; tm < mets.length; tm++) t += unitCell(scopeUnit(), M.scope, mets[tm], !sel, gcls[mets[tm].key]);
   t += '</tr>';
   for (var i = 0; i < rows.length; i++) {
@@ -2489,27 +2459,30 @@ function teamsTableHTML(tc) {
     var nOwn = row.id !== '·' ? ownLive(row.id, keys) : 0;
     var hidOwn = [];
     if (row.id !== '·') { var allOwn = ownRules(row.id, ''); for (var ho = 0; ho < allOwn.length; ho++) if (keys.indexOf(allOwn[ho].metric) > -1 && !ruleMatches(allOwn[ho])) hidOwn.push(allOwn[ho]); }
-    // Переход в юнит — только у выбранной строки и явной кнопкой: клик по строке выбирает её
-    // для графиков справа и никуда не уводит.
-    var drill = isSel && row.id !== '·' ? '<button type="button" class="' + P + '-drill" data-action="unit" data-id="' + esc(row.id) + '"'
-      + tip({ title: 'Открыть юнит', text: 'Отчёт переключится на «' + unitName(M, row.id) + '»: сводка, команды (дерево ниже него) и цели — по нему.', note: 'Вернуться — «← Назад» или путь над таблицей.' }) + '>Открыть юнит →</button>' : '';
-    t += '<tr class="' + P + '-row' + (row.lvl >= 2 ? ' ' + P + '-lv2' : '') + (isSel ? ' ' + P + '-sel' : '') + (tc.sr && !hit ? ' ' + P + '-anc' : '') + '" data-action="team" data-key="' + esc(row.key) + '">'
+    // Переход в юнит — только у выбранной строки и иконкой у правого края колонки имён:
+    // клик по строке выбирает её для графиков справа и никуда не уводит.
+    var drill = isSel && row.id !== '·' ? drillBtn(row.id) : '<span class="' + P + '-dsl"></span>';
+    // Длинное имя — в одну строку с «…» (целиком — в подсказке и у выбранной строки).
+    var chain = row.id !== '·' ? pathTo(row.id) : [], up = [];
+    for (var ci0 = Math.max(0, chain.length - 4); ci0 < chain.length - 1; ci0++) up.push(unitName(M, chain[ci0]));
+    var nmTip = tip({ title: rowName(row), text: up.length ? up.join(' › ') : '' });
+    t += '<tr class="' + P + '-row' + (row.lvl >= 2 ? ' ' + P + '-lv2' : '') + (isSel ? ' ' + P + '-sel' : '') + (tc.sr ? ' ' + P + (hit ? '-fnd' : '-anc') : '') + '" data-action="team" data-key="' + esc(row.key) + '">'
       + '<td class="' + P + '-l"><span class="' + P + '-rl">' + ind
       + (canExp && !tc.sr ? hCaret(open, 'exp', row.pfx, 'Раскрыть детализацию', { title: 'Детализация', text: 'Юниты уровнем ниже внутри «' + unitName(M, row.id) + '».' }) : '<span class="' + P + '-cars"></span>')
-      + '<span class="' + P + '-rb">' + (row.id !== '·' && tc.tq ? hlText(rowName(row), tc.tq) : esc(rowName(row)))
-      + (nOwn ? ' <span class="' + P + '-tag ' + P + '-own"' + tip({ title: 'Фокус юнита', text: 'Цели установлены на этом юните и уходят вниз по всей его ветке.', rows: [{ label: 'целей в фокусе', value: String(nOwn) }] }) + '>★ Фокус</span>' : '')
+      + '<span class="' + P + '-rb"><span class="' + P + '-nml"><span class="' + P + '-nm"' + nmTip + '>' + (row.id !== '·' && tc.tq ? hlText(rowName(row), tc.tq) : esc(rowName(row))) + '</span>'
+      + (nOwn ? '<span class="' + P + '-tag ' + P + '-own"' + tip({ title: 'Фокус юнита', text: 'Цели установлены на этом юните и уходят вниз по всей его ветке.', rows: [{ label: 'целей в фокусе', value: String(nOwn) }] }) + '>★ Фокус</span>' : '')
       + moreFocus(hidOwn, true)
-      + (unit && !unit.cur ? '<span class="' + P + '-gone">нет в структуре</span>' : '')
+      + (unit && !unit.cur ? '<span class="' + P + '-gone">нет в структуре</span>' : '') + '</span>'
       + '<span class="' + P + '-us">' + (unit ? esc(levelShort(unit.lvl)) + ' · ' : '') + fmtInt(hcOf(row.ser)) + ' чел'
       + (below ? ' · <span class="' + P + '-below"' + tip({ title: 'Ниже ещё ' + below + ' ' + plural(below, 'подразделение', 'подразделения', 'подразделений'),
-          text: 'Показаны 3 уровня вниз. Глубже — переключатель «Глубина: Все уровни» или «Открыть юнит» у выбранной строки.' }) + '>ниже ещё ' + below + '</span>' : '')
-      + '</span>' + drill + '</span></span></td>';
+          text: 'Таблица показывает 3 уровня вниз. Глубже — выберите строку и откройте её юнит иконкой у правого края.' }) + '>ниже ещё ' + below + '</span>' : '')
+      + '</span></span>' + drill + '</span></td>';
     for (var mm = 0; mm < mets.length; mm++) t += unitCell(uid, row.ser, mets[mm], isSel, gcls[mets[mm].key]);
     t += '</tr>';
   }
   if (!rows.length) {
     t += '<tr><td class="' + P + '-l" colspan="' + (mets.length + 1) + '"><span class="' + P + '-muted">'
-      + (tc.tq ? 'Юнитов с «' + esc(state.tq) + '» среди ' + tc.sr.total + ' загруженных нет.' + (M.depth === '3' ? ' Поиск идёт по трём уровням вниз — глубже: «Глубина: Все уровни».' : '')
+      + (tc.tq ? 'Юнитов с «' + esc(state.tq) + '» среди ' + tc.sr.total + ' загруженных нет.' + ' Таблица ищет в трёх уровнях вниз; по всей зоне — поиск в фильтре «Юнит».'
         : (state.focusOnly ? 'Под фильтром «Только фокусные» юнитов не осталось: ни по одной показанной метрике своих целей здесь нет.' : 'У выбранного юнита нет подразделений уровнем ниже под текущими разрезами.'))
       + '</span></td></tr>';
   }
@@ -2520,7 +2493,9 @@ function teamsHTML() {
   var s = pageHead('Команды', crumbsHTML() + '<span class="' + P + '-ldm"> · ' + (M.depth === 'all' ? 'все уровни вниз' : 'на 3 уровня вниз') + ' · ' + esc(monthLow(L)) + '</span>');
   var tc = teamsCtx();
   if (tc.live.length === 1) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в списке «Метрики» строки фильтров.');
-  s += '<div class="' + P + '-tools">' + hSubs(tc.live, tc.blk, 'block') + '<span class="' + P + '-sp2"></span>' + depthHTML() + '</div>';
+  s += '<div class="' + P + '-tools">' + hSubs(tc.live, tc.blk, 'block') + '<span class="' + P + '-sp2"></span>'
+    + '<span class="' + P + '-dhint"' + tip({ title: 'Глубина — 3 уровня', text: 'Таблица показывает три уровня вниз от юнита отчёта. Глубже: выберите строку и нажмите иконку «Открыть юнит» у её правого края — отчёт встанет на этот юнит, и ниже откроются следующие три уровня.' })
+    + '>Глубина — 3 уровня · глубже: выберите строку и откройте юнит ' + OPEN_SVG + '</span></div>';
   if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Снимите один из разрезов в строке фильтров.');
   var sel = tc.sel, mets = tc.mets;
   var cur = sel || { lvl: 0, id: '', ser: M.scope, key: '' };
@@ -2536,11 +2511,10 @@ function teamsHTML() {
   var search = '<span class="' + P + '-tsw">' + SEARCH_SVG + '<input class="' + P + '-srch" type="text" data-tsearch="1" placeholder="Поиск юнита в таблице" value="' + esc(state.tq || '') + '"></span>';
   var left = hPanel({ cls: P + '-tpan', title: 'Юниты', info: info, sub: 'клик по строке — графики справа и ориентиры под значениями',
     body: '<div data-tbox="1">' + teamsTableHTML(tc) + '</div>', tbl: true, tabs: '<span class="' + P + '-pbtn">' + search + splitBtn('table') + '</span>' });
-  var subHtml = sel ? esc(rowName(sel)) + (sel.id !== '·' ? ' · <button type="button" class="' + P + '-lnk" data-action="unit" data-id="' + esc(sel.id) + '"'
-      + tip({ title: 'Открыть юнит', text: 'Отчёт переключится на «' + unitName(M, sel.id) + '»: сводка, команды и цели — по нему.', note: 'Вернуться — «← Назад» или путь над таблицей.' }) + '>открыть как юнит отчёта</button>' : '')
-    : 'ИТОГО · ' + esc(scopeLabel());
+  var subTxt = sel ? rowName(sel) : 'ИТОГО · ' + scopeLabel();
+  var subHtml = '<span' + tip({ title: subTxt, text: 'Графики — по этой строке таблицы.' }) + '>' + esc(subTxt) + '</span>';
   var rightP = hPanel({ cls: P + '-dpan', title: 'Динамика', subHtml: subHtml, body: right,
-    tabs: '<span class="' + P + '-pbtn">' + hSubs([['yoy', 'Год'], ['wow', '12 недель']], dyn, 'dyn') + splitBtn('charts') + '</span>' });
+    tabs: '<span class="' + P + '-pbtn">' + (sel && sel.id !== '·' ? drillBtn(sel.id) : '') + hSubs([['yoy', 'Год'], ['wow', '12 недель']], dyn, 'dyn') + splitBtn('charts') + '</span>' });
   var sh = state.split || CFG.split.def;
   s += legendHTML(false);
   if (mode === 'table') s += '<div class="' + P + '-split ' + P + '-sp1">' + left + splitRail('Динамика', '◂') + '</div>';
@@ -2561,21 +2535,6 @@ function splitCols(sh) {
 // ---- вкладка «Трансформеры» ----
 function axisLabel(k) { for (var i = 0; i < CFG.axes.length; i++) if (CFG.axes[i].key === k) return CFG.axes[i].label; return k; }
 function wantAxis() { return state.tfAxis || MODEL.axis || CFG.defaultAxis; }
-function sumSer(list) {
-  var out = { m: {}, w: {} };
-  for (var c = 0; c < COMP.length; c++) {
-    var k = COMP[c], acc = null;
-    for (var i = 0; i < list.length; i++) {
-      var a = list[i].ser.m[k];
-      if (!a) continue;
-      if (!acc) { acc = []; for (var z = 0; z < a.length; z++) acc.push(0); }
-      for (var j = 0; j < a.length; j++) acc[j] += a[j] || 0;
-    }
-    out.m[k] = acc;
-    out.w[k] = null;
-  }
-  return out;
-}
 function trSorted(axis) {
   var list = MODEL.tr.slice(), ord = CFG.order[axis], numeric = list.length > 0;
   // Числовая ось (грейд): по возрастанию, а не по численности.
@@ -2593,9 +2552,8 @@ function trSorted(axis) {
 // Пустое значение разреза / атрибута в кубе — '-' (ноут), в подписи — «не указано».
 function trName(v) { return v === '' || v === '-' || v === '·' ? 'не указано' : v; }
 function transformHTML() {
-  var P = CFG.ns, M = MODEL, L = M.L, C = CFG.colors;
-  var s = pageHead('Трансформеры', 'Раскладка метрики по оси: динамика по месяцам или сводная таблица. Юнит и разрезы из шапки уже применены — здесь выбирается только ось. '
-    + 'Оси — шесть разрезов численности и атрибуты сотрудника на конец месяца (грейд, стаж, возраст, город…). Смена оси перезапрашивает данные.');
+  var P = CFG.ns, M = MODEL, L = M.L;
+  var s = pageHead('Трансформеры', 'Сводная таблица метрики по оси за 12 месяцев. Юнит и разрезы — из строки фильтров, здесь выбирается ось: разрез численности или атрибут сотрудника на конец месяца (грейд, стаж, возраст, город…).');
   var avail = selMetrics('');
   if (!avail.length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в списке «Метрики» строки фильтров.');
   var m = avail[0];
@@ -2606,7 +2564,6 @@ function transformHTML() {
   s += '<div class="' + P + '-tools">'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('tfm', mOpts, m.key) + '</div>'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Ось разбивки</span>' + hSel('tfa', aOpts, axis) + '</div>'
-    + '<span class="' + P + '-sp2"></span>' + hSubs([['dyn', 'Динамика по оси'], ['pivot', 'Сводная таблица']], state.tfMode === 'pivot' ? 'pivot' : 'dyn', 'tfmode')
     + '</div>';
   if (M.axis !== axis) {
     if (state.pend) return s + hEmpty('Загружаю разбивку «' + axisLabel(axis) + '»', 'Ответ придёт вместе с остальными данными отчёта.');
@@ -2616,33 +2573,6 @@ function transformHTML() {
   if (!M.tr.length || !M.scope) return s + hEmpty('Нет данных для разбивки', 'Под текущими разрезами в выбранном юните нет сотрудников.');
   var list = trSorted(axis), months = [];
   for (var k = L - 11; k <= L; k++) months.push(k);
-  if ((state.tfMode || 'dyn') !== 'pivot') {
-    var top = list, rest = [];
-    if (list.length > 8) {
-      var byN = list.slice().sort(function (x, y) { return hcOf(y.ser) - hcOf(x.ser); });
-      var keep = byN.slice(0, 7);
-      top = []; rest = [];
-      for (var t0 = 0; t0 < list.length; t0++) (keep.indexOf(list[t0]) > -1 ? top : rest).push(list[t0]);
-    }
-    var series = [], lg = '';
-    for (var t1 = 0; t1 < top.length; t1++) series.push({ name: trName(top[t1].v), ser: top[t1].ser });
-    if (rest.length) series.push({ name: 'Прочие (' + rest.length + ')', ser: sumSer(rest) });
-    var sp = { m: m, labels: [], heads: [], series: [], boldIdx: 11 };
-    for (var mi = 0; mi < months.length; mi++) {
-      var p = dparts(M.cal.m[months[mi]].s);
-      sp.labels.push(MONTH_ABBR[p.m] + (mi === 0 || p.m === 0 ? ' ' + String(p.y).slice(2) : ''));
-      sp.heads.push(monthFull(months[mi]));
-    }
-    for (var si = 0; si < series.length; si++) {
-      var col = C.series[si % C.series.length], data = [];
-      for (var d0 = 0; d0 < months.length; d0++) data.push(mval(series[si].ser, 'm', m, months[d0]));
-      sp.series.push({ name: series[si].name, color: col, data: data });
-      lg += '<span><i class="' + P + '-lgb" style="background:' + col + '"></i>' + esc(series[si].name) + '</span>';
-    }
-    var body = '<div class="' + P + '-chh"><span class="' + P + '-cap">' + esc(fmtVal(m, mval(M.scope, 'm', m, L))) + ' · итого за ' + esc(monthLow(L)) + '</span><span class="' + P + '-chl">' + lg + '</span></div>'
-      + chartSlot('wide', 'tf:' + axis + ':' + m.key + ':' + scopeUnit(), function (w, ctx) { return svgBars(sp, w, CFG.chart.bars, ctx); });
-    return s + hPanel({ title: m.name + ' · ось «' + axisLabel(axis) + '»', sub: 'последние 12 месяцев' + (rest.length ? ' · 7 крупнейших значений, остальные — «Прочие»' : ''), body: body });
-  }
   var th = '<table class="' + P + '-t"><thead><tr><th class="' + P + '-l">' + esc(axisLabel(axis)) + '</th>';
   for (var hm = 0; hm < months.length; hm++) {
     var pp = dparts(M.cal.m[months[hm]].s);
@@ -2652,7 +2582,7 @@ function transformHTML() {
   function prow(name, ser, cls) {
     var r = '<tr class="' + cls + '"><td class="' + P + '-l">' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел</span></td>';
     for (var c = 0; c < months.length; c++) r += '<td' + (c === months.length - 1 ? ' class="' + P + '-now"' : '') + '>' + esc(fmtVal(m, mval(ser, 'm', m, months[c]))) + '</td>';
-    return r + '<td class="' + P + '-vs">' + hDelta(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.') + '</td></tr>';
+    return r + deltaTd(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.', P + '-vs') + '</tr>';
   }
   th += prow('ИТОГО · ' + scopeLabel(), M.scope, P + '-tot');
   for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr].v), list[rr].ser, '');
@@ -2775,7 +2705,7 @@ function catalogHTML() {
 
 // ---- сборка экрана ----
 function accessHTML() {
-  var P = CFG.ns, M = MODEL;
+  var M = MODEL;
   if (M.missing.length) {
     return hEmpty('В данных чарта нет колонок: ' + M.missing.join(', '),
       'Добавьте их в «Измерения» чарта Proteus (список — FIELDS.md): без них отчёт не соберётся.');
@@ -2947,8 +2877,15 @@ function buildHTML() {
       }
       return changed;
     }
+    // Имена «Команд» — одной строкой: предел ширины имени — 36 % панели таблицы (160…420 px).
+    // Панель — ячейка сетки (её ширину задаёт доля, а не таблица): петли нет, тянется с разделителем.
+    function measureNames() {
+      var el = overlay.querySelector('.' + CFG.ns + '-tpan'), w = el ? el.clientWidth : 0;
+      if (w) el.style.setProperty('--' + CFG.ns + '-nmw', Math.max(160, Math.min(420, Math.round(w * 0.36))) + 'px');
+    }
     function relayout() {
       var a = measureNarrow(), b = measureCharts();
+      measureNames();
       if (!a && !b) return false;
       var els = overlay.querySelectorAll('[data-ci]');
       for (var k = 0; k < els.length; k++) {
@@ -3339,7 +3276,7 @@ function buildHTML() {
         state.openRows = {};
         state.stage = null;
         state.hz = '';
-        emit({ unit: [], cuts: {}, axis: MODEL.axis || '', depth: MODEL.depthReq, q: '' });
+        emit({ unit: [], cuts: {}, axis: MODEL.axis || '', depth: '3', q: '' });
         return;
       }
       // Строки «Сводки» раскрываются независимо: можно смотреть несколько динамик сразу.
@@ -3380,16 +3317,7 @@ function buildHTML() {
         render();
         return;
       }
-      if (act === 'depth') {
-        if (key === 'all' && MODEL.allMax > 0 && MODEL.scopeN > MODEL.allMax) { state.depthNote = true; render(); return; }
-        state.depthNote = false;
-        var nd = reqNow();
-        nd.depth = key === 'all' ? 'all' : '3';
-        emit(nd);
-        return;
-      }
       if (act === 'dyn') { state.dyn = key; render(); return; }
-      if (act === 'tfmode') { state.tfMode = key; render(); return; }
       if (act === 'axis') { var nx = reqNow(); nx.axis = key || wantAxis(); emit(nx); return; }
       if (act === 'gorule') {
         for (var r = 0; r < MODEL.rules.length; r++) {

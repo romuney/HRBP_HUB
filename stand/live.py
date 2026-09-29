@@ -9,6 +9,8 @@ applyCrossFilter(mask). Маска превращается в фильтры д
 ?user= — логин (current_username), ?w= — ширина ячейки дашборда в px.
 ?selfoff=1 — самовлияние выключено: эмит уходит, ответа нет (проверка
 предупреждения «фильтр не применился»).
+?long=1 — длинные имена юнитов, как в бою (у каждого второго юнита имя на
+3–4 строки): проверка имён «одной строкой с …» в «Командах» и шапке «Динамики».
 """
 import http.server
 import json
@@ -28,7 +30,7 @@ PAGE = r'''<!doctype html><html><head><meta charset="utf-8"><title>HRBP HUB · �
 <body><div id="cell"><div _echarts_instance_="ec_1" style="width:100%;height:100%;position:relative"><canvas></canvas></div></div>
 <script>
 var Q = new URLSearchParams(location.search);
-var USER = Q.get('user') || 'a.sergeeva', SELFOFF = Q.get('selfoff') === '1';
+var USER = Q.get('user') || 'a.sergeeva', SELFOFF = Q.get('selfoff') === '1', LONG = Q.get('long') === '1';
 document.getElementById('cell').style.width = (Q.get('w') ? Q.get('w') + 'px' : '100%');
 var SRC = null, FILTERS = JSON.parse(Q.get('flt') || '{}');
 window.__masks = []; window.__runs = 0;
@@ -37,7 +39,7 @@ function run(rows) {
   (new Function('data', 'applyCrossFilter', SRC + '\n;return typeof option !== "undefined" ? option : null;'))(rows, applyCrossFilter);
 }
 function load() {
-  return fetch('/data?user=' + encodeURIComponent(USER) + '&flt=' + encodeURIComponent(JSON.stringify(FILTERS)))
+  return fetch('/data?user=' + encodeURIComponent(USER) + '&flt=' + encodeURIComponent(JSON.stringify(FILTERS)) + (LONG ? '&long=1' : ''))
     .then(function (r) { return r.json(); });
 }
 function applyCrossFilter(mask) {
@@ -49,6 +51,24 @@ function applyCrossFilter(mask) {
 }
 fetch('/chart.js').then(function (r) { return r.text(); }).then(function (t) { SRC = t; return load(); }).then(run);
 </script></body></html>'''
+
+
+LONG_TAIL = ' по развитию цифровых каналов, продаж и обслуживания клиентов малого и среднего бизнеса в регионах'
+
+
+def lengthen(rows):
+    """?long=1: у каждого второго юнита справочника (7-е поле строки dict) — длинный хвост имени."""
+    for r in rows:
+        if r.get('role') != 'dict' or not r.get('j'):
+            continue
+        out = []
+        for i, line in enumerate(r['j'].split('\n')):
+            f = line.split('\t')
+            if len(f) > 6 and i % 2 == 0:
+                f[6] += LONG_TAIL
+            out.append('\t'.join(f))
+        r['j'] = '\n'.join(out)
+    return rows
 
 
 class H(http.server.BaseHTTPRequestHandler):
@@ -75,6 +95,8 @@ class H(http.server.BaseHTTPRequestHandler):
             try:
                 flt = json.loads(q.get('flt', ['{}'])[0])
                 rows, _ = ch.dataset(flt, q.get('user', ['a.sergeeva'])[0])
+                if q.get('long') == ['1']:
+                    rows = lengthen(rows)
                 return self.send(200, json.dumps(rows, ensure_ascii=False), 'application/json')
             except Exception as e:  # noqa: BLE001 — стенд: ошибку показать, не упасть
                 return self.send(500, json.dumps({'error': str(e)[:2000]}, ensure_ascii=False), 'application/json')

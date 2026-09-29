@@ -17,7 +17,7 @@
 |---|---|
 | Поменять расчёт / источник / окно метрики | `helicopter/paragraphs/NN …sql` → `python3 helicopter/build.py` → стенд |
 | Поменять датасет | `proteus/hrbp-hub.data.sql` → `python3 stand/check.py` (оба движка) → `stand/scale.py` на 24.8 |
-| Поменять чарт | `proteus/hrbp-hub.chart.js` по скиллу proteus-echarts-builder → `node --check` → `check.py` скилла → живой стенд |
+| Поменять чарт | `proteus/hrbp-hub.chart.js` по скиллу proteus-echarts-builder → `node --check` → ESLint `no-undef` (`stand/eslint.chart.cjs`, 0 ошибок) → `check.py` скилла → живой стенд (каждая вкладка и режим руками: smoke скилла кликает не всё) |
 | Отдать владельцу | `python3 stand/pack.py` → папка `Поставка — HRBP HUB v2/` («замени из файла N»), правка `0. Инструкция.md` (после первой установки у владельца — раздел «Что нового»: какие файлы заменить) |
 | Цели KPI | параграф `12 KPI · реестр целей.sql` (правится руками), в отчёте — вкладка «Цели» |
 
@@ -34,9 +34,9 @@ python3 stand/ch.py load [nullable|plain] # hrbp_hub_* → prod_proteus.* в chd
 python3 stand/check.py                    # 180 проверок датасета против stand/expect.py (независимый расчёт)
 <venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 182 (+ режим group_by_use_nulls)
 <venv chdb 2.1.1>/bin/python stand/scale.py <каталог>  # 100 тыс. сотрудников: время, строки, JSON (HH_SCALE_COMBOS=4 — тяжёлый куб)
-python3 stand/live.py                     # чарт в браузере поверх chdb: ?user=a.sergeeva|b.kotov|s.volkov|nobody, ?w=900, ?selfoff=1
+python3 stand/live.py                     # чарт в браузере поверх chdb: ?user=a.sergeeva|b.kotov|s.volkov|nobody, ?w=900, ?selfoff=1, ?long=1 (длинные имена, как в бою)
 HH_DICT_FULL_MAX=10 python3 stand/live.py # то же, но справочник «большой зоны» (окрестность + поиск по зоне)
-HH_ALL_MAX=20 python3 stand/live.py       # то же, но порог «Все уровни» — 20 юнитов в ветке (пояснение вместо запроса)
+node $(npm root -g)/eslint/bin/eslint.js -c stand/eslint.chart.cjs --no-config-lookup proteus/hrbp-hub.chart.js  # no-undef: 0 ошибок
 python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для smoke (live.py остановить: chdb держит каталог)
 ```
 
@@ -63,12 +63,14 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   (`dict_mode = part`) + поиск `q_f`; выбранная область до `DICT_FULL_MAX` — целиком
   (`scope_full`), поиск — сначала внутри неё. Не возвращать чтение всего куба.
 - **«Команды» без догрузки**: дерево на 3 уровня (ROLLUP по k1…k3) приезжает с каждым
-  ответом, раскрытие строк — только вид. «Все уровни» — `depth_f = all` (ROLLUP по 10
-  ключам) и только для ветки ≤ `ALL_MAX` (1 000) юнитов; `pid` у x — путь от −1 через `/`.
+  ответом, раскрытие строк — только вид; `pid` у x — путь от −1 через `/`. Глубже — только
+  «Открыть юнит» (иконка у выбранной строки и в шапке «Динамики»), переключателя глубины
+  нет (владелец, 29.09). `depth_f = all` (ROLLUP по 10 ключам, ветка ≤ `ALL_MAX` = 1 000)
+  остаётся в датасете в запасе — чарт его не шлёт.
 - **Кросс-фильтры**: носители `unit_f`, `paint_f…hct_f`, `tr_f`, `depth_f`, `q_f` не выводятся в SELECT;
   `value = []` не эмитится никогда; маска — целиком; самовлияние чарта включено.
   Юнит, HRBP и разрезы строки фильтров копятся в `state.stage` и уходят одной «Применить»;
-  глубина, ось, «Открыть юнит», путь юнита и «Показать» у цели — сразу (переходы — в стек
+  ось, «Открыть юнит», путь юнита и «Показать» у цели — сразу (переходы — в стек
   `state.unitBack` для «← Назад»). Клик по строке «Команд» только выбирает её: перехода по
   случайному клику нет. Выбранный HRBP (`state.hz`, в датасет
   не уходит) сужает выбор юнита до своей зоны; держится, пока область внутри его зоны.
@@ -77,7 +79,9 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   хит-зона `data-hz` с перекрестием; тултип едет за курсором (`onMove`), между целями не гаснет
   (гашение 110 мс), подсказки — на всей ячейке таблицы / колонке столбиков. Анимация — только
   у графика, впервые показанного с этими данными (`chartSlot` key + `state.drawn`), не на ресайз.
-  Пилюля одна (`hPill`: 11,5 / 500, высота 22); светофор: фон пилюли, её текст и столбик — один тон.
+  Пилюля одна (`hPill`: 11,5 / 500, высота 22); светофор: фон пилюли, её текст и столбик — один тон,
+  столбик — бледный, как пилюля (не ярче синей линии). Имена юнитов — одной строкой с «…»
+  (предел — от ширины панели, `--hh-nmw`), целиком — в подсказке, у выбранной строки и у находок поиска.
 - **ClickHouse 24.8**: без неконстантных WITH-алиасов в подзапросах (CTE + CROSS JOIN ctx),
   без SETTINGS в датасете, `ifNull` на каждой колонке (gp_to_click даёт Nullable),
   проверять и старым анализатором, и `prefer_column_name_to_alias = 1`, `join_use_nulls = 1`,
