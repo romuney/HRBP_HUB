@@ -225,6 +225,9 @@ var STATE0 = {
   hz: '',                // HRBP, чья зона выбрана (логин): выбор юнита сужается до неё
   unitAll: false,        // выбор юнита при выбранном HRBP: показать всю зону видимости
   selTeam: '',           // выбранная строка «Команд» ('' — ИТОГО)
+  tq: '',                // поиск по таблице «Команд» (по загруженным уровням)
+  tsort: { key: '', dir: '' }, // сортировка таблицы «Команд»: '' — по численности, 'name' или ключ метрики
+  unitBack: [],          // «← Назад»: юниты отчёта до переходов (стек, до 10)
   openRows: {},          // раскрытые узлы «Команд»: ключ — путь узла от −1 через '/'
   dyn: 'yoy',            // «Год» | «12 недель» в «Командах»
   tfMetric: 'regret', tfMode: 'dyn', tfAxis: '',
@@ -1217,7 +1220,7 @@ function buildCSS() {
     P + '-content{padding:14px 16px 16px;min-width:0;}',
     P + '-pageh{margin:0 0 12px;}',
     P + '-h2{font-size:' + F.title + 'px;margin:0 0 4px;font-weight:600;color:' + C.ink + ';}',
-    P + '-lede{margin:0;color:' + C.muted + ';font-size:' + F.note + 'px;line-height:1.5;max-width:110ch;}',
+    P + '-lede{margin:0;color:' + C.muted + ';font-size:' + F.note + 'px;line-height:1.9;}',
     P + '-lede b{color:' + C.ink2 + ';}',
     P + '-gap{margin-bottom:12px;}',
     P + '-gap:last-child{margin-bottom:0;}',
@@ -1297,10 +1300,30 @@ function buildCSS() {
     P + '-car:hover{background:#eef1f5;color:' + C.ink + ';}',
     P + '-car' + P + '-open{color:' + C.act + ';}',
     P + '-cars{display:inline-block;width:26px;flex:0 0 auto;}',
-    // «→ открыть юнит» — иконка-кнопка строки, как ссылка каталога Adoption (22 × 20, без рамки)
-    P + '-go{display:inline-flex;align-items:center;justify-content:center;width:22px;height:20px;margin:-4px 0 -4px 2px;border:0;background:transparent;border-radius:6px;color:' + C.muted + ';font-size:12px;line-height:1;cursor:pointer;padding:0;vertical-align:middle;opacity:.7;}',
-    P + '-t tr' + P + '-row:hover ' + P + '-go{opacity:1;}',
-    P + '-go:hover,' + P + '-go:focus-visible{opacity:1;background:#e9eef4;color:' + C.act + ';outline:none;}',
+    // «Открыть юнит →» — только у выбранной строки: клик по строке её выбирает и никуда не уводит.
+    P + '-drill{display:inline-flex;align-items:center;height:22px;margin-top:4px;padding:0 9px;border:1px solid #cfdcfb;border-radius:999px;background:' + C.card + ';color:' + C.act + ';font-size:' + F.note + 'px;font-weight:500;cursor:pointer;white-space:nowrap;}',
+    P + '-drill:hover,' + P + '-drill:focus-visible{background:' + C.blueBg + ';border-color:' + C.act + ';outline:none;}',
+    // Путь юнита отчёта и навигация над таблицей.
+    P + '-navs{display:inline-flex;gap:6px;margin-right:10px;vertical-align:middle;}',
+    P + '-nb{display:inline-flex;align-items:center;height:22px;padding:0 9px;border:1px solid ' + C.line + ';border-radius:999px;background:' + C.card + ';color:' + C.ink2 + ';font-size:' + F.note + 'px;font-weight:500;cursor:pointer;white-space:nowrap;}',
+    P + '-nb:hover{border-color:#cfdcfb;color:' + C.act + ';background:' + C.blueBg + ';}',
+    P + '-crumbs{display:inline;}',
+    P + '-cb{display:inline;border:0;background:transparent;padding:0;font:inherit;color:' + C.ink2 + ';cursor:pointer;}',
+    P + '-cb:hover,' + P + '-cb:focus-visible{color:' + C.act + ';text-decoration:underline;outline:none;}',
+    P + '-csep{color:' + C.muted2 + ';margin:0 6px;}',
+    P + '-lede ' + P + '-crumbs b{color:' + C.ink + ';font-weight:500;}',
+    // Поиск по таблице «Команд» в шапке панели; совпадение подсвечено тоном акцента.
+    P + '-tsw{position:relative;display:inline-block;width:220px;color:' + C.muted + ';}',
+    P + '-tsw svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none;}',
+    P + '-tsw ' + P + '-srch{font-size:' + F.control + 'px;}',
+    P + '-narrow ' + P + '-tsw{width:170px;}',
+    P + '-hl{background:#dfe8ff;color:' + C.actInk + ';border-radius:3px;padding:0 1px;}',
+    P + '-t tr' + P + '-anc td' + P + '-l{color:' + C.muted + ';}',
+    // Сортировка по колонке: стрелка только у активной (профиль Adoption).
+    P + '-t th' + P + '-sth{cursor:pointer;user-select:none;}',
+    P + '-t th' + P + '-sth:hover{color:' + C.ink2 + ';}',
+    P + '-t th' + P + '-son{color:' + C.ink2 + ';}',
+    P + '-sa{color:' + C.act + ';margin-left:4px;font-size:11px;}',
     P + '-nw{white-space:nowrap;}',
 
     // ---- пилюля — одна на отчёт: 11,5 / 500, высота 22, поля 0 8, радиус 999 ----
@@ -1454,7 +1477,7 @@ function hPanel(o) {
   var P = CFG.ns;
   return '<div class="' + P + '-panel' + (o.cls ? ' ' + o.cls : '') + '">'
     + '<div class="' + P + '-ph"><div class="' + P + '-pht"><span>' + esc(o.title) + (o.info || '') + '</span>'
-    + (o.sub ? '<span class="' + P + '-phs">' + esc(o.sub) + '</span>' : '') + '</div>' + (o.tabs || '') + '</div>'
+    + (o.subHtml ? '<span class="' + P + '-phs">' + o.subHtml + '</span>' : (o.sub ? '<span class="' + P + '-phs">' + esc(o.sub) + '</span>' : '')) + '</div>' + (o.tabs || '') + '</div>'
     + '<div class="' + P + '-pb' + (o.tbl ? ' ' + P + '-tbl' : '') + '">' + o.body + '</div></div>';
 }
 // Группа переключателей: role=tab + aria-selected + data-action — по ним дым видит группу.
@@ -2148,7 +2171,7 @@ function inScope(id) {
 function opOpen(mk) { return !!state.openM[mk]; }
 function onepagerHTML() {
   var P = CFG.ns, M = MODEL, L = M.L, u = scopeUnit();
-  var s = pageHead('Сводка', '<b>' + esc(scopeLabel()) + '</b> · ' + esc(monthLow(L)) + ' · ' + esc(selLabel())
+  var s = pageHead('Сводка', crumbsHTML() + '<span class="' + CFG.ns + '-ldm"> · ' + esc(monthLow(L)) + ' · ' + esc(selLabel()) + '</span>'
     + hInfo({ title: 'Как читать сводку', text: 'Значение метрики за последний закрытый месяц сравнивается с ориентиром: с целью, если она утверждена (своя или унаследованная сверху), иначе — с базой.',
               rows: [{ label: 'база', value: benchLabel() }],
               note: ['База собирается из тех же разрезов численности, но по всей компании.', 'Клик по строке раскрывает динамику: год к году и 12 недель. Раскрыть можно несколько строк.'] }));
@@ -2231,22 +2254,62 @@ function realKids(list) {
   return false;
 }
 function rowCanExp(r) { return realKids(kidsAt(r)); }
-// all — обойти всё дерево (для «Развернуть всё»), иначе — только раскрытые узлы.
-function teamRows(all) {
-  var out = [];
+// Сортировка таблицы «Команд»: клик по заголовку колонки. Сортируются соседи внутри
+// каждого узла — дерево не рассыпается; «Напрямую в …» всегда в конце своей группы,
+// пустые значения — в конце в любом направлении. По умолчанию — численность по убыванию.
+function teamCmp() {
+  var ts = state.tsort || {}, k = ts.key || '', asc = ts.dir === 'asc', m = k && k !== 'name' ? METRIC[k] : null, L = MODEL.L;
+  return function (a, b) {
+    if (a.id === '·' || b.id === '·') return a.id === b.id ? 0 : (a.id === '·' ? 1 : -1);
+    if (k === 'name') {
+      var na = unitName(MODEL, a.id).toLowerCase(), nb = unitName(MODEL, b.id).toLowerCase();
+      var c = na < nb ? -1 : (na > nb ? 1 : 0);
+      return asc ? c : -c;
+    }
+    if (m) {
+      var va = mval(a.ser, 'm', m, L), vb = mval(b.ser, 'm', m, L);
+      if (va === null || vb === null) return va === null && vb === null ? byHc(a, b) : (va === null ? 1 : -1);
+      return (asc ? va - vb : vb - va) || byHc(a, b);
+    }
+    return byHc(a, b);
+  };
+}
+// all — обойти всё дерево (для «Развернуть всё» и поиска), иначе — только раскрытые узлы;
+// force — узлы, раскрытые поиском (предки найденных).
+function teamRows(all, force) {
+  var out = [], cmp = teamCmp();
   function walk(list, lvl, ppfx) {
-    var ls = list.slice().sort(byHc);
+    var ls = list.slice().sort(cmp);
     for (var i = 0; i < ls.length; i++) {
       var id = ls[i].id, pfx = id === '·' ? '' : (ppfx ? ppfx + '/' : '') + id;
       var r = { lvl: lvl, id: id, pid: ppfx ? ppfx.slice(ppfx.lastIndexOf('/') + 1) : '', pfx: pfx, ser: ls[i].ser,
                 key: lvl + ':' + ppfx + ':' + id };
       out.push(r);
-      if (id === '·' || !(all || state.openRows[pfx]) || !rowCanExp(r)) continue;
+      if (id === '·' || !(all || state.openRows[pfx] || (force && force[pfx])) || !rowCanExp(r)) continue;
       walk(kidsAt(r), lvl + 1, pfx);
     }
   }
   walk(MODEL.c, 1, '');
   return out;
+}
+// Поиск по таблице «Команд»: юниты, чьё имя содержит строку, и их предки (раскрыты) —
+// ищет по загруженным уровням (3 или все), без запроса.
+function teamSearch(q) {
+  var all = teamRows(true), show = {}, open = {}, n = 0;
+  for (var i = 0; i < all.length; i++) {
+    var r = all[i];
+    if (r.id === '·' || unitName(MODEL, r.id).toLowerCase().indexOf(q) < 0) continue;
+    n++;
+    show[r.key] = true;
+    var parts = r.pfx.split('/');
+    for (var j = 1; j < parts.length; j++) open[parts.slice(0, j).join('/')] = true;
+  }
+  return { show: show, open: open, hits: n, total: all.length };
+}
+function hlText(name, q) {
+  var at = q ? name.toLowerCase().indexOf(q) : -1;
+  if (at < 0) return esc(name);
+  return esc(name.slice(0, at)) + '<mark class="' + CFG.ns + '-hl">' + esc(name.slice(at, at + q.length)) + '</mark>' + esc(name.slice(at + q.length));
 }
 // Переключатель глубины над таблицей «Команд»: запрос сразу, без «Применить».
 function depthHTML() {
@@ -2255,7 +2318,7 @@ function depthHTML() {
     var k = CFG.depths[i][0], on = k === M.depthReq;
     s += '<button class="' + P + '-sub' + (on ? ' ' + P + '-on' : '') + '" role="tab" aria-selected="' + (on ? 'true' : 'false') + '" data-action="depth" data-key="' + k + '"'
       + tip(k === 'all'
-        ? { title: 'Все уровни', text: big ? 'Для юнита до ' + fmtInt(M.allMax) + ' подразделений — здесь ' + fmtInt(M.scopeN) + '. Откройте юнит поменьше стрелкой → в строке.'
+        ? { title: 'Все уровни', text: big ? 'Для юнита до ' + fmtInt(M.allMax) + ' подразделений — здесь ' + fmtInt(M.scopeN) + '. Выберите строку поменьше и нажмите «Открыть юнит».'
                                          : 'Всё дерево до 12-го уровня одним запросом.' }
         : { title: '3 уровня', text: 'Три уровня вниз от выбранного юнита — сразу, без догрузки при раскрытии.' })
       + '>' + esc(CFG.depths[i][1]) + '</button>';
@@ -2263,7 +2326,7 @@ function depthHTML() {
   s += '</div>';
   if (state.depthNote || (M.depthReq === 'all' && M.depth !== 'all')) {
     s += '<span class="' + P + '-dnote">Все уровни — для юнита до ' + fmtInt(M.allMax) + ' подразделений, здесь ' + fmtInt(M.scopeN)
-      + '. Откройте юнит поменьше стрелкой → в строке.</span>';
+      + '. Выберите строку поменьше и нажмите «Открыть юнит».</span>';
   }
   return s;
 }
@@ -2272,13 +2335,6 @@ function rowUnit(r) { return r.id !== '·' ? r.id : (r.lvl === 1 ? scopeUnit() :
 function rowName(r) {
   if (r.id !== '·') return unitName(MODEL, r.id);
   return 'Напрямую в «' + (r.lvl === 1 ? scopeLabel() : unitName(MODEL, r.pid)) + '»';
-}
-// Стрелка «→» держится за последнее слово имени: в узкой колонке глубокого
-// дерева она не уезжает на отдельную строку.
-function nameGo(name, go) {
-  if (!go) return esc(name);
-  var sp = name.lastIndexOf(' ');
-  return (sp > 0 ? esc(name.slice(0, sp + 1)) : '') + '<span class="' + CFG.ns + '-nw">' + esc(sp > 0 ? name.slice(sp + 1) : name) + go + '</span>';
 }
 // Значение юнита в «Командах»: пилюля светофора (та же, что на «Сводке»), подсказка — на всей
 // ячейке, поэтому тултип переходит от значения к значению без мигания.
@@ -2322,35 +2378,84 @@ function splitRail(label, arrow) {
   return '<button type="button" class="' + P + '-rail" data-action="split" data-key="both" aria-label="Показать: ' + esc(label) + '"'
     + tip({ title: label, text: 'Вернуть две колонки: таблица слева, графики справа.' }) + '><i>' + arrow + '</i><span>' + esc(label) + '</span></button>';
 }
-function teamsHTML() {
-  var P = CFG.ns, M = MODEL, L = M.L;
-  var s = pageHead('Команды', '<b>' + esc(scopeLabel()) + '</b> · ' + (M.depth === 'all' ? 'все уровни вниз' : 'на 3 уровня вниз') + ' · ' + esc(monthLow(L)));
-  var live = [['all', 'Все метрики']];
+// Путь юнита отчёта над таблицей: предки внутри зоны кликабельны — переход сразу, как
+// по кнопке «Открыть юнит»; «↑» — уровнем выше, «← Назад» — к юниту до последнего перехода.
+function crumbsHTML() {
+  var P = CFG.ns, M = MODEL, parts = [], hz = hzNow(), h = hz ? M.hBy[hz] : null;
+  function cb(key, id, name, tipText) {
+    return '<button type="button" class="' + P + '-cb" data-action="crumb" data-key="' + key + '" data-id="' + esc(id) + '"'
+      + tip({ title: 'Перейти: ' + name, text: tipText || 'Сводка, команды и цели — по этому юниту.' }) + '>' + esc(name) + '</button>';
+  }
+  var nav = '', up = null;
+  if (state.unitBack && state.unitBack.length) {
+    var prev = state.unitBack[state.unitBack.length - 1];
+    nav += '<button type="button" class="' + P + '-nb" data-action="back"' + tip({ title: 'Назад', text: 'Вернуться к «' + unitsLabel(prev, '') + '» — юниту до последнего перехода.' }) + '>← Назад</button>';
+  }
+  if (!M.single) {
+    if (h && !defaultScope() && !sameSet(h.roots, M.scopeIds)) parts.push(cb('hz', '', 'Зона ' + h.nm));
+    else if (!defaultScope()) parts.push(cb('zone', '', M.role === 'hrbp' ? 'Моя зона' : 'Вся зона', 'Вся ваша зона видимости.'));
+    parts.push('<b>' + esc(scopeLabel()) + '</b>');
+  } else {
+    var id = M.scopeIds[0], chain = pathTo(id), start = -1;
+    for (var i = 0; i < chain.length; i++) if (M.roots.indexOf(chain[i]) > -1) { start = i; break; }
+    if (M.roots.length > 1) parts.push(cb('zone', '', M.role === 'hrbp' ? 'Моя зона' : 'Вся зона', 'Вся ваша зона видимости.'));
+    if (h && h.roots.length > 1) parts.push(cb('hz', '', 'Зона ' + h.nm, 'Вся зона HRBP «' + h.nm + '».'));
+    for (var j = Math.max(start, 0); j < chain.length - 1; j++) parts.push(cb('unit', chain[j], unitName(M, chain[j])));
+    parts.push('<b>' + esc(unitName(M, id)) + '</b>');
+    if (start > -1 && start < chain.length - 1) up = { key: 'unit', id: chain[chain.length - 2], nm: unitName(M, chain[chain.length - 2]) };
+    else if (M.roots.length > 1) up = { key: 'zone', id: '', nm: M.role === 'hrbp' ? 'моя зона' : 'вся зона' };
+  }
+  if (up) nav += '<button type="button" class="' + P + '-nb" data-action="crumb" data-key="' + up.key + '" data-id="' + esc(up.id) + '"'
+    + tip({ title: 'Уровнем выше', text: 'Перейти к «' + up.nm + '».' }) + '>↑ Уровнем выше</button>';
+  return (nav ? '<span class="' + P + '-navs">' + nav + '</span>' : '') + '<span class="' + P + '-crumbs">' + parts.join('<span class="' + P + '-csep">›</span>') + '</span>';
+}
+// Всё, что нужно таблице «Команд»: колонки, строки (с поиском и сортировкой), выбранная строка.
+// Таблица перерисовывается отдельно от страницы, когда набирают поиск (поле не теряет фокус).
+function teamsCtx() {
+  var M = MODEL, live = [['all', 'Все метрики']];
   for (var b = 0; b < CFG.blocks.length; b++) if (selMetrics(CFG.blocks[b].key).length) live.push([CFG.blocks[b].key, CFG.blocks[b].tab || CFG.blocks[b].name]);
-  if (live.length === 1) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в списке «Метрики» строки фильтров.');
   var blk = 'all';
   for (var q = 0; q < live.length; q++) if (live[q][0] === state.block) blk = state.block;
   var mets = selMetrics(blk === 'all' ? '' : blk), keys = [];
   for (var mk = 0; mk < mets.length; mk++) keys.push(mets[mk].key);
-  s += '<div class="' + P + '-tools">' + hSubs(live, blk, 'block') + '<span class="' + P + '-sp2"></span>' + depthHTML() + '</div>';
-  if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Снимите один из разрезов в строке фильтров.');
-  var rows = teamRows();
+  var tq = String(state.tq || '').replace(/^\s+|\s+$/g, '').toLowerCase(), sr = tq ? teamSearch(tq) : null;
+  var rows = teamRows(false, sr ? sr.open : null);
+  if (sr) {
+    var shown = [];
+    for (var s0 = 0; s0 < rows.length; s0++) if (sr.show[rows[s0].key] || sr.open[rows[s0].pfx]) shown.push(rows[s0]);
+    rows = shown;
+  }
   if (state.focusOnly) {
     var kept = [];
     for (var f = 0; f < rows.length; f++) if (rows[f].id && rows[f].id !== '·' && ownLive(rows[f].id, keys)) kept.push(rows[f]);
     rows = kept;
   }
-  var sel = null;
-  for (var r0 = 0; r0 < rows.length; r0++) if (rows[r0].key === state.selTeam) sel = rows[r0];
-  var every = teamRows(true), expandable = [];
-  for (var e = 0; e < every.length; e++) if (rowCanExp(every[e])) expandable.push(every[e].pfx);
+  // Выбранная строка ищется во всём дереве: свёрнутый родитель или поиск её не сбрасывают.
+  var every = teamRows(true), sel = null, expandable = [];
+  for (var r0 = 0; r0 < every.length; r0++) {
+    if (every[r0].key === state.selTeam) sel = every[r0];
+    if (rowCanExp(every[r0])) expandable.push(every[r0].pfx);
+  }
   var allOpen = expandable.length > 0;
   for (var e2 = 0; e2 < expandable.length; e2++) if (!state.openRows[expandable[e2]]) allOpen = false;
-
+  return { live: live, blk: blk, mets: mets, keys: keys, rows: rows, sel: sel, sr: sr, tq: tq, expandable: expandable, allOpen: allOpen };
+}
+// Заголовок колонки с сортировкой: стрелка — только у активной колонки (профиль Adoption).
+function sortTh(key, label, cls, tipObj, extra) {
+  var P = CFG.ns, ts = state.tsort || {}, on = ts.key === key;
+  var t = tipObj || {};
+  var note = on ? (ts.dir === 'asc' ? 'Сейчас по возрастанию. Клик — ' + (key === 'name' ? 'по убыванию.' : 'как было (по численности).') : 'Сейчас по убыванию. Клик — ' + (key === 'name' ? 'как было (по численности).' : 'по возрастанию.'))
+    : 'Клик — сортировка ' + (key === 'name' ? 'по алфавиту' : 'по этой колонке') + ' внутри каждого уровня.';
+  return '<th class="' + P + '-sth' + (cls ? ' ' + cls : '') + (on ? ' ' + P + '-son' : '') + '"' + (extra || '') + ' data-action="tsort" data-key="' + key + '" aria-sort="'
+    + (on ? (ts.dir === 'asc' ? 'ascending' : 'descending') : 'none') + '"' + tip({ title: t.title || label, text: t.text || '', note: note }) + '>'
+    + esc(label) + (on ? '<span class="' + P + '-sa">' + (ts.dir === 'asc' ? '↑' : '↓') + '</span>' : '') + '</th>';
+}
+function teamsTableHTML(tc) {
+  var P = CFG.ns, M = MODEL, mets = tc.mets, keys = tc.keys, rows = tc.rows, sel = tc.sel;
   // «Все метрики»: над колонками — строка групп, между группами — вертикальная линия.
-  var grouped = blk === 'all', gcls = {}, head2 = '';
+  var grouped = tc.blk === 'all', gcls = {}, head2 = '';
   if (grouped) {
-    head2 = '<tr class="' + P + '-thg"><th class="' + P + '-l" rowspan="2">Юнит</th>';
+    head2 = '<tr class="' + P + '-thg">' + sortTh('name', 'Юнит', P + '-l', { title: 'Юнит', text: 'Юниты на 3 уровня вниз от юнита отчёта (или все уровни — переключатель «Глубина»).' }, ' rowspan="2"');
     var prevB = '';
     for (var gb = 0; gb < CFG.blocks.length; gb++) {
       var gm = selMetrics(CFG.blocks[gb].key);
@@ -2361,12 +2466,13 @@ function teamsHTML() {
     }
     head2 += '</tr><tr>';
   }
-  var t = '<table class="' + P + '-t' + (grouped ? ' ' + P + '-g2' : '') + '"><thead>' + (grouped ? head2 : '<tr><th class="' + P + '-l">Юнит</th>');
-  for (var h = 0; h < mets.length; h++) t += '<th' + (gcls[mets[h].key] ? ' class="' + gcls[mets[h].key] + '"' : '') + tip({ title: mets[h].name, text: mets[h].hint }) + '>' + esc(mets[h].short) + '</th>';
+  var t = '<table class="' + P + '-t' + (grouped ? ' ' + P + '-g2' : '') + '"><thead>'
+    + (grouped ? head2 : '<tr>' + sortTh('name', 'Юнит', P + '-l', { title: 'Юнит', text: 'Юниты на 3 уровня вниз от юнита отчёта (или все уровни — переключатель «Глубина»).' }));
+  for (var h = 0; h < mets.length; h++) t += sortTh(mets[h].key, mets[h].short, gcls[mets[h].key] || '', { title: mets[h].name, text: mets[h].hint });
   t += '</tr></thead><tbody>';
   t += '<tr class="' + P + '-row ' + P + '-tot' + (!sel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="">'
     + '<td class="' + P + '-l"><span class="' + P + '-rl">'
-    + (expandable.length ? hCaret(allOpen, 'expall', allOpen ? '0' : '1', allOpen ? 'Свернуть всё' : 'Развернуть всё', { title: allOpen ? 'Свернуть всё' : 'Развернуть всё', text: 'Все уровни, которые приехали, — сразу.' }) : '<span class="' + P + '-cars"></span>')
+    + (tc.expandable.length && !tc.tq ? hCaret(tc.allOpen, 'expall', tc.allOpen ? '0' : '1', tc.allOpen ? 'Свернуть всё' : 'Развернуть всё', { title: tc.allOpen ? 'Свернуть всё' : 'Развернуть всё', text: 'Все уровни, которые приехали, — сразу.' }) : '<span class="' + P + '-cars"></span>')
     + '<span class="' + P + '-rb">ИТОГО · ' + esc(scopeLabel()) + '<span class="' + P + '-us">' + fmtInt(hcOf(M.scope)) + ' чел</span></span></span></td>';
   for (var tm = 0; tm < mets.length; tm++) t += unitCell(scopeUnit(), M.scope, mets[tm], !sel, gcls[mets[tm].key]);
   t += '</tr>';
@@ -2376,33 +2482,47 @@ function teamsHTML() {
     // а глубину договаривает подпись «ур. N».
     var ind = '<span class="' + P + '-ind" style="width:' + (Math.min(row.lvl - 1, 8) * 12) + 'px"></span>';
     var isSel = sel && sel.key === row.key, uid = rowUnit(row), unit = M.units[row.id];
-    var canExp = rowCanExp(row), open = !!state.openRows[row.pfx];
+    var canExp = rowCanExp(row), open = !!state.openRows[row.pfx] || !!(tc.sr && tc.sr.open[row.pfx]);
+    var hit = tc.sr && tc.sr.show[row.key];
     // На границе глубины подразделения ниже не приехали — говорим, сколько их и как увидеть.
     var below = M.depth === '3' && row.lvl >= 3 && !canExp && unit && unit.nk > 0 ? unit.nk : 0;
     var nOwn = row.id !== '·' ? ownLive(row.id, keys) : 0;
     var hidOwn = [];
     if (row.id !== '·') { var allOwn = ownRules(row.id, ''); for (var ho = 0; ho < allOwn.length; ho++) if (keys.indexOf(allOwn[ho].metric) > -1 && !ruleMatches(allOwn[ho])) hidOwn.push(allOwn[ho]); }
-    t += '<tr class="' + P + '-row' + (row.lvl >= 2 ? ' ' + P + '-lv2' : '') + (isSel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="' + esc(row.key) + '">'
+    // Переход в юнит — только у выбранной строки и явной кнопкой: клик по строке выбирает её
+    // для графиков справа и никуда не уводит.
+    var drill = isSel && row.id !== '·' ? '<button type="button" class="' + P + '-drill" data-action="unit" data-id="' + esc(row.id) + '"'
+      + tip({ title: 'Открыть юнит', text: 'Отчёт переключится на «' + unitName(M, row.id) + '»: сводка, команды (дерево ниже него) и цели — по нему.', note: 'Вернуться — «← Назад» или путь над таблицей.' }) + '>Открыть юнит →</button>' : '';
+    t += '<tr class="' + P + '-row' + (row.lvl >= 2 ? ' ' + P + '-lv2' : '') + (isSel ? ' ' + P + '-sel' : '') + (tc.sr && !hit ? ' ' + P + '-anc' : '') + '" data-action="team" data-key="' + esc(row.key) + '">'
       + '<td class="' + P + '-l"><span class="' + P + '-rl">' + ind
-      + (canExp ? hCaret(open, 'exp', row.pfx, 'Раскрыть детализацию', { title: 'Детализация', text: 'Юниты уровнем ниже внутри «' + unitName(M, row.id) + '».' }) : '<span class="' + P + '-cars"></span>')
-      + '<span class="' + P + '-rb">' + nameGo(rowName(row), row.id !== '·' ? '<button class="' + P + '-go" data-action="unit" data-id="' + esc(row.id) + '" aria-label="Открыть юнит"'
-          + tip({ title: 'Открыть юнит', text: 'Сделать «' + unitName(M, row.id) + '» юнитом отчёта: сводка, команды и цели — по нему.' }) + '>→</button>' : '')
+      + (canExp && !tc.sr ? hCaret(open, 'exp', row.pfx, 'Раскрыть детализацию', { title: 'Детализация', text: 'Юниты уровнем ниже внутри «' + unitName(M, row.id) + '».' }) : '<span class="' + P + '-cars"></span>')
+      + '<span class="' + P + '-rb">' + (row.id !== '·' && tc.tq ? hlText(rowName(row), tc.tq) : esc(rowName(row)))
       + (nOwn ? ' <span class="' + P + '-tag ' + P + '-own"' + tip({ title: 'Фокус юнита', text: 'Цели установлены на этом юните и уходят вниз по всей его ветке.', rows: [{ label: 'целей в фокусе', value: String(nOwn) }] }) + '>★ Фокус</span>' : '')
       + moreFocus(hidOwn, true)
       + (unit && !unit.cur ? '<span class="' + P + '-gone">нет в структуре</span>' : '')
       + '<span class="' + P + '-us">' + (unit ? esc(levelShort(unit.lvl)) + ' · ' : '') + fmtInt(hcOf(row.ser)) + ' чел'
       + (below ? ' · <span class="' + P + '-below"' + tip({ title: 'Ниже ещё ' + below + ' ' + plural(below, 'подразделение', 'подразделения', 'подразделений'),
-          text: 'Показаны 3 уровня вниз. Глубже — переключатель «Глубина: Все уровни» или стрелка → (юнит станет юнитом отчёта).' }) + '>ниже ещё ' + below + '</span>' : '')
-      + '</span></span></span></td>';
+          text: 'Показаны 3 уровня вниз. Глубже — переключатель «Глубина: Все уровни» или «Открыть юнит» у выбранной строки.' }) + '>ниже ещё ' + below + '</span>' : '')
+      + '</span>' + drill + '</span></span></td>';
     for (var mm = 0; mm < mets.length; mm++) t += unitCell(uid, row.ser, mets[mm], isSel, gcls[mets[mm].key]);
     t += '</tr>';
   }
   if (!rows.length) {
     t += '<tr><td class="' + P + '-l" colspan="' + (mets.length + 1) + '"><span class="' + P + '-muted">'
-      + (state.focusOnly ? 'Под фильтром «Только фокусные» юнитов не осталось: ни по одной показанной метрике своих целей здесь нет.' : 'У выбранного юнита нет подразделений уровнем ниже под текущими разрезами.')
+      + (tc.tq ? 'Юнитов с «' + esc(state.tq) + '» среди ' + tc.sr.total + ' загруженных нет.' + (M.depth === '3' ? ' Поиск идёт по трём уровням вниз — глубже: «Глубина: Все уровни».' : '')
+        : (state.focusOnly ? 'Под фильтром «Только фокусные» юнитов не осталось: ни по одной показанной метрике своих целей здесь нет.' : 'У выбранного юнита нет подразделений уровнем ниже под текущими разрезами.'))
       + '</span></td></tr>';
   }
-  t += '</tbody></table>';
+  return t + '</tbody></table>';
+}
+function teamsHTML() {
+  var P = CFG.ns, M = MODEL, L = M.L;
+  var s = pageHead('Команды', crumbsHTML() + '<span class="' + P + '-ldm"> · ' + (M.depth === 'all' ? 'все уровни вниз' : 'на 3 уровня вниз') + ' · ' + esc(monthLow(L)) + '</span>');
+  var tc = teamsCtx();
+  if (tc.live.length === 1) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в списке «Метрики» строки фильтров.');
+  s += '<div class="' + P + '-tools">' + hSubs(tc.live, tc.blk, 'block') + '<span class="' + P + '-sp2"></span>' + depthHTML() + '</div>';
+  if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Снимите один из разрезов в строке фильтров.');
+  var sel = tc.sel, mets = tc.mets;
   var cur = sel || { lvl: 0, id: '', ser: M.scope, key: '' };
   var cu = sel ? rowUnit(sel) : scopeUnit(), dyn = state.dyn === 'wow' ? 'wow' : 'yoy', right = '<div class="' + P + '-dyn">';
   for (var cm = 0; cm < mets.length; cm++) {
@@ -2411,10 +2531,15 @@ function teamsHTML() {
   }
   right += '</div>';
   var info = hInfo({ title: 'Как читать таблицу', text: 'Значения — за ' + monthLow(L) + '. Цвет — к ориентиру юнита: к цели (своей или ближайшей выше по дереву), иначе к базе «' + benchLabel() + '».',
-    note: ['Каретка раскрывает уровень, стрелка → делает юнит юнитом отчёта.', '«Напрямую в …» — сотрудники, закреплённые за самим юнитом, а не за его подразделениями.'] });
+    note: ['Клик по строке — её графики справа. «Открыть юнит» у выбранной строки делает её юнитом отчёта; вернуться — «← Назад» или путь над таблицей.', 'Клик по заголовку колонки — сортировка. «Напрямую в …» — сотрудники самого юнита, а не его подразделений.'] });
   var mode = state.narrow ? 'both' : (state.splitMode || 'both');
-  var left = hPanel({ cls: P + '-tpan', title: 'Юниты', info: info, sub: 'клик по строке — графики справа и ориентиры под значениями', body: t, tbl: true, tabs: splitBtn('table') });
-  var rightP = hPanel({ cls: P + '-dpan', title: 'Динамика', sub: sel ? rowName(sel) : 'ИТОГО · ' + scopeLabel(), body: right,
+  var search = '<span class="' + P + '-tsw">' + SEARCH_SVG + '<input class="' + P + '-srch" type="text" data-tsearch="1" placeholder="Поиск юнита в таблице" value="' + esc(state.tq || '') + '"></span>';
+  var left = hPanel({ cls: P + '-tpan', title: 'Юниты', info: info, sub: 'клик по строке — графики справа и ориентиры под значениями',
+    body: '<div data-tbox="1">' + teamsTableHTML(tc) + '</div>', tbl: true, tabs: '<span class="' + P + '-pbtn">' + search + splitBtn('table') + '</span>' });
+  var subHtml = sel ? esc(rowName(sel)) + (sel.id !== '·' ? ' · <button type="button" class="' + P + '-lnk" data-action="unit" data-id="' + esc(sel.id) + '"'
+      + tip({ title: 'Открыть юнит', text: 'Отчёт переключится на «' + unitName(M, sel.id) + '»: сводка, команды и цели — по нему.', note: 'Вернуться — «← Назад» или путь над таблицей.' }) + '>открыть как юнит отчёта</button>' : '')
+    : 'ИТОГО · ' + esc(scopeLabel());
+  var rightP = hPanel({ cls: P + '-dpan', title: 'Динамика', subHtml: subHtml, body: right,
     tabs: '<span class="' + P + '-pbtn">' + hSubs([['yoy', 'Год'], ['wow', '12 недель']], dyn, 'dyn') + splitBtn('charts') + '</span>' });
   var sh = state.split || CFG.split.def;
   s += legendHTML(false);
@@ -2976,7 +3101,7 @@ function buildHTML() {
       render();
       applyCrossFilter(maskOf(next));
     }
-    // Переход к юниту действием (стрелка →, «Показать» у цели): сразу, мимо «Применить»;
+    // Переход к юниту действием («Открыть юнит», путь, «Показать» у цели): сразу, мимо «Применить»;
     // новое дерево «Команд» — раскрытия и набранные фильтры не переносятся.
     function withUnit(ids) {
       var n = reqNow();
@@ -2985,7 +3110,24 @@ function buildHTML() {
       state.openRows = {};
       state.selTeam = '';
       state.stage = null;
+      state.tq = '';
       return n;
+    }
+    // Переход к юниту (кнопка «Открыть юнит», путь, «↑», «Показать» у цели, «Применить»):
+    // юнит до перехода — в стек «← Назад».
+    function pushBack() {
+      var cur = reqNow().unit;
+      state.unitBack = state.unitBack || [];
+      var last = state.unitBack[state.unitBack.length - 1];
+      if (last && sameSet(last, cur)) return;
+      state.unitBack.push(cur.slice());
+      if (state.unitBack.length > 10) state.unitBack.shift();
+    }
+    function goUnit(ids) {
+      var nu = sameSet(ids, MODEL.roots) ? [] : ids;
+      if (sameSet(nu, reqNow().unit)) return;
+      pushBack();
+      emit(withUnit(ids));
     }
     // Поиск юнита по всей зоне (справочник большой зоны приходит окрестностью):
     // после паузы в наборе или по Enter. Уходят применённые фильтры + строка поиска —
@@ -3120,7 +3262,30 @@ function buildHTML() {
         return;
       }
       if (act === 'tree') { state.treeOpen[id] = !treeOpen(id, MODEL.roots.indexOf(id) > -1 ? 0 : 1); render(); return; }
-      if (act === 'unit') { emit(withUnit(id ? [id] : MODEL.roots)); return; }
+      if (act === 'unit') { goUnit(id ? [id] : MODEL.roots); return; }
+      if (act === 'crumb') {
+        var hzc = hzNow() ? MODEL.hBy[hzNow()] : null;
+        if (key === 'hz' && hzc) goUnit(hzc.roots);
+        else if (key === 'zone' || !id) goUnit(MODEL.roots);
+        else goUnit([id]);
+        return;
+      }
+      if (act === 'back') {
+        if (!state.unitBack || !state.unitBack.length) return;
+        var pb = state.unitBack.pop();
+        emit(withUnit(pb.length ? pb : MODEL.roots));
+        return;
+      }
+      // Сортировка таблицы «Команд»: метрика — сначала по убыванию, имя — по алфавиту;
+      // третий клик — как было (по численности).
+      if (act === 'tsort') {
+        var ts0 = state.tsort || {}, first = key === 'name' ? 'asc' : 'desc';
+        if (ts0.key !== key) state.tsort = { key: key, dir: first };
+        else if (ts0.dir === first) state.tsort = { key: key, dir: first === 'asc' ? 'desc' : 'asc' };
+        else state.tsort = { key: '', dir: '' };
+        render();
+        return;
+      }
       // Строка фильтров копит выбор: юнит, зона HRBP, разрезы — до «Применить».
       if (act === 'pick' || act === 'hpick') {
         stageEdit(function (st) {
@@ -3153,7 +3318,7 @@ function buildHTML() {
       if (act === 'apply') {
         if (!stageDiff() || state.pend) return;
         var na = staged();
-        if (!sameSet(na.unit, reqNow().unit)) { state.openRows = {}; state.selTeam = ''; }
+        if (!sameSet(na.unit, reqNow().unit)) { pushBack(); state.openRows = {}; state.selTeam = ''; state.tq = ''; }
         state.hz = na.hz || '';
         if (!stageDiff()) state.stage = null;
         emit(na);
@@ -3202,7 +3367,7 @@ function buildHTML() {
         return;
       }
       if (act === 'split') { state.splitMode = key === 'table' || key === 'charts' ? key : 'both'; state.tip = null; render(); return; }
-      if (act === 'block') { state.block = key; state.selTeam = ''; render(); return; }
+      if (act === 'block') { state.block = key; render(); return; }
       if (act === 'team') { state.selTeam = key; render(); return; }
       // Раскрытие — только вид: все уровни глубины уже в ответе.
       if (act === 'exp') { state.openRows[key] = !state.openRows[key]; render(); return; }
@@ -3230,6 +3395,7 @@ function buildHTML() {
         for (var r = 0; r < MODEL.rules.length; r++) {
           var rl = MODEL.rules[r];
           if (rl.id !== key) continue;
+          pushBack();
           var ng = withUnit([rl.unit]);
           for (var gc = 0; gc < CFG.cuts.length; gc++) {
             var fv = rl.f[CFG.cuts[gc].key];
@@ -3290,8 +3456,13 @@ function buildHTML() {
         refreshList();
         return;
       }
+      if (t.getAttribute('data-tsearch') !== null) { state.tq = t.value; refreshTeams(); return; }
       var kd = t.getAttribute('data-kd');
       if (kd) { state.kd[kd] = t.value; updateKd(); }
+    }
+    function refreshTeams() {
+      var box = overlay.querySelector('[data-tbox]');
+      if (box) box.innerHTML = teamsTableHTML(teamsCtx());
     }
 
     // Escape закрывает открытый поповер (smoke E24); Enter в поиске юнита — поиск по всей зоне.
@@ -3306,6 +3477,12 @@ function buildHTML() {
       if (k === 13 && e.target && e.target.getAttribute && e.target.getAttribute('data-psearch') === 'unit') {
         e.preventDefault();
         searchZone();
+        return;
+      }
+      if (k === 27 && e.target && e.target.getAttribute && e.target.getAttribute('data-tsearch') !== null && state.tq) {
+        e.target.value = '';
+        state.tq = '';
+        refreshTeams();
         return;
       }
       if (k === 27 && state.open) {
@@ -3355,7 +3532,7 @@ function buildHTML() {
     if (state.pend && Date.now() - state.pend.at > CFG.pendingWarnMs) { state.pend = null; state.warn = CFG.text.notApplied; }
     if (state.lastSig && state.lastSig === echo && state.warn === CFG.text.notApplied) state.warn = '';
     armPend();
-    // HRBP держится, пока область внутри его зоны (стрелка → в чужую зону его снимает).
+    // HRBP держится, пока область внутри его зоны (переход в чужую зону его снимает).
     state.hz = hzNow();
     // Набранное применилось (ответ совпал с набором) — строка фильтров снова «чистая».
     if (state.stage && !stageDiff()) state.stage = null;
