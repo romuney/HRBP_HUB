@@ -140,6 +140,7 @@ var CFG = {
   levels: { 1: 'Компания' },
   searchMin: 2,              // с какой длины строки поиск идёт по всей зоне
   searchDelay: 500,          // пауза ввода перед поиском по всей зоне, мс
+  tourKey: 'hrbp-hub.tour',  // память браузера: приглашение к туру «Как работать» уже закрывали
   tabs: [
     { key: 'onepager', label: 'Сводка' }, { key: 'teams', label: 'Команды' },
     { key: 'transform', label: 'Трансформеры' }, { key: 'goals', label: 'Цели' },
@@ -235,7 +236,9 @@ var STATE0 = {
   narrow: false,         // ячейка уже 1100 px
   pend: null,            // {sig, at} — эмит ушёл, ждём ответ с тем же эхом
   pendT: null, lastSig: '',
-  warn: ''               // предупреждение (не применился фильтр и т. п.)
+  warn: '',              // предупреждение (не применился фильтр и т. п.)
+  tour: null,            // идущий тур «Как работать»: {view, i, dir, shown, key, was, busy}
+  tourSeen: null         // приглашение к туру закрыто (null — память браузера ещё не читали)
 };
 if (!__S[CFG.ns]) __S[CFG.ns] = {};
 // Ключи, которых нет в состоянии прошлой версии скрипта (страницу не перезагружали), — по умолчанию.
@@ -291,6 +294,10 @@ function splitRecords(s) {
   for (var i = 0; i < lines.length; i++) if (lines[i] !== '') out.push(lines[i].split('\t'));
   return out;
 }
+// Память браузера — только для приглашения к туру. Песочница может её не дать:
+// тогда приглашение закрывается до перезагрузки страницы, а не навсегда.
+function lsGet(k) { try { return window.localStorage ? window.localStorage.getItem(k) : null; } catch (er) { return null; } }
+function lsSet(k, v) { try { if (window.localStorage) window.localStorage.setItem(k, v); } catch (er) { return; } }
 function pad2(n) { return (n < 10 ? '0' : '') + n; }
 function isoOf(p) { return p ? p.y + '-' + pad2(p.m + 1) + '-' + pad2(p.d) : ''; }
 
@@ -1170,7 +1177,8 @@ function buildCSS() {
     P + '-note b{color:' + C.ink + ';}',
     P + '-note' + P + '-warn{border-style:solid;border-color:#f3d58f;background:#fff8e6;color:' + C.warnTx + ';}',
     P + '-note' + P + '-warn b{color:' + C.warnTx + ';}',
-    P + '-note' + P + '-info{border-style:solid;border-color:#dbe6fd;background:' + C.blueBg + ';color:#2b5fd0;}',
+    // Синяя плашка — -ninfo, не -info: -info — значок ⓘ (круг 14 px), он сжимал плашку в точку.
+    P + '-note' + P + '-ninfo{border-style:solid;border-color:#dbe6fd;background:' + C.blueBg + ';color:#2b5fd0;}',
     P + '-load{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:' + F.note + 'px;font-weight:500;color:' + C.act + ';}',
     P + '-load i{flex:1;height:3px;border-radius:2px;background:linear-gradient(90deg,' + C.act + ',#9dbbff,' + C.act + ');opacity:.7;}',
     P + '-busy ' + P + '-content{opacity:.5;pointer-events:none;transition:opacity .2s;}',
@@ -1256,13 +1264,14 @@ function buildCSS() {
     P + '-rl{display:flex;align-items:flex-start;}',
     // Имя юнита — одной строкой с «…»: предел — от ширины панели (--hh-nmw, measureNames),
     // целиком — у выбранной строки и в подсказке. Метки (★ Фокус, +N) не обрезаются.
-    P + '-rb{min-width:0;flex:0 1 auto;margin-right:6px;max-width:var(--' + CFG.ns + '-nmw,260px);}',
+    P + '-rb{min-width:0;}',
+    P + '-tpan ' + P + '-rb{flex:0 1 auto;margin-right:6px;max-width:var(--' + CFG.ns + '-nmw,260px);}',
     P + '-nml{display:flex;align-items:baseline;min-width:0;}',
     P + '-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
     P + '-nml>' + P + '-tag,' + P + '-nml>' + P + '-more,' + P + '-nml>' + P + '-gone{flex:0 0 auto;}',
     // «ИТОГО» выбрана по умолчанию и остаётся в одну строку: её имя целиком — в строке над таблицей.
     // Находки поиска (-fnd) — тоже целиком: совпадение не прячется за «…».
-    P + '-t tr' + P + '-sel:not(' + P + '-tot) ' + P + '-nm,' + P + '-t tr' + P + '-fnd ' + P + '-nm{white-space:normal;overflow:visible;}',
+    P + '-t' + P + '-wrapok tr' + P + '-sel:not(' + P + '-tot) ' + P + '-nm,' + P + '-t' + P + '-wrapok tr' + P + '-fnd ' + P + '-nm{white-space:normal;overflow:visible;}',
     P + '-ind{display:inline-block;flex:0 0 auto;align-self:stretch;position:relative;}',
     P + '-t tr' + P + '-lv2 ' + P + '-ind::after{content:"";position:absolute;right:7px;top:3px;width:8px;height:8px;border-left:1px solid ' + C.line + ';border-bottom:1px solid ' + C.line + ';border-bottom-left-radius:3px;}',
     P + '-us{display:block;font-size:' + F.cap + 'px;color:' + C.muted + ';font-weight:400;margin-top:2px;}',
@@ -1423,7 +1432,9 @@ function buildCSS() {
     P + '-t tr' + P + '-thg th{height:' + CFG.spacing.thG + 'px;padding:6px 8px 0;border-bottom:0;text-align:center;color:' + C.muted2 + ';letter-spacing:.5px;}',
     P + '-t tr' + P + '-thg th' + P + '-l{vertical-align:bottom;text-align:left;padding:0 8px 9px 12px;color:' + C.muted + ';letter-spacing:.3px;border-bottom:1px solid ' + C.line + ';}',
     // Узкая таблица не сжимает имена в столбик — прокручивается внутри панели.
-    P + '-tpan ' + P + '-t td' + P + '-l:first-child,' + P + '-tpan ' + P + '-t th' + P + '-l{min-width:210px;}',
+    // Колонка имён не уже, чем при всех именах в одну строку (--hh-ncol, measureNames): выбранная
+    // строка, развернув имя, колонку не сужает — остальные колонки при выборе не прыгают.
+    P + '-tpan ' + P + '-t td' + P + '-l:first-child,' + P + '-tpan ' + P + '-t th' + P + '-l{min-width:var(--' + CFG.ns + '-ncol,210px);}',
     P + '-t' + P + '-g2 thead tr+tr th{top:' + CFG.spacing.thG + 'px;}',
     P + '-t' + P + '-g2 tr' + P + '-tot td{top:' + (CFG.spacing.thG + CFG.spacing.thH) + 'px;}',
     P + '-t th' + P + '-gs,' + P + '-t td' + P + '-gs{border-left:1px solid ' + C.line2 + ';}',
@@ -1443,6 +1454,43 @@ function buildCSS() {
     P + '-root ' + P + '-code{display:block;width:100%;min-height:58px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;border:1px solid ' + C.line + ';border-radius:9px;padding:10px 12px;background:' + C.hover + ';color:' + C.ink + ';resize:vertical;white-space:pre-wrap;}',
     P + '-root ' + P + '-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:' + C.muted + ';font-weight:400;}',
     P + '-steps{margin:0;padding-left:18px;color:' + C.ink2 + ';font-size:' + F.body + 'px;line-height:1.6;}',
+
+    // ---- тур «Как работать»: кнопка в шапке, приглашение, слой тура ----
+    P + '-help{color:' + C.act + ';}',
+    P + '-help:hover{background:' + C.blueBg + ';border-color:#cfdcfb;}',
+    P + '-inv{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}',
+    P + '-invt{flex:1 1 320px;min-width:0;}',
+    P + '-invb{display:inline-flex;gap:8px;}',
+    // Слой тура живёт В BODY, как тултип: шрифт и position:fixed — явно. Затемнение — четыре
+    // шторки вокруг цели (клик мимо цели не проходит), пятая — поверх цели, если она «только смотреть».
+    P + '-tour{font-family:' + CFG.fonts.family + ';display:none;}',
+    P + '-tour *{box-sizing:border-box;font-family:inherit;}',
+    P + '-tb{position:fixed;left:0;top:0;width:0;height:0;z-index:99990;background:rgba(17,24,39,.55);transition:left .2s,top .2s,width .2s,height .2s;}',
+    P + '-tb[data-tb="h"]{background:transparent;cursor:default;}',
+    P + '-tring{position:fixed;z-index:99991;border-radius:10px;box-shadow:0 0 0 2px ' + C.act + ',0 0 0 6px rgba(43,108,255,.22);pointer-events:none;transition:left .2s,top .2s,width .2s,height .2s;}',
+    P + '-tcard{position:fixed;z-index:99992;width:340px;max-width:calc(100vw - 24px);background:' + C.card + ';border-radius:12px;'
+      + 'box-shadow:0 18px 50px rgba(15,23,42,.28),0 2px 8px rgba(15,23,42,.12);padding:12px 16px 14px;color:' + C.ink2 + ';font-size:' + F.body + 'px;line-height:1.5;font-weight:400;}',
+    P + '-tarr{position:absolute;display:none;width:10px;height:10px;background:' + C.card + ';transform:rotate(45deg);}',
+    P + '-tarr' + P + '-ta-bottom{display:block;top:-5px;}',
+    P + '-tarr' + P + '-ta-top{display:block;bottom:-5px;}',
+    P + '-tarr' + P + '-ta-right{display:block;left:-5px;}',
+    P + '-tarr' + P + '-ta-left{display:block;right:-5px;}',
+    P + '-tch{display:flex;align-items:center;gap:8px;margin:0 -6px 4px 0;}',
+    P + '-tcs{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.4px;color:' + C.muted + ';font-weight:500;}',
+    P + '-tx{margin-left:auto;font-size:12px;}',
+    P + '-tct{font-size:' + F.title + 'px;font-weight:600;color:' + C.ink + ';margin:0 0 4px;}',
+    P + '-tcx b{font-weight:500;color:' + C.ink + ';}',
+    P + '-tul{margin:6px 0 0;padding-left:18px;}',
+    P + '-tul li{margin:0 0 6px;}',
+    P + '-tpl{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;}',
+    P + '-tchint{margin-top:8px;font-size:' + F.note + 'px;color:' + C.act + ';font-weight:500;}',
+    P + '-tnx{display:block;margin-top:10px;font-size:' + F.note + 'px;}',
+    P + '-tcf{display:flex;justify-content:flex-end;gap:8px;margin-top:12px;}',
+    P + '-tcf ' + P + '-btn{height:30px;padding:0 12px;}',
+    P + '-tcf ' + P + '-btn:first-child{margin-right:auto;}',
+    // Показ «нажми — будет»: курсор едет к цели и «нажимает» (кольцо), затем клик по-настоящему.
+    P + '-tcur{position:fixed;z-index:99993;display:none;left:0;top:0;pointer-events:none;transition:left .65s cubic-bezier(.3,.7,.2,1),top .65s cubic-bezier(.3,.7,.2,1);filter:drop-shadow(0 2px 3px rgba(0,0,0,.3));}',
+    P + '-tclk{position:fixed;z-index:99993;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;border:2px solid ' + C.act + ';pointer-events:none;opacity:0;}',
     '</style>'
   ].join('');
 }
@@ -1635,6 +1683,12 @@ function headHTML() {
   var s = '<div class="' + P + '-head"><div class="' + P + '-htop">';
   s += '<span class="' + P + '-logo">' + esc(CFG.text.title) + '<small>метрики команд</small></span>';
   s += '<span class="' + P + '-sp"></span>';
+  // Тур «Как работать» — по той вкладке, на которой нажали (ДС §10: справка доступна кнопкой).
+  if (ok && M.L >= 12) {
+    s += '<button type="button" class="' + P + '-btn ' + P + '-help" data-tact="tour" data-tour="help"'
+      + tip({ title: 'Как работать с отчётом', text: 'Тур по этой вкладке: по очереди подсветим элементы и расскажем, что будет по клику.' })
+      + '>' + HELP_SVG + 'Как работать</button>';
+  }
   if (M.ok && M.L >= 0) {
     var lw = lastIdx('w');
     s += '<span class="' + P + '-badge"' + tip({ title: 'Свежесть данных',
@@ -1986,7 +2040,7 @@ function noticesHTML() {
   if (outOfZone()) s += '<div class="' + P + '-note ' + P + '-warn">' + esc(CFG.text.outOfZone) + '</div>';
   var v = state.view || 'onepager';
   if (M.meta && M.meta.ret_base === 'active' && (v === 'onepager' || v === 'teams')) {
-    s += '<div class="' + P + '-note ' + P + '-info">Тип численности «Активная»: закрепляемость новичков считается от даты перехода в активную численность (active_hire_dt), а не от даты найма в компанию.</div>';
+    s += '<div class="' + P + '-note ' + P + '-ninfo">Тип численности «Активная»: закрепляемость новичков считается от даты перехода в активную численность (active_hire_dt), а не от даты найма в компанию.</div>';
   }
   return s ? '<div class="' + P + '-notes">' + s + '</div>' : '';
 }
@@ -2703,6 +2757,130 @@ function catalogHTML() {
   return s + '</div>';
 }
 
+// ---- тур «Как работать» (ДС §10: справка при первом входе, дальше — кнопкой) ----
+// Шаги по вкладкам. sel — что подсветить: селектор внутри overlay или функция root → элемент
+// или список; all — подсветить все найденные разом (rings — рамкой вокруг каждого: строка
+// фильтров переносится, и общая рамка захватила бы соседей); lock — подсвеченное не кликается (там
+// запрос или переход); demo — шаг «нажми — будет»: «Показать» кликает цель сам, done(key) —
+// что считается сделанным (key — data-key цели), hint — подсказка «попробуйте сами»;
+// need — показывать ли шаг. Цель не нашлась (нет строк, нет данных) — шаг пропускается.
+var HELP_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+  + '<circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.6-2.7 2.6"/><path d="M12 16.6h.01"/></svg>';
+var TOUR_NEXT = { onepager: 'teams', teams: 'transform', transform: 'goals', goals: 'catalog' };
+function tourSeen() {
+  if (state.tourSeen === null) state.tourSeen = lsGet(CFG.tourKey) === '1';
+  return state.tourSeen;
+}
+function tabLabel(v) { for (var i = 0; i < CFG.tabs.length; i++) if (CFG.tabs[i].key === v) return CFG.tabs[i].label; return v; }
+// Приглашение при первом входе — строкой под фильтрами, не модальным окном: отчёт сразу
+// доступен, а закрытое приглашение помнит браузер.
+function inviteHTML() {
+  var P = CFG.ns;
+  return '<div class="' + P + '-notes"><div class="' + P + '-note ' + P + '-ninfo ' + P + '-inv">'
+    + '<span class="' + P + '-invt"><b>Впервые в HRBP HUB?</b> Покажем за минуту прямо на отчёте, что где: фильтры, цвета, таблицы и графики.</span>'
+    + '<span class="' + P + '-invb"><button type="button" class="' + P + '-btn ' + P + '-pri" data-tact="invite">Показать</button>'
+    + '<button type="button" class="' + P + '-btn ' + P + '-ghost" data-tact="later">Не сейчас</button></span></div></div>';
+}
+// Первый шаг полного тура: как читать отчёт — четыре правила (ДС §10).
+function tourIntroHTML() {
+  return '<ul class="' + CFG.ns + '-tul">'
+    + '<li>Цифры — за последний закрытый месяц: <b>' + esc(monthLow(MODEL.L)) + '</b>.</li>'
+    + '<li>Цвет — сравнение с ориентиром: с целью юнита, а если её нет — со всей компанией.'
+    + '<span class="' + CFG.ns + '-tpl">' + hPill('good', 'лучше') + hPill('bad', 'хуже') + hPill('neu', 'в пределах ±5 %') + '</span></li>'
+    + '<li>Фильтры сверху копятся и применяются одной кнопкой «Применить».</li>'
+    + '<li>Наведите на число или ⓘ — подсказка объяснит, что это и как посчитано.</li></ul>';
+}
+function tourSteps(view) {
+  var P = '.' + CFG.ns, out = [];
+  function add(o) { if (o.need === undefined || o.need) out.push(o); }
+  function firstOp(R) { return R.querySelector(P + '-op'); }
+  function slice(x) { return Array.prototype.slice.call(x || []); }
+  if (view === 'onepager') {
+    add({ intro: true, title: 'HRBP HUB за минуту', html: tourIntroHTML() });
+    add({ sel: P + '-tabbar', lock: true, title: 'Вкладки',
+      html: '<b>Сводка</b> — метрики выбранного юнита. <b>Команды</b> — сравнение подразделений. <b>Трансформеры</b> — метрика по грейду, стажу, городу. <b>Цели</b> — реестр целей. <b>Каталог метрик</b> — что и как считается.' });
+    add({ sel: '[data-pop="unit"]', lock: true, title: 'Юнит отчёта',
+      html: 'Нажмите — откроется дерево вашей зоны с поиском. Выберите подразделение, и весь отчёт перестроится под него.' });
+    add({ sel: '[data-pop="hrbp"]', lock: true, need: hrbpVisible(), title: 'HRBP',
+      html: 'Выберите HRBP — отчёт сузится до его зоны, а «Юнит» будет предлагать только её подразделения.' });
+    add({ sel: '[data-pop^="cut:"]', all: true, rings: true, lock: true, title: 'Разрезы',
+      html: 'Покраска, IT / nonIT, стрим, специализация, штат, тип численности. Можно отметить несколько значений — метрики пересчитаются только по этим сотрудникам.' });
+    add({ sel: '[data-action="apply"]', lock: true, title: 'Применить',
+      html: 'Изменённый фильтр обводится пунктиром — выбор копится. «Применить» пересчитывает отчёт одним запросом, «Отменить» возвращает как было.' });
+    add({ sel: '[data-pop="metrics"],[data-action="focus"]', all: true, rings: true, lock: true, title: 'Что показывать',
+      html: '<b>Метрики</b> — какие строки показывать. <b>Только фокусные</b> — только метрики, у которых есть цель.' });
+    add({ sel: P + '-bench', lock: true, title: 'База сравнения',
+      html: 'Если у метрики нет цели, её сравнивают с базой — всей компанией под теми же разрезами. Юнит на базу не влияет.' });
+    add({ sel: function (R) { var t = firstOp(R); return t ? [t.querySelector(P + '-vs')].concat(slice(t.querySelectorAll(P + '-row>' + P + '-vs'))) : null; },
+      all: true, title: 'Ориентир',
+      html: 'С чем сравнивается значение: «Цель ≤ 2,0 %» — утверждённая цель юнита (своя или унаследованная сверху), «База 92,0 %» — вся компания. Пилюля под ним — насколько лучше или хуже.' });
+    add({ sel: function (R) { var t = firstOp(R); return t ? t.querySelectorAll(P + '-spk') : null; }, all: true, title: '12 месяцев',
+      html: 'Столбик — месяц, цвет — сравнение месяца с его ориентиром. Наведите на столбик — значение и ориентир за этот месяц.' });
+    add({ sel: 'tr[data-action="openm"]', demo: true, at: 'left', done: function (k) { return opOpen(k); }, title: 'Динамика метрики',
+      html: 'Нажмите на строку метрики — под ней откроются графики «год к году» и «12 недель». Открыть можно сразу несколько строк.',
+      hint: 'Нажмите на подсвеченную строку или «Показать».' });
+    add({ sel: 'tr' + P + '-det ' + P + '-dsplit', title: 'Графики',
+      html: 'Синяя линия — этот год, серая — прошлый, пунктир — база или цель. Наведите на график — значения месяца. Клик по пункту легенды справа выключает линию.' });
+  } else if (view === 'teams') {
+    add({ sel: function (R) { var b = R.querySelector('[data-action="block"]'); return b ? b.parentNode : null; }, title: 'Группы метрик',
+      html: '<b>Все метрики</b> — все колонки сразу, или одна группа: удержание, текучесть, структура команды.' });
+    add({ sel: P + '-tpan', title: 'Подразделения',
+      html: 'Юнит отчёта («ИТОГО») и три уровня под ним. ▸ у строки раскрывает её подразделения, ▸ у «ИТОГО» — все сразу. Цвет значения — сравнение с ориентиром подразделения.' });
+    add({ sel: P + '-tpan tr' + P + '-row:not(' + P + '-tot)', demo: true, at: 'left', done: function (k) { return state.selTeam === k; }, title: 'Выбрать строку',
+      html: 'Нажмите на строку — справа появятся её графики, а под значениями — ориентиры. Клик только выбирает строку и никуда не уводит.',
+      hint: 'Нажмите на подсвеченную строку или «Показать».' });
+    add({ sel: P + '-tpan tr' + P + '-sel ' + P + '-drill', lock: true, pad: 4, title: 'Открыть юнит',
+      html: 'Иконка у выбранной строки делает её юнитом отчёта: сводка, команды и цели перестроятся под неё, ниже откроются её три уровня. Вернуться — «← Назад» или путь над таблицей.' });
+    add({ sel: P + '-dpan', title: 'Динамика строки',
+      html: '<b>Год</b> — помесячно к прошлому году, <b>12 недель</b> — к предыдущим 12 неделям. Наведите на график — значения; клик по пункту легенды выключает линию.' });
+    add({ sel: P + '-tsw', title: 'Поиск в таблице',
+      html: 'Найдёт подразделение среди трёх загруженных уровней и подсветит совпадение. По всей зоне ищет фильтр «Юнит».' });
+    add({ sel: P + '-tpan th' + P + '-sth:not(' + P + '-l)', pad: 2, title: 'Сортировка',
+      html: 'Клик по заголовку колонки — сортировка внутри каждого уровня; ещё клик — в обратную сторону, третий — как было.' });
+    add({ sel: '[data-split]', need: !state.narrow && (state.splitMode || 'both') === 'both', pad: 2, title: 'Ширина колонок',
+      html: 'Потяните разделитель — больше места таблице или графикам, двойной клик — как было. ⤢ в шапке панели разворачивает её во всю ширину.' });
+    add({ sel: P + '-dhint', title: 'Глубже трёх уровней',
+      html: 'Выберите строку и откройте её юнит иконкой — таблица покажет следующие три уровня.' });
+  } else if (view === 'transform') {
+    add({ sel: function (R) { var x = R.querySelector('select[data-sel="tfm"]'); return x ? x.parentNode.parentNode : null; }, title: 'Метрика',
+      html: 'Какую метрику раскладывать по оси.' });
+    add({ sel: function (R) { var x = R.querySelector('select[data-sel="tfa"]'); return x ? x.parentNode.parentNode : null; }, lock: true, title: 'Ось разбивки',
+      html: 'Разрез численности или атрибут сотрудника на конец месяца: грейд, сеньорность, стаж, возраст, город… Смена оси загружает данные.' });
+    add({ sel: P + '-content ' + P + '-panel', title: 'Сводная таблица',
+      html: 'Строки — значения оси, колонки — 12 месяцев (последний выделен), справа — изменение за год. Юнит и разрезы берутся из строки фильтров.' });
+  } else if (view === 'goals') {
+    add({ sel: P + '-content ' + P + '-panel', title: 'Реестр целей',
+      html: 'Цели на юнитах вашей зоны и выше. Цель действует на юнит и всю ветку вниз, пока ниже не встретится своя. Статус: в фокусе, ждёт разреза или вне срока.' });
+    add({ sel: '[data-action="gorule"]', lock: true, pad: 4, title: 'Показать цель',
+      html: 'Откроет юнит цели и выставит её разрезы в фильтрах.' });
+    add({ sel: function (R) { var ps = R.querySelectorAll(P + '-content ' + P + '-panel'); return ps.length > 1 ? ps[ps.length - 1] : null; }, title: 'Новая цель',
+      html: 'Отчёт цели только читает. Здесь собирается строка для реестра — её добавляют в параграф «KPI · реестр целей» ноута Helicopter.' });
+  } else if (view === 'catalog') {
+    add({ sel: P + '-cgrid ' + P + '-panel', title: 'Метрики по группам',
+      html: 'Что значит метрика, в какую сторону лучше и ставятся ли на неё цели. «показывается» — метрика включена в фильтре «Метрики». Формула — в ⓘ.' });
+  }
+  add({ sel: '[data-tour="help"]', pad: 4, last: true, title: 'Тур всегда под рукой',
+    html: 'Кнопка «Как работать» покажет такой тур по вкладке, на которой вы сейчас.' });
+  return out;
+}
+// Карточка шага: вкладка и номер, заголовок, текст, подсказка «попробуйте сами», кнопки.
+function tourCardHTML(view, list, i, step, done) {
+  var P = CFG.ns, nx = step.last ? TOUR_NEXT[view] : '';
+  var b = i > 0 ? '<button type="button" class="' + P + '-btn ' + P + '-ghost" data-tact="back">Назад</button>'
+    : '<button type="button" class="' + P + '-btn ' + P + '-ghost" data-tact="close">Закрыть</button>';
+  if (step.demo && !done) b += '<button type="button" class="' + P + '-btn ' + P + '-ghost" data-tact="next">Далее</button>'
+    + '<button type="button" class="' + P + '-btn ' + P + '-pri" data-tact="demo">Показать</button>';
+  else if (step.last) b += '<button type="button" class="' + P + '-btn ' + P + '-pri" data-tact="close">Готово</button>';
+  else b += '<button type="button" class="' + P + '-btn ' + P + '-pri" data-tact="next">' + (step.intro ? 'Начать' : 'Далее') + '</button>';
+  return '<span class="' + P + '-tarr"></span>'
+    + '<div class="' + P + '-tch"><span class="' + P + '-tcs">' + esc(tabLabel(view)) + ' · ' + (i + 1) + ' из ' + list.length + '</span>'
+    + '<button type="button" class="' + P + '-ib ' + P + '-tx" data-tact="close" aria-label="Закрыть тур">✕</button></div>'
+    + '<div class="' + P + '-tct">' + esc(step.title) + '</div><div class="' + P + '-tcx">' + step.html + '</div>'
+    + (step.demo && !done && step.hint ? '<div class="' + P + '-tchint">' + esc(step.hint) + '</div>' : '')
+    + (nx ? '<button type="button" class="' + P + '-lnk ' + P + '-tnx" data-tact="nexttab">Дальше — тур по вкладке «' + esc(tabLabel(nx)) + '» →</button>' : '')
+    + '<div class="' + P + '-tcf">' + b + '</div>';
+}
+
 // ---- сборка экрана ----
 function accessHTML() {
   var M = MODEL;
@@ -2738,6 +2916,7 @@ function buildHTML() {
   }
   h.push(filterBarHTML());
   h.push(noticesHTML());
+  if (!state.tour && !tourSeen()) h.push(inviteHTML());
   h.push('<div class="' + P + '-content" role="tabpanel">' + tabHTML(v) + '</div>');
   h.push('</div>');
   return buildCSS() + h.join('');
@@ -2829,6 +3008,237 @@ function buildHTML() {
       // data-tip несёт ГОТОВЫЙ html плашки (tipHtml при сборке разметки).
       showTip(state.tip.key || '', state.tip.rect);
     }
+    // ── ТУР «КАК РАБОТАТЬ» ──
+    // Слой тура — в body, как тултип (render() его не стирает): четыре шторки вокруг цели
+    // затемняют всё, кроме неё, и не пропускают клики мимо; пятая ложится на цель, если та
+    // «только смотреть» (lock); рамка вокруг цели; карточка со стрелкой; курсор для показа.
+    // Шаги — tourSteps(view) в БЛОКЕ 5; состояние — state.tour, переживает перезапуск скрипта.
+    var tourNode = null;
+    var CURSOR_SVG = '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 2.5v16.2l4.3-4.1 2.9 6.6 2.6-1.1-2.9-6.5h6z" fill="#1f2530" stroke="#fff" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+    function tourLayer() {
+      if (tourNode && tourNode.parentNode) return tourNode;
+      var old = document.querySelector('body > .' + CFG.ns + '-tour');
+      if (old) old.parentNode.removeChild(old);
+      var P = CFG.ns, sides = ['t', 'b', 'l', 'r', 'h'], h = '';
+      for (var i = 0; i < sides.length; i++) h += '<div class="' + P + '-tb" data-tb="' + sides[i] + '"></div>';
+      h += '<div class="' + P + '-trings"></div><div class="' + P + '-tcard" role="dialog" aria-modal="true" aria-label="Как работать с отчётом"></div>'
+        + '<span class="' + P + '-tclk"></span><span class="' + P + '-tcur">' + CURSOR_SVG + '</span>';
+      tourNode = document.createElement('div');
+      tourNode.className = P + '-tour';
+      tourNode.innerHTML = h;
+      document.body.appendChild(tourNode);
+      // Слушатели — на новый узел, один раз: узел пересоздаётся только вместе с запуском скрипта.
+      tourNode.addEventListener('click', function (e) {
+        var n = e.target;
+        while (n && n !== tourNode && !(n.getAttribute && n.getAttribute('data-tact'))) n = n.parentNode;
+        if (n && n !== tourNode) tourAct(n.getAttribute('data-tact'));
+      });
+      // Колесо над затемнением листает отчёт: подсветка едет вместе с целью.
+      tourNode.addEventListener('wheel', function (e) { overlay.scrollTop += e.deltaY; tourPos(); });
+      return tourNode;
+    }
+    function tourQ(cls) { return tourNode ? tourNode.querySelector('.' + CFG.ns + '-' + cls) : null; }
+    function tourEls(step) {
+      if (!step || !step.sel) return [];
+      var raw = typeof step.sel === 'function' ? step.sel(overlay) : overlay.querySelectorAll(step.sel), out = [];
+      if (!raw) return out;
+      if (raw.nodeType === 1) raw = [raw];
+      for (var i = 0; i < raw.length; i++) {
+        var el = raw[i], r = el && el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+        if (r && r.width > 0 && r.height > 0) { out.push(el); if (!step.all) break; }
+      }
+      return out;
+    }
+    function tourRect(els) {
+      var l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+      for (var i = 0; i < els.length; i++) {
+        var q = els[i].getBoundingClientRect();
+        l = Math.min(l, q.left); t = Math.min(t, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom);
+      }
+      return { left: l, top: t, right: r, bottom: b, width: r - l, height: b - t };
+    }
+    // Цель вне видимой части — прокручиваем overlay (скролл-контейнер отчёта): цель — по центру,
+    // высокая — верхом под край, чтобы рядом поместилась карточка.
+    function tourScroll(els) {
+      if (!els.length) return;
+      var u = tourRect(els), o = overlay.getBoundingClientRect(), top = Math.max(o.top, 0);
+      var vh = Math.min(o.bottom, window.innerHeight) - top;
+      if (u.top >= top + 8 && u.bottom <= top + vh - 8) return;
+      overlay.scrollTop += (u.top - top) - (u.height > vh - 160 ? 72 : (vh - u.height) / 2);
+    }
+    function tourBox(el, l, t, w, h) {
+      el.style.left = Math.round(l) + 'px'; el.style.top = Math.round(t) + 'px';
+      el.style.width = Math.max(0, Math.round(w)) + 'px'; el.style.height = Math.max(0, Math.round(h)) + 'px';
+    }
+    // Карточка — со стороны, где помещается (снизу, сверху, справа, слева); цель во весь экран —
+    // карточка в нижнем углу поверх неё. Стрелка смотрит в центр цели.
+    function tourPlace(r) {
+      var card = tourQ('tcard'), arr = card ? card.querySelector('.' + CFG.ns + '-tarr') : null;
+      if (!card || !arr) return;
+      var W = window.innerWidth, H = window.innerHeight, m = 12, g = 14, side = '', left, top;
+      var cw = card.offsetWidth, ch = card.offsetHeight;
+      if (!r) { left = (W - cw) / 2; top = Math.max(m, Math.min(96, (H - ch) / 2)); }
+      else {
+        var cx = (r.l + r.r) / 2, cy = (r.t + r.b) / 2;
+        var fits = { bottom: r.b + g + ch <= H - m, top: r.t - g - ch >= m, right: r.r + g + cw <= W - m, left: r.l - g - cw >= m };
+        var order = ['bottom', 'top', 'right', 'left'];
+        for (var i = 0; i < order.length && !side; i++) if (fits[order[i]]) side = order[i];
+        if (side === 'bottom') { top = r.b + g; left = cx - cw / 2; }
+        else if (side === 'top') { top = r.t - g - ch; left = cx - cw / 2; }
+        else if (side === 'right') { left = r.r + g; top = cy - ch / 2; }
+        else if (side === 'left') { left = r.l - g - cw; top = cy - ch / 2; }
+        else { left = W - cw - m; top = H - ch - m; }
+      }
+      left = Math.max(m, Math.min(left, W - cw - m));
+      top = Math.max(m, Math.min(top, H - ch - m));
+      card.style.left = Math.round(left) + 'px';
+      card.style.top = Math.round(top) + 'px';
+      arr.className = CFG.ns + '-tarr' + (side ? ' ' + CFG.ns + '-ta-' + side : '');
+      if (side === 'bottom' || side === 'top') { arr.style.left = Math.round(Math.max(14, Math.min(cw - 24, (r.l + r.r) / 2 - left - 5))) + 'px'; arr.style.top = ''; }
+      else if (side) { arr.style.top = Math.round(Math.max(14, Math.min(ch - 24, (r.t + r.b) / 2 - top - 5))) + 'px'; arr.style.left = ''; }
+    }
+    // Только габариты: шторки, рамка, карточка — по текущему месту цели (прокрутка, ресайз, перерисовка).
+    function tourPos() {
+      var t = state.tour;
+      if (!t || !tourNode || tourNode.style.display !== 'block') return;
+      var step = tourSteps(t.view)[t.i];
+      if (!step) return;
+      var els = tourEls(step), W = window.innerWidth, H = window.innerHeight, r = null;
+      if (els.length) {
+        var u = tourRect(els), pd = step.pad === undefined ? 6 : step.pad;
+        r = { l: Math.max(0, u.left - pd), t: Math.max(0, u.top - pd), r: Math.min(W, u.right + pd), b: Math.min(H, u.bottom + pd) };
+        if (r.r - r.l < 4 || r.b - r.t < 4) r = null;
+      }
+      var Q = function (k) { return tourNode.querySelector('[data-tb="' + k + '"]'); }, rs = [];
+      if (r) {
+        tourBox(Q('t'), 0, 0, W, r.t);
+        tourBox(Q('b'), 0, r.b, W, H - r.b);
+        tourBox(Q('l'), 0, r.t, r.l, r.b - r.t);
+        tourBox(Q('r'), r.r, r.t, W - r.r, r.b - r.t);
+        tourBox(Q('h'), r.l, r.t, step.lock ? r.r - r.l : 0, step.lock ? r.b - r.t : 0);
+        if (step.rings) {
+          for (var e = 0; e < els.length; e++) { var q = els[e].getBoundingClientRect(); rs.push([q.left - 3, q.top - 3, q.width + 6, q.height + 6]); }
+        } else rs.push([r.l, r.t, r.r - r.l, r.b - r.t]);
+      } else {
+        tourBox(Q('t'), 0, 0, W, H);
+        tourBox(Q('b'), 0, 0, 0, 0); tourBox(Q('l'), 0, 0, 0, 0); tourBox(Q('r'), 0, 0, 0, 0); tourBox(Q('h'), 0, 0, 0, 0);
+      }
+      // Рамки — из пула: сколько целей, столько рамок, лишние спрятаны.
+      var pool = tourQ('trings');
+      while (pool.children.length < rs.length) { var nr = document.createElement('div'); nr.className = CFG.ns + '-tring'; pool.appendChild(nr); }
+      for (var k = 0; k < pool.children.length; k++) {
+        var rg = pool.children[k];
+        rg.style.display = k < rs.length ? 'block' : 'none';
+        if (k < rs.length) tourBox(rg, rs[k][0], rs[k][1], rs[k][2], rs[k][3]);
+      }
+      tourPlace(r);
+    }
+    function tourShow() {
+      var t = state.tour, list = tourSteps(t.view), step = list[t.i];
+      if (!step) { tourEnd(); return; }
+      var els = tourEls(step);
+      // Цели нет (пустая таблица, нет строк, узкая ячейка) — шаг пропускаем в ту же сторону.
+      if (step.sel && !els.length) { tourGo(t.i + (t.dir || 1), t.dir || 1); return; }
+      t.shown = t.i;
+      t.key = step.demo ? (els[0].getAttribute('data-key') || '') : '';
+      t.was = step.demo ? !!step.done(t.key) : false;
+      t.busy = false;
+      state.tip = null;
+      hideTip();
+      var L = tourLayer();
+      L.style.display = 'block';
+      tourQ('tcur').style.display = 'none';
+      tourScroll(els);
+      tourQ('tcard').innerHTML = tourCardHTML(t.view, list, t.i, step, t.was);
+      tourPos();
+      var pb = L.querySelector('.' + CFG.ns + '-tcf .' + CFG.ns + '-pri');
+      if (pb && pb.focus) pb.focus();
+    }
+    function tourGo(i, dir) {
+      var t = state.tour;
+      if (!t) return;
+      if (i >= tourSteps(t.view).length) { tourEnd(); return; }
+      if (i < 0) { i = 0; dir = 1; }
+      t.i = i; t.dir = dir; t.shown = -1;
+      tourShow();
+    }
+    function tourMark() { state.tourSeen = true; lsSet(CFG.tourKey, '1'); }
+    function tourStart(view) {
+      tourMark();
+      state.open = ''; state.q = ''; state.tip = null;
+      hideTip();
+      state.view = view;
+      state.tour = { view: view, i: 0, dir: 1, shown: -1, key: '', was: false, busy: false };
+      overlay.scrollTop = 0;
+      render();
+      ensureAxis();
+    }
+    function tourEnd() {
+      state.tour = null;
+      if (tourNode) tourNode.style.display = 'none';
+    }
+    // После каждой перерисовки: вкладку сменили — тур окончен; шаг «нажми — будет» сделан
+    // (пользователем или показом) — следующий шаг; иначе подсветка — по новому месту цели.
+    function tourSync() {
+      var t = state.tour;
+      if (!t) {
+        if (tourNode) tourNode.style.display = 'none';
+        else { var old = document.querySelector('body > .' + CFG.ns + '-tour'); if (old) old.parentNode.removeChild(old); }
+        return;
+      }
+      if ((state.view || 'onepager') !== t.view || !(MODEL.ok && MODEL.role !== 'none' && MODEL.L >= 12)) { tourEnd(); return; }
+      if (!tourNode || !tourNode.parentNode || t.shown !== t.i) { tourShow(); return; }
+      var step = tourSteps(t.view)[t.i];
+      if (step && step.demo && !t.was && !t.busy && step.done(t.key)) { tourGo(t.i + 1, 1); return; }
+      tourPos();
+    }
+    // Показ «нажми — будет»: курсор едет от кнопки к цели, «нажимает» — и клик идёт по-настоящему,
+    // тем же обработчиком, что и клик мышью. Без анимации (prefers-reduced-motion) — сразу клик.
+    function tourDemo() {
+      var t = state.tour;
+      if (!t || t.busy) return;
+      var step = tourSteps(t.view)[t.i], els = tourEls(step);
+      if (!els.length) return;
+      var r = els[0].getBoundingClientRect(), cur = tourQ('tcur'), clk = tourQ('tclk');
+      var x = step.at === 'left' ? r.left + Math.min(140, r.width / 3) : r.left + r.width / 2, y = r.top + r.height / 2;
+      var fire = function () {
+        if (state.tour !== t) { cur.style.display = 'none'; return; }
+        t.busy = false;
+        var now = tourEls(step);
+        if (now.length && !step.done(t.key)) onClick({ target: now[0] });
+        else tourSync();
+      };
+      if (!canAnim()) { fire(); return; }
+      t.busy = true;
+      var btn = tourNode.querySelector('[data-tact="demo"]'), br = btn ? btn.getBoundingClientRect() : { left: x, top: y + 90, width: 0, height: 0 };
+      cur.style.transition = 'none';
+      cur.style.left = Math.round(br.left + br.width / 2) + 'px';
+      cur.style.top = Math.round(br.top + br.height / 2) + 'px';
+      cur.style.display = 'block';
+      cur.getBoundingClientRect();
+      cur.style.transition = '';
+      cur.style.left = Math.round(x - 5) + 'px';
+      cur.style.top = Math.round(y - 2.5) + 'px';
+      setTimeout(function () {
+        clk.style.left = Math.round(x) + 'px';
+        clk.style.top = Math.round(y) + 'px';
+        clk.animate([{ opacity: 0.9, transform: 'scale(.35)' }, { opacity: 0, transform: 'scale(1.5)' }], { duration: 450, easing: 'ease-out' });
+        cur.animate([{ transform: 'scale(1)' }, { transform: 'scale(.82)' }, { transform: 'scale(1)' }], { duration: 240 });
+        setTimeout(function () { fire(); setTimeout(function () { cur.style.display = 'none'; }, 420); }, 200);
+      }, 700);
+    }
+    function tourAct(a) {
+      if (a === 'tour') { tourStart(state.view || 'onepager'); return; }
+      if (a === 'invite') { tourStart('onepager'); return; }
+      if (a === 'later') { tourMark(); render(); return; }
+      if (!state.tour) return;
+      if (a === 'next') tourGo(state.tour.i + 1, 1);
+      else if (a === 'back') tourGo(state.tour.i - 1, -1);
+      else if (a === 'demo') tourDemo();
+      else if (a === 'close') tourEnd();
+      else if (a === 'nexttab') { if (TOUR_NEXT[state.tour.view]) tourStart(TOUR_NEXT[state.tour.view]); else tourEnd(); }
+    }
+
     // Анимация появления (ДС 6.5): только у графиков, впервые показанных с этими данными
     // (CHARTS[i].anim), — не на ресайз и не на наведение. Web Animations, fill 'backwards':
     // после конца анимации элемент живёт по своему CSS (подсветка легенды работает).
@@ -2881,17 +3291,27 @@ function buildHTML() {
     // Панель — ячейка сетки (её ширину задаёт доля, а не таблица): петли нет, тянется с разделителем.
     function measureNames() {
       var el = overlay.querySelector('.' + CFG.ns + '-tpan'), w = el ? el.clientWidth : 0;
-      if (w) el.style.setProperty('--' + CFG.ns + '-nmw', Math.max(160, Math.min(420, Math.round(w * 0.36))) + 'px');
+      if (!w) return;
+      el.style.setProperty('--' + CFG.ns + '-nmw', Math.max(160, Math.min(420, Math.round(w * 0.36))) + 'px');
+      // Ширину колонки имён меряем, пока все имена в одну строку, и держим её минимумом (--hh-ncol);
+      // только потом разрешаем выбранной строке и находкам поиска развернуть имя (-wrapok).
+      var t = el.querySelector('table'), th = t ? t.querySelector('th.' + CFG.ns + '-l') : null;
+      if (!th) return;
+      t.classList.remove(CFG.ns + '-wrapok');
+      el.style.removeProperty('--' + CFG.ns + '-ncol');
+      el.style.setProperty('--' + CFG.ns + '-ncol', th.offsetWidth + 'px');
+      t.classList.add(CFG.ns + '-wrapok');
     }
     function relayout() {
       var a = measureNarrow(), b = measureCharts();
       measureNames();
-      if (!a && !b) return false;
+      if (!a && !b) { tourPos(); return false; }
       var els = overlay.querySelectorAll('[data-ci]');
       for (var k = 0; k < els.length; k++) {
         var ci = +els[k].getAttribute('data-ci'), ch = CHARTS[ci];
         if (ch) els[k].innerHTML = ch.draw(cwOf(ch.kind), { ci: ci, anim: ch.anim });
       }
+      tourPos();
       return true;
     }
 
@@ -2911,6 +3331,7 @@ function buildHTML() {
       var pl2 = overlay.querySelector('[data-plist]');
       if (pl2) pl2.scrollTop = pst;
       renderTip();
+      tourSync();
     }
     state.rerender = render;
 
@@ -3167,6 +3588,9 @@ function buildHTML() {
     }
 
     function onClick(e) {
+      // Тур «Как работать»: кнопка в шапке и приглашение при первом входе.
+      var ta = trigger(e.target, 'data-tact');
+      if (ta) { tourAct(ta.getAttribute('data-tact')); return; }
       // Клик мимо открытого поповера закрывает его; data-scope — на обёртке
       // открывателя вместе с поповером: клик по списку/поиску — «внутри».
       var sc = trigger(e.target, 'data-scope');
@@ -3391,6 +3815,8 @@ function buildHTML() {
     function refreshTeams() {
       var box = overlay.querySelector('[data-tbox]');
       if (box) box.innerHTML = teamsTableHTML(teamsCtx());
+      measureNames();
+      tourPos();
     }
 
     // Escape закрывает открытый поповер (smoke E24); Enter в поиске юнита — поиск по всей зоне.
@@ -3434,12 +3860,14 @@ function buildHTML() {
     overlay.addEventListener('change', onChange);
     overlay.addEventListener('input', onInput);
     overlay.addEventListener('keydown', onKeydown);
+    // Прокрутка отчёта во время тура — подсветка едет за целью.
+    overlay.addEventListener('scroll', function () { if (state.tour) tourPos(); });
 
     // Глобальные слушатели переживают перезапуск скрипта и накапливаются.
     // Старый снимаем ЯВНО, ссылку держим в state. Escape вешай здесь же,
     // тем же способом, и никогда не внутри render().
     if (state.onWinResize) window.removeEventListener('resize', state.onWinResize);
-    state.onWinResize = function () { if (state.tip) renderTip(); };
+    state.onWinResize = function () { if (state.tip) renderTip(); if (state.tour) tourPos(); };
     window.addEventListener('resize', state.onWinResize);
     // Клик мимо виджета (по дашборду) закрывает поповер.
     if (state.onDocDown) document.removeEventListener('mousedown', state.onDocDown, true);
@@ -3452,6 +3880,18 @@ function buildHTML() {
       render();
     };
     document.addEventListener('mousedown', state.onDocDown, true);
+    // Клавиши тура — на документе (фокус в карточке тура, она вне overlay): Esc закрывает,
+    // стрелки листают. Старый слушатель снимаем — он держит прошлый запуск скрипта.
+    if (state.onTourKey) document.removeEventListener('keydown', state.onTourKey, true);
+    state.onTourKey = function (ev) {
+      if (!state.tour) return;
+      var k = ev.keyCode || ev.which, tag = ev.target && ev.target.tagName;
+      if (k === 27) { ev.preventDefault(); ev.stopPropagation(); tourEnd(); return; }
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      if (k === 39) { ev.preventDefault(); tourAct('next'); }
+      else if (k === 37) { ev.preventDefault(); tourAct('back'); }
+    };
+    document.addEventListener('keydown', state.onTourKey, true);
 
     // Ответ пришёл: эхо совпало с ожиданием — снимаем его; предупреждение
     // «самовлияние не настроено» гасит первый же ответ с тем же эхом.

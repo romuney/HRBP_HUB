@@ -37,6 +37,7 @@ python3 stand/check.py                    # 180 проверок датасет�
 python3 stand/live.py                     # чарт в браузере поверх chdb: ?user=a.sergeeva|b.kotov|s.volkov|nobody, ?w=900, ?selfoff=1, ?long=1 (длинные имена, как в бою)
 HH_DICT_FULL_MAX=10 python3 stand/live.py # то же, но справочник «большой зоны» (окрестность + поиск по зоне)
 node $(npm root -g)/eslint/bin/eslint.js -c stand/eslint.chart.cjs --no-config-lookup proteus/hrbp-hub.chart.js  # no-undef: 0 ошибок
+NODE_PATH=$(npm root -g) node stand/tour.cjs 'http://127.0.0.1:8765/?user=b.kotov' <каталог>  # тур «Как работать»: все шаги, 0 ошибок
 python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для smoke (live.py остановить: chdb держит каталог)
 ```
 
@@ -97,10 +98,17 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
 - **Вид чарта — профиль Proteus Adoption** (adoption `DESIGN_SYSTEM.md` §16): кегли только
   ролями `CFG.fonts`, веса 400/500/600 (700+ нет), контролы 34 px, ⓘ 14 px, каретка 28×28,
   панель 14/16, KPI 12/14, таблица th 9/8 · td 6/8 · строка 44. Новых кеглей «на глаз» нет.
+- **Тур «Как работать»**: шаги — `tourSteps(view)` (БЛОК 5), цель шага — селектор внутри overlay;
+  слой тура — в body, как тултип; «нажми — будет» кликает через `onClick`, запросы и переходы
+  в туре только показываются (`lock`). Новый элемент интерфейса или вкладка — шаг в тур, проход —
+  `stand/tour.cjs`. Приглашение — строкой под фильтрами, не модально (модальное перекрыло бы
+  smoke скилла), закрытое помнит `localStorage['hrbp-hub.tour']`. Классы плашек: синяя — `-ninfo`
+  (`-info` — значок ⓘ).
 - Дата «бессрочно» в целях — `2099-12-31` (Date в ClickHouse кончается в 2149).
 
 ## Что не проверено стендом
 
 Боевые значения разрезов и `experience_group_nm`, `super_hrbp_unit_rk`, покрытие
-regrettable-разметки, настройки кластера Proteus, DOM борда для CSS (файл 4 поставки).
+regrettable-разметки, настройки кластера Proteus, DOM борда для CSS (файл 4 поставки),
+`localStorage` в песочнице Proteus (без неё приглашение к туру возвращается с каждой загрузкой).
 Их показывают параграф «Диагностика источников» и файл 5 поставки.
