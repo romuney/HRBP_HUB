@@ -59,6 +59,7 @@ var CFG = {
     { key: 'legal', label: 'Юрлицо' }
   ],
   defaultAxis: 'spec',
+  trTop: 30,                 // трансформеры: у оси показываем столько крупных значений, остальные — «Остальные»
   // Порядок значений там, где он смысловой, а не по численности.
   order: {
     age: ['до 25', '25–34', '35–44', '45 и старше'],
@@ -319,7 +320,7 @@ function buildModel() {
   var F = CFG.fields;
   var M = { ok: false, missing: [], meta: null, cal: { m: [], w: [] }, L: -1, dataDt: '',
             units: {}, kids: {}, hrbps: [], base: null, scope: null, c: [], g: {}, x: {}, facets: {},
-            tr: [], rules: [], role: 'none', scopeIds: [], roots: [], single: false,
+            trBy: {}, trAll: false, rules: [], role: 'none', scopeIds: [], roots: [], single: false,
             sel: {}, axis: '', reqUnit: [], q: '', dictMode: 'full', zoneN: 0, scopeFull: false,
             depth: '3', depthReq: '3', scopeN: 0, allMax: 0, hKids: {}, hTop: [], hBy: {} };
   if (!rawData.length) return M;
@@ -354,7 +355,7 @@ function buildModel() {
     else if (role === 'g') { if (!M.g[pid]) M.g[pid] = []; M.g[pid].push({ id: id, pid: pid, ser: serOf(r) }); }
     else if (role === 'x') { if (!M.x[pid]) M.x[pid] = []; M.x[pid].push({ id: id, pid: pid, ser: serOf(r) }); }
     else if (role === 'f') { if (!M.facets[pid]) M.facets[pid] = []; M.facets[pid].push({ v: id, n: num(r[F.n]) || 0 }); }
-    else if (role === 'tr') M.tr.push({ v: id, ser: serOf(r) });
+    else if (role === 'tr') { if (!M.trBy[pid]) M.trBy[pid] = []; M.trBy[pid].push({ v: id, n: num(r[F.n]) || 1, ser: serOf(r) }); }
     else if (role === 'kpi') {
       var kf = String(r[F.j] || '').split('\t');
       M.rules.push({ id: id, unit: pid, metric: kf[0], target: num(kf[1]),
@@ -369,6 +370,9 @@ function buildModel() {
   M.roots = (meta.roots || []).slice().sort();
   M.single = M.scopeIds.length === 1;
   M.axis = meta.axis || '';
+  // Трансформеры: разрезы приезжают всегда, атрибуты — все, если ветка не больше порога
+  // датасета (tr_all), иначе — только атрибут, запрошенный по tr_f.
+  M.trAll = num(meta.tr_all) === 1;
   M.reqUnit = meta.req_unit || [];
   M.depth = meta.depth === 'all' ? 'all' : '3';
   M.depthReq = meta.depth_req === 'all' ? 'all' : '3';
@@ -1302,6 +1306,8 @@ function buildCSS() {
     P + '-narrow ' + P + '-tsw{width:190px;}',
     P + '-hl{background:#dfe8ff;color:' + C.actInk + ';border-radius:3px;padding:0 1px;}',
     P + '-t tr' + P + '-anc td' + P + '-l{color:' + C.muted + ';}',
+    // «Остальные» в трансформерах — хвост мелких значений одной строкой, приглушённо.
+    P + '-t tr' + P + '-rest td' + P + '-l{color:' + C.muted + ';font-weight:400;}',
     // Сортировка по колонке: стрелка только у активной (профиль Adoption).
     P + '-t th' + P + '-sth{cursor:pointer;user-select:none;}',
     P + '-t th' + P + '-sth:hover{color:' + C.ink2 + ';}',
@@ -2581,8 +2587,39 @@ function splitCols(sh) {
 // ---- вкладка «Трансформеры» ----
 function axisLabel(k) { for (var i = 0; i < CFG.axes.length; i++) if (CFG.axes[i].key === k) return CFG.axes[i].label; return k; }
 function wantAxis() { return state.tfAxis || MODEL.axis || CFG.defaultAxis; }
+function isCutAxis(k) { for (var i = 0; i < CFG.cuts.length; i++) if (CFG.cuts[i].key === k) return true; return false; }
+// Ось уже в ответе — переключение без запроса.
+function axisReady(k) { return isCutAxis(k) || MODEL.trAll || MODEL.axis === k; }
+// Сумма рядов значений (для строки «Остальные»): только месяцы — недель у трансформера нет.
+function sumTr(list) {
+  var out = { m: {}, w: {} };
+  for (var c = 0; c < COMP.length; c++) {
+    var k = COMP[c], acc = null;
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i].ser.m[k];
+      if (!a) continue;
+      if (!acc) { acc = []; for (var z = 0; z < a.length; z++) acc.push(0); }
+      for (var j = 0; j < a.length; j++) acc[j] += a[j] || 0;
+    }
+    out.m[k] = acc;
+    out.w[k] = null;
+  }
+  return out;
+}
+// Число значений оси (с учётом свёрнутых датасетом в '…').
+function trCount(axis) { var t = MODEL.trBy[axis] || [], n = 0; for (var i = 0; i < t.length; i++) n += t[i].v === '…' ? t[i].n : 1; return n; }
 function trSorted(axis) {
-  var list = MODEL.tr.slice(), ord = CFG.order[axis], numeric = list.length > 0;
+  var all = MODEL.trBy[axis] || [], list = [], rest = [], restN = 0, ord = CFG.order[axis];
+  // Хвост мелких значений (город, офис) датасет уже свернул в '…' (n — сколько их); если значений
+  // всё равно больше CFG.trTop — крупнейшие остаются, прочие уходят туда же, в «Остальные».
+  for (var r0 = 0; r0 < all.length; r0++) { if (all[r0].v === '…') { rest.push(all[r0]); restN += all[r0].n; } else list.push(all[r0]); }
+  if (list.length > CFG.trTop) {
+    list.sort(function (a, b) { return hcOf(b.ser) - hcOf(a.ser) || (a.v < b.v ? -1 : 1); });
+    rest = rest.concat(list.slice(CFG.trTop));
+    restN += list.length - CFG.trTop;
+    list = list.slice(0, CFG.trTop);
+  }
+  var numeric = list.length > 0;
   // Числовая ось (грейд): по возрастанию, а не по численности.
   for (var i = 0; i < list.length; i++) if (!/^\d+(?:[.,]\d+)?$/.test(String(list[i].v))) numeric = false;
   list.sort(function (a, b) {
@@ -2593,10 +2630,14 @@ function trSorted(axis) {
     }
     return hcOf(b.ser) - hcOf(a.ser) || (a.v < b.v ? -1 : 1);
   });
+  if (rest.length) list.push({ v: '…', rest: restN, ser: rest.length === 1 ? rest[0].ser : sumTr(rest) });
   return list;
 }
 // Пустое значение разреза / атрибута в кубе — '-' (ноут), в подписи — «не указано».
-function trName(v) { return v === '' || v === '-' || v === '·' ? 'не указано' : v; }
+function trName(r) {
+  if (r.rest) return 'Остальные · ' + r.rest + ' ' + plural(r.rest, 'значение', 'значения', 'значений');
+  return r.v === '' || r.v === '-' || r.v === '·' ? 'не указано' : r.v;
+}
 function transformHTML() {
   var P = CFG.ns, M = MODEL, L = M.L;
   var s = pageHead('Трансформеры', 'Сводная таблица метрики по оси за 12 месяцев. Юнит и разрезы — из строки фильтров, здесь выбирается ось: разрез численности или атрибут сотрудника на конец месяца (грейд, стаж, возраст, город…).');
@@ -2611,13 +2652,15 @@ function transformHTML() {
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('tfm', mOpts, m.key) + '</div>'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Ось разбивки</span>' + hSel('tfa', aOpts, axis) + '</div>'
     + '</div>';
-  if (M.axis !== axis) {
-    if (state.pend) return s + hEmpty('Загружаю разбивку «' + axisLabel(axis) + '»', 'Ответ придёт вместе с остальными данными отчёта.');
-    return s + hEmpty('Разбивка «' + axisLabel(axis) + '» ещё не загружена', 'Нажмите «Загрузить» — данные подтянутся одним запросом.')
+  // Разрезы и (для ветки до порога) все атрибуты приезжают с каждым ответом — смена оси мгновенная.
+  // Атрибут очень большой ветки (вся компания) догружается один раз по запросу.
+  if (!axisReady(axis)) {
+    if (state.pend) return s + hEmpty('Загружаю разбивку «' + axisLabel(axis) + '»', 'Ветка большая: атрибуты сотрудников по ней считаются отдельным запросом, один раз.');
+    return s + hEmpty('Разбивка «' + axisLabel(axis) + '» ещё не загружена', 'Ветка большая: атрибуты по ней считаются отдельным запросом. Нажмите «Загрузить».')
       + '<div class="' + P + '-tnote"><button class="' + P + '-btn ' + P + '-pri" data-action="axis" data-key="' + esc(axis) + '">Загрузить</button></div>';
   }
-  if (!M.tr.length || !M.scope) return s + hEmpty('Нет данных для разбивки', 'Под текущими разрезами в выбранном юните нет сотрудников.');
   var list = trSorted(axis), months = [];
+  if (!list.length || !M.scope) return s + hEmpty('Нет данных для разбивки', 'Под текущими разрезами в выбранном юните нет сотрудников.');
   for (var k = L - 11; k <= L; k++) months.push(k);
   var th = '<table class="' + P + '-t"><thead><tr><th class="' + P + '-l">' + esc(axisLabel(axis)) + '</th>';
   for (var hm = 0; hm < months.length; hm++) {
@@ -2631,9 +2674,10 @@ function transformHTML() {
     return r + deltaTd(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.', P + '-vs') + '</tr>';
   }
   th += prow('ИТОГО · ' + scopeLabel(), M.scope, P + '-tot');
-  for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr].v), list[rr].ser, '');
+  for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr]), list[rr].ser, list[rr].rest ? P + '-rest' : '');
   th += '</tbody></table>';
-  return s + hPanel({ title: m.name + ' · сводная по оси «' + axisLabel(axis) + '»', sub: 'последний месяц выделен · ' + list.length + ' ' + plural(list.length, 'значение', 'значения', 'значений'), body: th, tbl: true });
+  var nv = trCount(axis);
+  return s + hPanel({ title: m.name + ' · сводная по оси «' + axisLabel(axis) + '»', sub: 'последний месяц выделен · ' + nv + ' ' + plural(nv, 'значение', 'значения', 'значений'), body: th, tbl: true });
 }
 
 // ---- вкладка «Цели»: реестр зоны и строка для новой цели ----
@@ -2825,7 +2869,7 @@ function tourSteps(view) {
     add({ sel: function (R) { var x = R.querySelector('select[data-sel="tfm"]'); return x ? x.parentNode.parentNode : null; }, title: 'Метрика',
       html: 'Какую метрику раскладывать по оси.' });
     add({ sel: function (R) { var x = R.querySelector('select[data-sel="tfa"]'); return x ? x.parentNode.parentNode : null; }, lock: true, title: 'Ось разбивки',
-      html: 'Разрез численности или атрибут сотрудника на конец месяца: грейд, сеньорность, стаж, возраст, город… Смена оси загружает данные.' });
+      html: 'Разрез численности или атрибут сотрудника на конец месяца: грейд, сеньорность, стаж, возраст, город… Все оси уже посчитаны — переключаются сразу.' });
     add({ sel: P + '-content ' + P + '-panel', title: 'Сводная таблица',
       html: 'Строки — значения оси, колонки — 12 месяцев (последний выделен), справа — изменение за год. Юнит и разрезы берутся из строки фильтров.' });
   } else if (view === 'goals') {
@@ -3521,7 +3565,7 @@ function buildHTML() {
     function ensureAxis() {
       if ((state.view || 'onepager') !== 'transform' || state.pend) return;
       var want = wantAxis();
-      if (MODEL.axis === want || state.axisTried[want]) return;
+      if (axisReady(want) || state.axisTried[want]) return;
       state.axisTried[want] = true;
       var n = reqNow();
       n.axis = want;
@@ -3758,6 +3802,8 @@ function buildHTML() {
       if (sel === 'tfm') { state.tfMetric = t.value; render(); return; }
       if (sel === 'tfa') {
         state.tfAxis = t.value;
+        // Ось уже в ответе (разрез или атрибуты небольшой ветки) — без запроса.
+        if (axisReady(t.value)) { render(); return; }
         var n = reqNow();
         n.axis = t.value;
         emit(n);

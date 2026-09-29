@@ -81,6 +81,19 @@ def compare(label, row, pred, cuts, grains=('m', 'w')):
     return good
 
 
+def tr_ok(rows, axes, label):
+    """Трансформеры: каждая ось есть, Σ её значений == область в 12 последних месяцах, раньше — нули."""
+    last = meta(rows)['last_m']
+    sc = arrs(by(rows, 'scope')[0], 'm')
+    tr = by(rows, 'tr')
+    for ax in axes:
+        vs = [r for r in tr if r['pid'] == ax]
+        s12 = {c: [x if last - 11 <= i <= last else 0 for i, x in enumerate(sc[c])] for c in COMP}
+        good = len(vs) > 0 and vsum(vs, 'm') == s12
+        ok(good, 'Σ трансформера «%s» == область за 12 мес [%s]' % (ax, label))
+    ok(all(not r['w_hc'] for r in tr), 'у трансформера нет недель [%s]' % label)
+
+
 def tree_ok(rows, label):
     """Дерево «Команд» в ответе: у каждого узла Σ строк детей == узел (месяцы и недели),
     родитель каждой строки есть в ответе, «·» — только рядом с подразделениями."""
@@ -174,13 +187,33 @@ def main():
             if CARRIER[cut] in flt:
                 continue
             ok(sum(int(r['n']) for r in fs) == sc[0]['hc'][last], 'фасеты «%s» == численность области [%s]' % (cut, user))
-    for axis in ['spec', 'hct', 'grade', 'age', 'city', 'head']:
-        for user, flt in [('a.sergeeva', {}), ('b.kotov', {'staff_f': ['Штат']})]:
-            f = dict(flt, tr_f=[axis])
-            rows, _ = ask(f, user)
-            tr = by(rows, 'tr')
-            sc = arrs(by(rows, 'scope')[0], 'm')
-            ok(len(tr) > 1 and vsum(tr, 'm') == sc, 'Σ трансформера «%s» == область [%s %s]' % (axis, user, flt))
+    # Трансформеры: все 17 осей в ответе (зона мира меньше TR_ALL_MAX); Σ значений оси == область
+    # за 12 последних месяцев, прежние слоты — нули.
+    AXES = list(CARRIER) + ['grade', 'seniority', 'exp', 'gender', 'age', 'office', 'work', 'head', 'legal', 'macro', 'city']
+    W_GRADES = len([r for r in by(ask({}, 'a.sergeeva')[0], 'tr') if r['pid'] == 'grade'])
+    for user, flt in [('a.sergeeva', {}), ('b.kotov', {'staff_f': ['Штат']}), ('s.volkov', {}), ('e.lapin', {'unit_f': [sid(U['Отдел бэкенда'].rk)]})]:
+        rows, _ = ask(flt, user)
+        tr_ok(rows, AXES, '%s %s' % (user, flt))
+        ok(meta(rows).get('tr_all') == 1, 'атрибуты — все, ветка меньше порога [%s]' % user)
+    rows, _ = ask({'spec_f': ['Разработка', 'Аналитика']}, 'a.sergeeva')
+    tr_ok(rows, AXES, 'фильтр по специализации')
+    ok(sorted(r['id'] for r in by(rows, 'tr') if r['pid'] == 'spec') == ['Аналитика', 'Разработка'],
+       'ось отфильтрованного разреза — только выбранные значения')
+    # Ветка больше порога: атрибуты не читаются (только разрезы), атрибут из tr_f — во всей ветке.
+    rows, _ = ch.dataset({}, 'a.sergeeva', tr_all_max=10)
+    ok(meta(rows).get('tr_all') == 0 and {r['pid'] for r in by(rows, 'tr')} == set(CARRIER),
+       'ветка больше TR_ALL_MAX: атрибутов нет, разрезы — все')
+    tr_ok(rows, list(CARRIER), 'порог, только разрезы')
+    # Хвост атрибута: TR_TOP крупнейших значений + строка '…' (n — сколько в ней), Σ — прежняя.
+    rows, _ = ch.dataset({}, 'a.sergeeva', tr_top=5)
+    gr = [r for r in by(rows, 'tr') if r['pid'] == 'grade']
+    rest = [r for r in gr if r['id'] == '…']
+    ok(len(gr) == 6 and len(rest) == 1 and int(rest[0]['n']) == W_GRADES - 5,
+       'грейд при TR_TOP=5: 5 значений + «…» (%s)' % [(r['id'], r['n']) for r in gr])
+    tr_ok(rows, AXES, 'TR_TOP=5')
+    rows, _ = ch.dataset({'tr_f': ['grade']}, 'a.sergeeva', tr_all_max=10)
+    ok({r['pid'] for r in by(rows, 'tr')} == set(CARRIER) | {'grade'}, 'ветка больше TR_ALL_MAX + tr_f=grade: разрезы и грейд')
+    tr_ok(rows, list(CARRIER) + ['grade'], 'порог + tr_f')
     rows, _ = ask({'spec_f': ['Разработка']})
     fs = {r['id']: int(r['n']) for r in by(rows, 'f') if r['pid'] == 'spec'}
     ok(len(fs) > 3 and fs.get('Разработка', 0) > 0, 'фасет выбранного разреза показывает ВСЕ значения (кроме себя не фильтрует)')

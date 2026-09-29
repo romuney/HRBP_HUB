@@ -133,13 +133,17 @@ def where_in(values, mark="'"):
     return '(' + ', '.join(q(v) for v in values) + ')'
 
 
-def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET, dict_full_max=None, all_max=None):
-    """dict_full_max — подменить порог «справочник целиком», all_max — порог «все уровни»
-    (стенд маленький: так проверяются режимы больших зон). По умолчанию — из окружения
-    HH_DICT_FULL_MAX / HH_ALL_MAX."""
+def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET, dict_full_max=None, all_max=None, tr_all_max=None,
+           tr_top=None):
+    """dict_full_max — подменить порог «справочник целиком», all_max — порог «все уровни»,
+    tr_all_max — порог «все атрибуты трансформеров», tr_top — сколько значений атрибута до
+    строки '…' (стенд маленький: так проверяются режимы больших зон). По умолчанию — из
+    окружения HH_DICT_FULL_MAX / HH_ALL_MAX / HH_TR_ALL_MAX / HH_TR_TOP."""
     flt = flt or {}
     dict_full_max = dict_full_max or os.environ.get('HH_DICT_FULL_MAX')
     all_max = all_max or os.environ.get('HH_ALL_MAX')
+    tr_all_max = tr_all_max or os.environ.get('HH_TR_ALL_MAX')
+    tr_top = tr_top or os.environ.get('HH_TR_TOP')
     env = jinja2.Environment(extensions=['jinja2.ext.do'])
     env.filters['where_in'] = where_in
 
@@ -158,6 +162,10 @@ def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET, dict_fu
         text = text.replace('{% set DICT_FULL_MAX = 1500 %}', '{% set DICT_FULL_MAX = ' + str(int(dict_full_max)) + ' %}')
     if all_max:
         text = text.replace('{% set ALL_MAX = 1000 %}', '{% set ALL_MAX = ' + str(int(all_max)) + ' %}')
+    if tr_all_max:
+        text = text.replace('{% set TR_ALL_MAX = 1500 %}', '{% set TR_ALL_MAX = ' + str(int(tr_all_max)) + ' %}')
+    if tr_top:
+        text = text.replace('{% set TR_TOP = 30 %}', '{% set TR_TOP = ' + str(int(tr_top)) + ' %}')
     return env.from_string(text).render(filter_values=filter_values, current_username=current_username)
 
 
@@ -167,8 +175,10 @@ def run(sql, settings=''):
     return d['data'], d.get('statistics', {})
 
 
-def dataset(flt=None, user='a.sergeeva', settings='', always_true=False, dict_full_max=None, all_max=None):
-    return run(render(flt, user, always_true, dict_full_max=dict_full_max, all_max=all_max), settings)
+def dataset(flt=None, user='a.sergeeva', settings='', always_true=False, dict_full_max=None, all_max=None, tr_all_max=None,
+            tr_top=None):
+    return run(render(flt, user, always_true, dict_full_max=dict_full_max, all_max=all_max, tr_all_max=tr_all_max,
+                      tr_top=tr_top), settings)
 
 
 if __name__ == '__main__':

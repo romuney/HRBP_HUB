@@ -31,11 +31,12 @@ chdb 2.1.1 (= 24.8.4.1) ставится в отдельный venv, систе�
 python3 stand/gen_sources.py              # синтетический мир (stand/world.py) → источники в БД gp
 python3 stand/run_gp.py --seed-kpi        # ВСЕ gp-параграфы из YAML, в том числе стоп-проверки
 python3 stand/ch.py load [nullable|plain] # hrbp_hub_* → prod_proteus.* в chdb (Nullable, как gp_to_click)
-python3 stand/check.py                    # 180 проверок датасета против stand/expect.py (независимый расчёт)
-<venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 182 (+ режим group_by_use_nulls)
-<venv chdb 2.1.1>/bin/python stand/scale.py <каталог>  # 100 тыс. сотрудников: время, строки, JSON (HH_SCALE_COMBOS=4 — тяжёлый куб)
+python3 stand/check.py                    # 299 проверок датасета против stand/expect.py (независимый расчёт)
+<venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 301 (+ режим group_by_use_nulls)
+<venv chdb 2.1.1>/bin/python stand/scale.py <каталог>  # 100 тыс. сотрудников + куб атрибутов 0,86 млн: время, строки, JSON, трансформеры (HH_SCALE_COMBOS=4 — тяжёлый куб)
 python3 stand/live.py                     # чарт в браузере поверх chdb: ?user=a.sergeeva|b.kotov|s.volkov|nobody, ?w=900, ?selfoff=1, ?long=1 (длинные имена, как в бою)
 HH_DICT_FULL_MAX=10 python3 stand/live.py # то же, но справочник «большой зоны» (окрестность + поиск по зоне)
+HH_TR_ALL_MAX=10 python3 stand/live.py    # то же, но ветка «больше порога»: атрибуты трансформеров — по запросу (HH_TR_TOP — хвост «…»)
 node $(npm root -g)/eslint/bin/eslint.js -c stand/eslint.chart.cjs --no-config-lookup proteus/hrbp-hub.chart.js  # no-undef: 0 ошибок
 NODE_PATH=$(npm root -g) node stand/tour.cjs 'http://127.0.0.1:8765/?user=b.kotov' <каталог>  # тур «Как работать»: все шаги, 0 ошибок
 python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для smoke (live.py остановить: chdb держит каталог)
@@ -63,6 +64,12 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   `hrbp_hub_base`, справочник зоны больше `DICT_FULL_MAX` (1 500) — окрестностью
   (`dict_mode = part`) + поиск `q_f`; выбранная область до `DICT_FULL_MAX` — целиком
   (`scope_full`), поиск — сначала внутри неё. Не возвращать чтение всего куба.
+- **Трансформеры без догрузки**: 6 разрезов — в проходе фасетов (`sumForEachIf`), 11 атрибутов —
+  все, если ветка ≤ `TR_ALL_MAX` (1 500) юнитов, иначе только атрибут из `tr_f` (пустой диапазон —
+  куб атрибутов не читается); у атрибута ≤ `TR_TOP` (30) значений + строка `…`; только 12 последних
+  закрытых месяцев. Диапазон ключа — один общий скаляр `(lo, hi, alo, ahi)` на все ветки: каждый
+  другой скаляр над `ex` заново считает всю цепочку CTE (≈0,2 с на масштабе). Цена — +0,6…1,3 с к
+  ответу на масштабе; `TR_ALL_MAX = 0` возвращает атрибуты «по запросу».
 - **«Команды» без догрузки**: дерево на 3 уровня (ROLLUP по k1…k3) приезжает с каждым
   ответом, раскрытие строк — только вид; `pid` у x — путь от −1 через `/`. Глубже — только
   «Открыть юнит» (иконка у выбранной строки и в шапке «Динамики»), переключателя глубины
