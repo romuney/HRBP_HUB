@@ -207,8 +207,9 @@ var __S = window.__pvtState;
 var STATE0 = {
   tip: null,
   view: '',              // вкладка (data-view): '' = «Сводка»
-  open: '',              // открытый поповер: 'unit' | 'hrbp' | 'cut:<разрез>' | 'metrics' | ''
-  q: '',                 // строка поиска открытого поповера
+  drawer: false,         // открыта панель «Фильтры и настройки» (справа)
+  open: '',              // открытый раздел панели: 'unit' | 'hrbp' | 'cut:<разрез>' | 'metrics' | ''
+  q: '',                 // строка поиска открытого раздела панели
   stage: null,           // набранные, но не применённые фильтры: {unit: [...], cuts: {разрез: [...]}}
   treeOpen: {},          // раскрытые узлы дерева в выборе юнита
   hOpen: {},             // раскрытые узлы дерева HRBP
@@ -649,7 +650,7 @@ function sigOf(o) {
   for (var i = 0; i < CFG.cuts.length; i++) s += '|' + CFG.cuts[i].key + ':' + ((o.cuts && o.cuts[CFG.cuts[i].key]) || []).slice().sort().join('\u0001');
   return s + '|a:' + (o.axis || '') + '|d:' + (o.depth === 'all' ? 'all' : '3');
 }
-// Строка фильтров копит выбор (юнит, HRBP, разрезы) и отправляет его одной кнопкой
+// Панель «Фильтры и настройки» копит выбор (юнит, HRBP, разрезы) и отправляет его одной кнопкой
 // «Применить»: staged() — применённое плюс набранное, stageDiff() — сколько фильтров изменено.
 // hz — HRBP, чья зона выбрана: в датасет не уходит (там только юниты), но сужает выбор
 // юнита до его зоны. Юнит и HRBP — один фильтр «чья зона и что в ней»: одно изменение.
@@ -996,23 +997,52 @@ function svgLine(spec, W, H, ctx) {
   return s + '</svg>';
 }
 
-// ---- спарклайн: столбики за 12 месяцев, цвет — оценка КАЖДОГО месяца ----
-// Колонка месяца — группа с полосой на всю высоту (без щелей): тултип едет по месяцам не мигая.
-function svgSpark(vals, states, tips) {
-  var P = CFG.ns, w = 200, h = 40, n = vals.length, pad = 2, mx = 0;
-  for (var i = 0; i < n; i++) if (vals[i] !== null && vals[i] > mx) mx = vals[i];
-  mx = mx || 1;
-  var bw = (w - pad * 2) / n, s = '';
-  for (var j = 0; j < n; j++) {
-    var v = vals[j];
-    var bh = v === null ? 0 : Math.max(2, v / mx * (h - 4));
-    s += '<g class="' + P + '-sbg"' + (tips && tips[j] ? tip(tips[j]) : '') + '>'
-      + '<rect class="' + P + '-hit" x="' + (pad + j * bw).toFixed(1) + '" y="0" width="' + bw.toFixed(1) + '" height="' + h + '"/>'
-      + '<rect x="' + (pad + j * bw + 1).toFixed(1) + '" y="' + (h - bh).toFixed(1) + '" width="' + Math.max(1, bw - 2).toFixed(1) + '" height="' + bh.toFixed(1)
-      + '" rx="1.5" class="' + P + '-sb ' + P + '-bar ' + P + '-' + (states[j] || 'neutral') + '" data-d="' + (j * 12) + '"/></g>';
+// ---- спарклайн: линия за 12 месяцев (владелец, 06.10: «барчарты лучше линией») ----
+// Точка — оценка КАЖДОГО месяца к его ориентиру (цвет светофора), пунктир — сам ориентир
+// (цель или база месяца), последняя точка крупнее. Шкала — по значениям и ориентиру, но не
+// уже 8 % от величины: удержание 91–92 % не раздувается на всю высоту. Колонка месяца —
+// группа с полосой на всю высоту (без щелей): тултип едет по месяцам не мигая.
+function svgSpark(vals, states, tips, refs) {
+  var P = CFG.ns, w = 240, h = 48, n = vals.length, px = 6, pt = 8, pb = 8, lo = null, hi = null, i;
+  function take(v) { if (v === null || v === undefined || isNaN(v)) return; lo = lo === null ? v : Math.min(lo, v); hi = hi === null ? v : Math.max(hi, v); }
+  for (i = 0; i < n; i++) { take(vals[i]); if (refs) take(refs[i]); }
+  if (lo === null) { lo = 0; hi = 1; }
+  var mag = Math.max(Math.abs(lo), Math.abs(hi)), need = mag * 0.08;
+  if (hi - lo < need || hi - lo < 1e-9) {
+    var mid = (hi + lo) / 2, half = Math.max(need, 1e-6) / 2;
+    lo = mid - half; hi = mid + half;
+    if (lo < 0 && mid >= 0) { hi -= lo; lo = 0; }
+    if (mag === 0) { lo = 0; hi = 1; }
+  } else { var padv = (hi - lo) * 0.1; lo -= padv; hi += padv; if (lo < 0 && mag > 0) lo = Math.min(0, lo + padv); }
+  var step = (w - px * 2) / Math.max(1, n - 1);
+  function X(k) { return px + k * step; }
+  function Y(v) { return pt + (1 - (v - lo) / (hi - lo)) * (h - pt - pb); }
+  function path(arr) {
+    var d = '', on = false;
+    for (var k = 0; k < n; k++) {
+      var v = arr[k];
+      if (v === null || v === undefined || isNaN(v)) { on = false; continue; }
+      d += (on ? 'L' : 'M') + X(k).toFixed(1) + ' ' + Y(v).toFixed(1);
+      on = true;
+    }
+    return d;
   }
-  s += '<rect x="0" y="' + (h - 1) + '" width="' + w + '" height="1" class="' + P + '-sbase"/>';
-  return '<svg class="' + P + '-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' + s + '</svg>';
+  var s = '';
+  if (refs) { var rd = path(refs); if (rd) s += '<path d="' + rd + '" class="' + P + '-sref"/>'; }
+  var vd = path(vals);
+  if (vd) s += '<path d="' + vd + '" class="' + P + '-sline"/>';
+  var last = -1;
+  for (i = 0; i < n; i++) if (vals[i] !== null && vals[i] !== undefined && !isNaN(vals[i])) last = i;
+  for (var j = 0; j < n; j++) {
+    var v = vals[j], x0 = j === 0 ? 0 : X(j) - step / 2, x1 = j === n - 1 ? w : X(j) + step / 2;
+    s += '<g class="' + P + '-sbg"' + (tips && tips[j] ? tip(tips[j]) : '') + '>'
+      + '<rect class="' + P + '-hit" x="' + x0.toFixed(1) + '" y="0" width="' + (x1 - x0).toFixed(1) + '" height="' + h + '"/>';
+    if (v !== null && v !== undefined && !isNaN(v)) {
+      s += '<circle cx="' + X(j).toFixed(1) + '" cy="' + Y(v).toFixed(1) + '" r="' + (j === last ? 4 : 2.8) + '" class="' + P + '-sdot ' + P + '-' + (states[j] || 'neutral') + (j === last ? ' ' + P + '-slast' : '') + '"/>';
+    }
+    s += '</g>';
+  }
+  return '<svg class="' + P + '-spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="xMidYMid meet">' + s + '</svg>';
 }
 
 // ---------- БЛОК 5: РАЗМЕТКА (<style> + HTML) ----------
@@ -1025,7 +1055,8 @@ function svgSpark(vals, states, tips) {
 // в ячейке не работают: адаптив — от контейнера (RETRO 49, RECIPES.md
 // «Рамка макета ≠ рамка виджета»).
 // Макет HRBP HUB (styles.css, дизайн-система TeamPulse): полка фильтров слева
-// в одном чарте стала строкой фильтров под вкладками, окно KPI — вкладкой «Цели».
+// в одном чарте стала кнопкой «Фильтры» с панелью справа (чипы применённого — под вкладками),
+// окно KPI — вкладкой «Цели».
 // Узкая ячейка (< 1100 px) — класс <ns>-narrow на корне вместо @media.
 function buildCSS() {
   // Типографика, иконки и отступы — профиль виджетов Proteus Adoption
@@ -1034,7 +1065,6 @@ function buildCSS() {
   // панель 14/16, KPI 12/14, таблица th 9/8 · td 6/8 · строка 44, тултип 7/10.
   var P = '.' + CFG.ns, C = CFG.colors, F = CFG.fonts;
   var SH = '0 1px 3px rgba(20,28,45,.06),0 4px 16px rgba(20,28,45,.04)';
-  var SHL = '0 8px 28px rgba(20,28,45,.16)';
   return [
     '<style>',
     P + '-root{width:100%;height:100%;box-sizing:border-box;'
@@ -1085,7 +1115,6 @@ function buildCSS() {
 
     // ---- строка фильтров: контролы 34 px ----
     P + '-fbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px 0;}',
-    P + '-fsep{width:1px;height:20px;background:' + C.line + ';margin:0 4px;}',
     P + '-dd{position:relative;display:inline-block;}',
     P + '-ddb{display:inline-flex;align-items:center;gap:6px;height:34px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:9px;padding:0 12px;font-size:' + F.control + 'px;font-weight:500;color:' + C.ink2 + ';cursor:pointer;white-space:nowrap;max-width:340px;}',
     P + '-ddb:hover{border-color:#d8dce4;}',
@@ -1093,7 +1122,6 @@ function buildCSS() {
     P + '-ddb' + P + '-on{border-color:' + C.act + ';}',
     // выбрано, но не применено: пунктир акцентом — видно, что ждёт «Применить»
     P + '-ddb' + P + '-chg{border-style:dashed;border-color:' + C.act + ';}',
-    P + '-ddu ' + P + '-ddv{max-width:260px;}',
     P + '-ddl{color:' + C.muted + ';font-weight:400;}',
     P + '-ddb' + P + '-set ' + P + '-ddl{color:#5b83dc;}',
     P + '-ddv{overflow:hidden;text-overflow:ellipsis;min-width:0;}',
@@ -1111,13 +1139,36 @@ function buildCSS() {
     P + '-ft' + P + '-on ' + P + '-ft-kn{left:13px;}',
     P + '-ft-tx{font-size:' + F.control + 'px;font-weight:400;color:' + C.ink2 + ';}',
     P + '-ft' + P + '-on ' + P + '-ft-tx{color:' + C.blue + ';}',
+    // ---- кнопка «Фильтры», чипы применённого и панель «Фильтры и настройки» справа ----
+    P + '-fbtn{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px 0 10px;border:1px solid ' + C.line + ';border-radius:9px;background:' + C.card + ';font-size:' + F.control + 'px;font-weight:500;color:' + C.ink2 + ';cursor:pointer;white-space:nowrap;}',
+    P + '-fbtn:hover{border-color:#d3d8e0;}',
+    P + '-fbtn svg{color:' + C.muted + ';flex:0 0 auto;}',
+    P + '-fbtn' + P + '-on{border-color:' + C.act + ';}',
+    P + '-fbtn ' + P + '-cnt{margin-left:0;}',
+    P + '-chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 6px 0 11px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;font-size:' + F.control + 'px;font-weight:500;white-space:nowrap;max-width:340px;}',
+    P + '-chip ' + P + '-ddl{color:#5b83dc;font-weight:400;}',
+    // набрано в панели, но не применено: пунктир акцентом, как у изменённого раздела
+    P + '-unap{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 4px 0 12px;border:1px dashed ' + C.act + ';border-radius:9px;font-size:' + F.note + 'px;color:' + C.ink2 + ';white-space:nowrap;}',
+    P + '-unap ' + P + '-btn{height:26px;padding:0 10px;}',
+    P + '-drwb{position:fixed;z-index:60;background:rgba(20,28,45,.16);}',
+    P + '-drw{position:fixed;z-index:61;display:flex;flex-direction:column;background:' + C.card + ';border-left:1px solid ' + C.line + ';box-shadow:-10px 0 30px rgba(20,28,45,.14);outline:none;color:' + C.ink + ';font-size:' + F.body + 'px;}',
+    P + '-drh{display:flex;align-items:center;gap:8px;padding:12px 12px 10px 16px;border-bottom:1px solid ' + C.line2 + ';}',
+    P + '-drt{flex:1;font-size:' + F.title + 'px;font-weight:600;color:' + C.ink + ';}',
+    P + '-drs{flex:1;min-height:0;overflow:auto;padding:2px 16px 16px;}',
+    P + '-drg{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.4px;color:' + C.muted + ';font-weight:500;margin:14px 0 6px;}',
+    P + '-acc{display:block;margin:0 0 6px;}',
+    P + '-acc>' + P + '-ddb{display:flex;width:100%;max-width:none;}',
+    P + '-acc ' + P + '-ddv{flex:1;text-align:left;}',
+    P + '-ddn{font-size:' + F.cap + 'px;font-weight:500;color:' + C.act + ';}',
+    P + '-accb{padding:8px 2px 4px;}',
+    P + '-accb ' + P + '-list{max-height:380px;}',
+    P + '-acch{display:flex;align-items:center;gap:8px;font-size:' + F.note + 'px;color:' + C.muted + ';margin:0 2px 8px;}',
+    P + '-acch span:first-child{flex:1;}',
+    P + '-ft' + P + '-ftw{display:flex;width:100%;margin-top:4px;}',
+    P + '-drn{margin-top:14px;font-size:' + F.note + 'px;color:' + C.muted + ';line-height:1.45;}',
+    P + '-drf{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid ' + C.line + ';}',
 
     // ---- поповеры: разрезы, метрики, выбор юнита ----
-    P + '-pop{position:absolute;top:calc(100% + 4px);left:0;z-index:40;background:' + C.card + ';border:1px solid ' + C.line + ';border-radius:9px;box-shadow:' + SHL + ';width:300px;padding:10px;cursor:default;text-align:left;outline:none;}',
-    P + '-pop' + P + '-wide{width:440px;}',
-    P + '-pop' + P + '-rt{left:auto;right:0;}',
-    P + '-poph{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.4px;color:' + C.muted + ';font-weight:500;margin:2px 4px 8px;display:flex;align-items:center;gap:8px;}',
-    P + '-poph span{flex:1;}',
     // Поиск — пилюля с лупой 13 px, как поиск каталога Adoption (в поповере 30 px).
     P + '-psearch{position:relative;margin:0 0 8px;color:' + C.muted + ';}',
     P + '-psearch svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none;}',
@@ -1352,17 +1403,22 @@ function buildCSS() {
     P + '-tnote{margin-top:8px;font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;line-height:1.5;}',
 
     // ---- графики (Proteus Adoption, ДС 6): ось 10,5, подписи 11 на белой подложке ----
-    P + '-spark{display:block;width:100%;height:40px;}',
-    P + '-sbase{fill:' + C.line + ';}',
-    // Столбики светофора — тон того же сигнала, что у пилюли, посередине между её фоном и насыщенным.
-    P + '-sb' + P + '-good{fill:' + C.green + ';}',
-    P + '-sb' + P + '-bad{fill:' + C.red + ';}',
-    P + '-sb' + P + '-warn,' + P + '-sb' + P + '-neutral{fill:' + C.neutral + ';}',
+    P + '-spark{display:block;width:100%;max-width:240px;height:auto;margin:0 auto;overflow:visible;}',
+    // Линия спарклайна — акцент текущего периода, как «2026» в «Динамике»; ориентир — пунктир.
+    P + '-sline{fill:none;stroke:' + C.cur + ';stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round;opacity:.85;}',
+    P + '-sref{fill:none;stroke:' + C.prev + ';stroke-width:1;stroke-dasharray:3 3;}',
+    // Точки светофора — тон того же сигнала, что у пилюли (тот, что был у столбиков), с белой обводкой.
+    P + '-sdot{stroke:#fff;stroke-width:1.2;transform-box:fill-box;transform-origin:center;transition:transform .12s;}',
+    P + '-sdot' + P + '-good{fill:' + C.green + ';}',
+    P + '-sdot' + P + '-bad{fill:' + C.red + ';}',
+    P + '-sdot' + P + '-warn,' + P + '-sdot' + P + '-neutral{fill:' + C.neutral + ';}',
+    P + '-sdot' + P + '-slast' + P + '-good{fill:' + C.greenTx + ';}',
+    P + '-sdot' + P + '-slast' + P + '-bad{fill:' + C.redTx + ';}',
+    P + '-sdot' + P + '-slast' + P + '-warn,' + P + '-sdot' + P + '-slast' + P + '-neutral{fill:' + C.neutralTx + ';}',
     // Прозрачная полоса колонки: попасть в неё легко, между колонками нет щелей (ДС 6.4).
     P + '-hit{fill:' + C.act + ';fill-opacity:0;transition:fill-opacity .12s;}',
     P + '-sbg:hover ' + P + '-hit{fill-opacity:.06;}',
-    P + '-sbg:hover ' + P + '-sb{filter:brightness(.92) saturate(1.2);}',
-    P + '-bar{transform-box:fill-box;transform-origin:50% 100%;}',
+    P + '-sbg:hover ' + P + '-sdot{transform:scale(1.45);}',
     P + '-chart{width:100%;overflow:hidden;}',
     P + '-svg{display:block;overflow:visible;}',
     P + '-ax{font-size:' + F.axis + 'px;fill:' + C.axis + ';font-weight:400;}',
@@ -1600,7 +1656,7 @@ function moreFocus(rules, withMetric) {
     var r = rules[i], m = METRIC[r.metric];
     rows.push({ label: (withMetric && m ? m.short + ' · ' : '') + (ruleCuts(r).join('; ') || 'вся численность'), value: m ? fmtVal(m, r.target) : String(r.target) });
   }
-  var notes = ['Выберите эти разрезы в строке фильтров — тогда цель станет фокусом отчёта.'];
+  var notes = ['Выберите эти разрезы в «Фильтрах» — тогда цель станет фокусом отчёта.'];
   if (rules.length > 3) notes.unshift('Показаны 3 из ' + rules.length + '.');
   return ' <span class="' + P + '-more"' + tip({ title: 'Ещё ' + rules.length + ' ' + plural(rules.length, 'цель', 'цели', 'целей') + ' по разрезам численности',
     rows: rows, note: notes }) + '>+' + rules.length + ' по разрезам</span>';
@@ -1723,30 +1779,32 @@ function unitsLabel(ids, hz) {
 }
 function stagedUnit() { return staged().unit; }
 function unitChanged() { return !sameSet(stagedUnit(), reqNow().unit); }
-function unitDDHTML() {
-  var P = CFG.ns, open = state.open === 'unit', st = staged(), ids = st.unit, h = stagedHz();
-  var chain = ids.length === 1 ? pathTo(ids[0]) : [], names = [];
-  for (var i = 0; i < chain.length; i++) names.push(unitName(MODEL, chain[i]));
-  var lbl = unitsLabel(ids, st.hz);
-  var s = '<div class="' + P + '-dd" data-scope="unit">';
-  s += '<button class="' + P + '-ddb ' + P + '-ddu' + (ids.length ? ' ' + P + '-set' : '') + (unitChanged() ? ' ' + P + '-chg' : '') + (open ? ' ' + P + '-on' : '')
-    + '" data-action="open" data-pop="unit" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '"'
-    + (open ? '' : tip({ title: 'Юнит отчёта', text: names.length ? names.join(' › ') : (h ? 'Зона HRBP «' + h.nm + '»: ' + hrbpRootsText(h) : lbl),
-        note: unitChanged() ? 'Выбран, но ещё не применён — кнопка «Применить».' : (h ? 'Выбор юнита — внутри зоны этого HRBP.' : 'Сводка, команды и цели — по этому юниту.') })) + '>'
-    + '<span class="' + P + '-ddl">Юнит:</span><span class="' + P + '-ddv">' + esc(lbl) + '</span><span class="' + P + '-ddc">▾</span></button>';
-  if (open) {
-    var inHz = h && !state.unitAll;
-    s += '<div class="' + P + '-pop ' + P + '-wide" tabindex="-1">'
-      + '<div class="' + P + '-poph"><span>' + (inHz ? 'Юнит в зоне HRBP' : 'Юнит отчёта') + '</span>'
-      + (h ? '<span class="' + P + '-hzc">' + esc(h.nm) + '</span>' : '') + '</div>'
-      + hSearch('unit', inHz ? 'Поиск юнита в зоне ' + h.nm : 'Поиск юнита по названию')
-      + '<div class="' + P + '-list" data-plist="unit">' + unitListHTML() + '</div>'
-      + '<div class="' + P + '-popf"><span>' + (h
-          ? (inHz ? 'Показана только зона HRBP. ' : 'Показана вся зона видимости, зона HRBP отмечена. ')
-            + '<button class="' + P + '-lnk" data-action="unitall">' + (inHz ? 'Вся зона видимости' : 'Только зона HRBP') + '</button>'
-          : 'Выбор применится кнопкой «Применить». Цифра справа — численность сейчас.') + '</span></div></div>';
-  }
-  return s + '</div>';
+// Раздел панели «Фильтры и настройки»: заголовок-кнопка (что выбрано) и, если раздел открыт,
+// тело. Открыт один раздел (state.open), поиск в нём — state.q, список пересобирается точечно.
+function accHTML(key, label, value, set, chg, body) {
+  var P = CFG.ns, open = state.open === key;
+  return '<div class="' + P + '-dd ' + P + '-acc" data-scope="' + key + '">'
+    + '<button type="button" class="' + P + '-ddb' + (set ? ' ' + P + '-set' : '') + (chg ? ' ' + P + '-chg' : '') + (open ? ' ' + P + '-on' : '')
+    + '" data-action="open" data-pop="' + key + '" aria-expanded="' + (open ? 'true' : 'false') + '">'
+    + '<span class="' + P + '-ddl">' + esc(label) + '</span><span class="' + P + '-ddv">' + esc(value) + '</span>'
+    + (chg ? '<span class="' + P + '-ddn">не применено</span>' : '')
+    + '<span class="' + P + '-ddc">' + (open ? '▴' : '▾') + '</span></button>'
+    + (open ? '<div class="' + P + '-accb">' + body() + '</div>' : '')
+    + '</div>';
+}
+function unitBodyHTML() {
+  var P = CFG.ns, h = stagedHz(), inHz = h && !state.unitAll;
+  return (h ? '<div class="' + P + '-acch"><span>' + (inHz ? 'Юниты в зоне HRBP' : 'Вся зона видимости, зона HRBP отмечена') + '</span><span class="' + P + '-hzc">' + esc(h.nm) + '</span></div>' : '')
+    + hSearch('unit', inHz ? 'Поиск юнита в зоне ' + h.nm : 'Поиск юнита по названию')
+    + '<div class="' + P + '-list" data-plist="unit">' + unitListHTML() + '</div>'
+    + '<div class="' + P + '-popf"><span>' + (h
+        ? (inHz ? 'Показана только зона HRBP. ' : 'Показана вся зона видимости. ')
+          + '<button class="' + P + '-lnk" data-action="unitall">' + (inHz ? 'Вся зона видимости' : 'Только зона HRBP') + '</button>'
+        : 'Цифра справа — численность сейчас. Юнит применится кнопкой «Применить» внизу панели.') + '</span></div>';
+}
+function unitSectionHTML() {
+  var st = staged();
+  return accHTML('unit', 'Юнит', unitsLabel(st.unit, st.hz), st.unit.length > 0, unitChanged(), unitBodyHTML);
 }
 function kidsOf(id) {
   var k = (MODEL.kids[id] || []).slice();
@@ -1881,25 +1939,18 @@ function hrbpListHTML() {
   for (var k = 0; k < hits.length && k < 80; k++) s += hrbpRow(hits[k].h, 0, cur, true);
   return s;
 }
-function hrbpDDHTML() {
-  var P = CFG.ns, open = state.open === 'hrbp', owner = stagedHz(), chg = (owner ? owner.login : '') !== hzNow();
-  var s = '<div class="' + P + '-dd" data-scope="hrbp">';
-  s += '<button class="' + P + '-ddb' + (owner ? ' ' + P + '-set' : '') + (chg ? ' ' + P + '-chg' : '') + (open ? ' ' + P + '-on' : '')
-    + '" data-action="open" data-pop="hrbp" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '"'
-    + (open ? '' : tip({ title: 'Зона HRBP', text: owner ? owner.nm + ': ' + hrbpRootsText(owner) : 'Выберите HRBP — отчёт покажет его зону.',
-        note: 'HRBP вложены по зонам: кто покрывает чужую зону, тот выше.' })) + '>'
-    + '<span class="' + P + '-ddl">HRBP:</span><span class="' + P + '-ddv">' + esc(owner ? owner.nm : 'все') + '</span><span class="' + P + '-ddc">▾</span></button>';
-  if (open) {
-    s += '<div class="' + P + '-pop ' + P + '-wide" tabindex="-1">'
-      + '<div class="' + P + '-poph"><span>Зона HRBP</span></div>'
-      + hSearch('hrbp', 'Поиск HRBP: фамилия, логин или юнит')
-      + '<div class="' + P + '-list" data-plist="hrbp">' + hrbpListHTML() + '</div>'
-      + '<div class="' + P + '-popf"><span>Ниже — HRBP, чьи зоны внутри зоны выше. Цифра справа — численность зоны.</span></div></div>';
-  }
-  return s + '</div>';
+function hrbpBodyHTML() {
+  var P = CFG.ns;
+  return hSearch('hrbp', 'Поиск HRBP: фамилия, логин или юнит')
+    + '<div class="' + P + '-list" data-plist="hrbp">' + hrbpListHTML() + '</div>'
+    + '<div class="' + P + '-popf"><span>Ниже — HRBP, чьи зоны внутри зоны выше. Цифра справа — численность зоны.</span></div>';
+}
+function hrbpSectionHTML() {
+  var owner = stagedHz(), chg = (owner ? owner.login : '') !== hzNow();
+  return accHTML('hrbp', 'HRBP', owner ? owner.nm : 'все', !!owner, chg, hrbpBodyHTML);
 }
 
-// ---- строка фильтров: разрезы, метрики, фокус, сброс, база ----
+// ---- разрезы, метрики, панель «Фильтры и настройки», строка применённого ----
 // Значения разреза: фасеты ответа (численность при ОСТАЛЬНЫХ разрезах) + выбранные.
 function cutValues(key) {
   var f = MODEL.facets[key] || [], out = [], seen = {};
@@ -1916,31 +1967,17 @@ function cutValues(key) {
   });
   return out;
 }
-function cutDDHTML(cut) {
-  var P = CFG.ns, sel = staged().cuts[cut.key] || [], key = 'cut:' + cut.key, open = state.open === key;
-  var chg = !sameSet(sel, MODEL.sel[cut.key] || []);
-  var val = !sel.length ? 'все' : (sel.length === 1 ? trName(sel[0]) : trName(sel[0]) + ' +' + (sel.length - 1));
-  var s = '<div class="' + P + '-dd" data-scope="' + key + '">';
-  var names = [];
-  for (var i = 0; i < sel.length; i++) names.push(trName(sel[i]));
-  s += '<button class="' + P + '-ddb' + (sel.length ? ' ' + P + '-set' : '') + (chg ? ' ' + P + '-chg' : '') + (open ? ' ' + P + '-on' : '') + '" data-action="open" data-pop="' + key + '" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '"'
-    + (open ? '' : tip({ title: cut.label, text: sel.length ? names.join(', ') : cut.all + ': фильтр не задан',
-        note: chg ? 'Выбрано, но ещё не применено — кнопка «Применить».' : 'Разрез действует на всё: юнит, команды, базу и цели.' })) + '>'
-    + '<span class="' + P + '-ddl">' + esc(cut.label) + ':</span><span class="' + P + '-ddv">' + esc(val) + '</span>'
-    + (sel.length ? '<span class="' + P + '-x" role="button" aria-label="Снять фильтр" data-action="clearcut" data-key="' + cut.key + '">×</span>' : '<span class="' + P + '-ddc">▾</span>')
-    + '</button>';
-  if (open) s += cutPopHTML(cut);
-  return s + '</div>';
-}
-function cutPopHTML(cut) {
+function cutBodyHTML(cut) {
   var P = CFG.ns, vals = cutValues(cut.key), d = staged().cuts[cut.key] || [];
-  var s = '<div class="' + P + '-pop" tabindex="-1">';
-  s += '<div class="' + P + '-poph"><span>' + esc(cut.label) + '</span></div>';
-  if (vals.length > 7) s += hSearch('cut', 'Поиск значения');
-  s += '<div class="' + P + '-list" data-plist="cut">' + cutListHTML(cut) + '</div>';
-  s += '<div class="' + P + '-popf"><span data-pcount="1">' + draftCount(d) + '</span>'
+  return (vals.length > 7 ? hSearch('cut', 'Поиск значения') : '')
+    + '<div class="' + P + '-list" data-plist="cut">' + cutListHTML(cut) + '</div>'
+    + '<div class="' + P + '-popf"><span data-pcount="1">' + draftCount(d) + '</span>'
     + '<button class="' + P + '-btn ' + P + '-ghost" data-action="cutnone" data-key="' + cut.key + '">Очистить</button></div>';
-  return s + '</div>';
+}
+function cutSectionHTML(cut) {
+  var sel = staged().cuts[cut.key] || [], chg = !sameSet(sel, MODEL.sel[cut.key] || []);
+  var val = !sel.length ? 'все' : (sel.length === 1 ? cutName(sel[0]) : cutName(sel[0]) + ' +' + (sel.length - 1));
+  return accHTML('cut:' + cut.key, cut.label, val, sel.length > 0, chg, function () { return cutBodyHTML(cut); });
 }
 function draftCount(vals) { return (vals.length ? 'выбрано: ' + vals.length : 'все значения') + ' · применится кнопкой «Применить»'; }
 function cutListHTML(cut) {
@@ -1949,55 +1986,92 @@ function cutListHTML(cut) {
   var s = '', n = 0;
   for (var i = 0; i < vals.length; i++) {
     var v = vals[i].v;
-    if (q && String(v).toLowerCase().indexOf(q) < 0) continue;
+    if (q && cutName(v).toLowerCase().indexOf(q) < 0) continue;
     n++;
     s += '<label class="' + P + '-opt"><input type="checkbox" data-cutkey="' + cut.key + '" data-cutval="' + esc(v) + '"' + (d.indexOf(v) > -1 ? ' checked' : '') + '>'
-      + '<span class="' + P + '-optt">' + esc(trName(v)) + '</span><span class="' + P + '-optn">' + fmtInt(vals[i].n) + '</span></label>';
+      + '<span class="' + P + '-optt">' + esc(cutName(v)) + '</span><span class="' + P + '-optn">' + fmtInt(vals[i].n) + '</span></label>';
   }
   if (!vals.length) return '<div class="' + P + '-nores">В выбранном юните значений нет</div>';
   return n ? s : '<div class="' + P + '-nores">Ничего не найдено</div>';
 }
-function metricsDDHTML() {
-  var P = CFG.ns, open = state.open === 'metrics', on = selMetrics('').length, all = CFG.metrics.length;
-  var s = '<div class="' + P + '-dd" data-scope="metrics">';
-  s += '<button class="' + P + '-ddb' + (on < all ? ' ' + P + '-set' : '') + (open ? ' ' + P + '-on' : '') + '" data-action="open" data-pop="metrics" aria-haspopup="true" aria-expanded="' + (open ? 'true' : 'false') + '">'
-    + '<span class="' + P + '-ddl">Метрики:</span><span class="' + P + '-ddv">' + on + ' из ' + all + '</span><span class="' + P + '-ddc">▾</span></button>';
-  if (open) {
-    s += '<div class="' + P + '-pop" tabindex="-1"><div class="' + P + '-poph"><span>Метрики для отображения</span></div><div class="' + P + '-list">';
-    for (var b = 0; b < CFG.blocks.length; b++) {
-      s += '<div class="' + P + '-blk">' + esc(CFG.blocks[b].name) + '</div>';
-      for (var i = 0; i < CFG.metrics.length; i++) {
-        var m = CFG.metrics[i];
-        if (m.block !== CFG.blocks[b].key) continue;
-        s += '<label class="' + P + '-opt"><input type="checkbox" data-metric="' + m.key + '"' + (state.metricOff[m.key] ? '' : ' checked') + '>'
-          + '<span class="' + P + '-optt">' + esc(m.name) + '</span></label>';
-      }
+function metricsBodyHTML() {
+  var P = CFG.ns, s = '<div class="' + P + '-list">';
+  for (var b = 0; b < CFG.blocks.length; b++) {
+    s += '<div class="' + P + '-blk">' + esc(CFG.blocks[b].name) + '</div>';
+    for (var i = 0; i < CFG.metrics.length; i++) {
+      var m = CFG.metrics[i];
+      if (m.block !== CFG.blocks[b].key) continue;
+      s += '<label class="' + P + '-opt"><input type="checkbox" data-metric="' + m.key + '"' + (state.metricOff[m.key] ? '' : ' checked') + '>'
+        + '<span class="' + P + '-optt">' + esc(m.name) + '</span></label>';
     }
-    s += '</div><div class="' + P + '-popf"><span>Только вид: данные не перезапрашиваются</span>'
-      + '<button class="' + P + '-btn ' + P + '-ghost" data-action="mall">Все</button><button class="' + P + '-btn ' + P + '-ghost" data-action="mnone">Снять все</button></div></div>';
   }
-  return s + '</div>';
+  return s + '</div><div class="' + P + '-popf"><span>Только вид: данные не перезапрашиваются</span>'
+    + '<button class="' + P + '-btn ' + P + '-ghost" data-action="mall">Все</button><button class="' + P + '-btn ' + P + '-ghost" data-action="mnone">Снять все</button></div>';
+}
+function metricsSectionHTML() {
+  var on = selMetrics('').length, all = CFG.metrics.length;
+  return accHTML('metrics', 'Метрики', on + ' из ' + all, on < all, false, metricsBodyHTML);
+}
+var FILTER_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 5h18M6 12h12M10 19h4"/></svg>';
+var CLOSE_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+// Панель «Фильтры и настройки» (справа, поверх отчёта): чья зона и юнит, разрезы численности —
+// копятся до «Применить» внизу; метрики и «Только фокусные» — вид, сразу.
+function drawerHTML() {
+  var P = CFG.ns, n = stageDiff(), fo = state.focusOnly;
+  var s = '<div class="' + P + '-drwb" data-action="dclose"></div>'
+    + '<div class="' + P + '-drw" role="dialog" aria-label="Фильтры и настройки" tabindex="-1" data-drawer="1">'
+    + '<div class="' + P + '-drh"><span class="' + P + '-drt">Фильтры и настройки</span>'
+    + '<button type="button" class="' + P + '-ib" data-action="dclose" aria-label="Закрыть панель">' + CLOSE_SVG + '</button></div>'
+    + '<div class="' + P + '-drs">'
+    + '<div class="' + P + '-drg">Чья зона и юнит</div>' + (hrbpVisible() ? hrbpSectionHTML() : '') + unitSectionHTML()
+    + '<div class="' + P + '-drg">Разрезы численности</div>';
+  for (var i = 0; i < CFG.cuts.length; i++) s += cutSectionHTML(CFG.cuts[i]);
+  s += '<div class="' + P + '-drg">Показ · без пересчёта</div>' + metricsSectionHTML()
+    + '<button type="button" class="' + P + '-ft ' + P + '-ftw' + (fo ? ' ' + P + '-on' : '') + '" data-action="focus" aria-pressed="' + (fo ? 'true' : 'false') + '">'
+    + '<span class="' + P + '-ft-tr"><span class="' + P + '-ft-kn"></span></span><span class="' + P + '-ft-tx">Только фокусные — метрики и юниты с целью</span></button>'
+    + '<div class="' + P + '-drn">База сравнения — вся компания под теми же разрезами (сейчас: ' + esc(benchLabel()) + '). Юнит на базу не влияет.</div>'
+    + '</div><div class="' + P + '-drf">'
+    + '<button class="' + P + '-btn ' + P + '-pri" data-action="apply"' + (n && !state.pend ? '' : ' disabled') + '>'
+    + (state.pend && state.stage ? 'Применяю…' : 'Применить' + (n ? ' · ' + n : '')) + '</button>'
+    + (n ? '<button class="' + P + '-btn ' + P + '-ghost" data-action="unstage">Отменить</button>' : '')
+    + '<span class="' + P + '-sp"></span><button class="' + P + '-btn ' + P + '-ghost" data-action="reset">Сбросить всё</button>'
+    + '</div></div>';
+  return s;
+}
+// Применённое сейчас (не по умолчанию) — чипами над отчётом; × снимает сразу.
+function filterChips() {
+  var M = MODEL, out = [], hz = hzNow(), h = hz ? M.hBy[hz] : null;
+  if (h) out.push({ key: 'hz', label: 'HRBP', value: h.nm, list: [] });
+  if (!defaultScope() && !(h && sameSet(M.scopeIds, h.roots))) out.push({ key: 'unit', label: 'Юнит', value: unitsLabel(M.scopeIds, hz), list: [] });
+  for (var i = 0; i < CFG.cuts.length; i++) {
+    var c = CFG.cuts[i], sel = M.sel[c.key] || [], names = [];
+    for (var j = 0; j < sel.length; j++) names.push(cutName(sel[j]));
+    if (sel.length) out.push({ key: 'cut:' + c.key, label: c.label, value: names.length === 1 ? names[0] : names[0] + ' +' + (names.length - 1), list: names });
+  }
+  var on = selMetrics('').length;
+  if (on < CFG.metrics.length) out.push({ key: 'metrics', label: 'Метрики', value: on + ' из ' + CFG.metrics.length, list: [] });
+  if (state.focusOnly) out.push({ key: 'focus', label: '', value: 'Только фокусные', list: [] });
+  return out;
 }
 function filterBarHTML() {
-  var P = CFG.ns, M = MODEL, anyCut = false, st = staged(), n = stageDiff();
-  var s = '<div class="' + P + '-fbar">' + unitDDHTML() + (hrbpVisible() ? hrbpDDHTML() : '');
-  for (var i = 0; i < CFG.cuts.length; i++) {
-    s += cutDDHTML(CFG.cuts[i]);
-    if ((M.sel[CFG.cuts[i].key] || []).length || (st.cuts[CFG.cuts[i].key] || []).length) anyCut = true;
+  var P = CFG.ns, chips = filterChips(), n = stageDiff(), on = !!state.drawer;
+  var s = '<div class="' + P + '-fbar">'
+    + '<button type="button" class="' + P + '-fbtn' + (on ? ' ' + P + '-on' : '') + '" data-action="drawer" aria-haspopup="true" aria-expanded="' + (on ? 'true' : 'false') + '"'
+    + tip({ title: 'Фильтры и настройки', text: 'Юнит, HRBP, разрезы численности и метрики — в панели справа. Юнит, HRBP и разрезы применяются вместе кнопкой «Применить».' })
+    + '>' + FILTER_SVG + 'Фильтры' + (chips.length ? '<span class="' + P + '-cnt">' + chips.length + '</span>' : '') + '</button>';
+  for (var i = 0; i < chips.length; i++) {
+    var c = chips[i];
+    s += '<span class="' + P + '-chip"' + (c.list.length > 1 ? tip({ title: c.label, text: c.list.join(', ') }) : '') + '>'
+      + (c.label ? '<span class="' + P + '-ddl">' + esc(c.label) + ':</span>' : '') + '<span class="' + P + '-ddv">' + esc(c.value) + '</span>'
+      + '<span class="' + P + '-x" role="button" tabindex="0" aria-label="Снять фильтр «' + esc(c.label || c.value) + '»" data-action="chipx" data-key="' + esc(c.key) + '">×</span></span>';
   }
-  // Одна кнопка на всю строку: юнит, HRBP и разрезы уходят одним запросом.
-  s += '<button class="' + P + '-btn ' + P + '-pri" data-action="apply"' + (n && !state.pend ? '' : ' disabled')
-    + tip({ title: 'Применить фильтры', text: n ? 'Изменено фильтров: ' + n + '. Данные пересчитаются одним запросом.' : 'Выберите юнит, HRBP или значения разрезов — они применятся все сразу.' })
-    + '>' + (state.pend && state.stage ? 'Применяю…' : 'Применить' + (n ? ' · ' + n : '')) + '</button>';
-  if (n) s += '<button class="' + P + '-btn ' + P + '-ghost" data-action="unstage">Отменить</button>';
-  s += '<span class="' + P + '-fsep"></span>' + metricsDDHTML();
-  var fo = state.focusOnly;
-  s += '<button class="' + P + '-ft' + (fo ? ' ' + P + '-on' : '') + '" data-action="focus" aria-pressed="' + (fo ? 'true' : 'false') + '"'
-    + tip({ title: 'Только фокусные', text: 'На «Сводке» остаются метрики с целью — своей или унаследованной. На «Командах» — юниты, где по показанным метрикам стоит своя цель.' })
-    + '><span class="' + P + '-ft-tr"><span class="' + P + '-ft-kn"></span></span><span class="' + P + '-ft-tx">Только фокусные</span></button>';
-  if (anyCut || !defaultScope() || fo || selMetrics('').length < CFG.metrics.length || n) {
-    s += '<button class="' + P + '-btn ' + P + '-ghost" data-action="reset"' + tip({ title: 'Сбросить', text: 'Вернуть свою зону, снять разрезы, показать все метрики — сразу, без «Применить».' }) + '>Сбросить</button>';
+  // Набрано в панели, но не применено (панель закрыли) — напоминание с той же «Применить».
+  if (n && !on) {
+    s += '<span class="' + P + '-unap">Выбрано, не применено: ' + n
+      + '<button class="' + P + '-btn ' + P + '-pri" data-action="apply"' + (state.pend ? ' disabled' : '') + '>Применить</button>'
+      + '<button class="' + P + '-btn ' + P + '-ghost" data-action="unstage">Отменить</button></span>';
   }
+  if (chips.length > 1) s += '<button class="' + P + '-lnk" data-action="reset">Сбросить всё</button>';
   s += '<span class="' + P + '-sp"></span>';
   s += '<span class="' + P + '-bench"' + tip({ title: 'База сравнения',
     text: 'Вся компания под теми же разрезами численности. Юнит на базу не влияет: снимите разрез — база расширится.',
@@ -2107,11 +2181,12 @@ function chartBlock(kind, key, title, spec, H) {
 }
 // Спарклайн строки: 12 закрытых месяцев, цвет — оценка каждого месяца.
 function sparkHTML(unitId, ser, m) {
-  var L = MODEL.L, vals = [], idx = [], tips = [];
+  var L = MODEL.L, vals = [], idx = [], tips = [], refs = [];
   for (var i = L - 11; i <= L; i++) { idx.push(i); vals.push(mval(ser, 'm', m, i)); }
   var states = statesOver(unitId, ser, 'm', m, idx);
   for (var k = 0; k < idx.length; k++) {
     var v = vals[k], b = v === null ? { kind: 'none', ref: null } : baseline(unitId, m, v, 'm', idx[k]);
+    refs.push(b.ref === null || b.ref === undefined ? null : b.ref);
     var rows = [{ label: 'факт', value: fmtVal(m, v) }];
     if (b.ref !== null && b.ref !== undefined) {
       rows.push({ label: b.kind === 'kpi' ? 'цель' : 'база', value: fmtVal(m, b.ref), dash: true, color: b.kind === 'kpi' ? CFG.colors.kpi : CFG.colors.bench });
@@ -2119,7 +2194,7 @@ function sparkHTML(unitId, ser, m) {
     }
     tips.push({ title: monthFull(idx[k]), rows: rows, note: b.ref === null || b.ref === undefined ? 'Ориентира у метрики нет — цвет не ставится.' : STATE_TXT[states[k] || 'neutral'] });
   }
-  return svgSpark(vals, states, tips);
+  return svgSpark(vals, states, tips, refs);
 }
 
 // ---- вкладка «Сводка» ----
@@ -2181,8 +2256,8 @@ function onepagerHTML() {
     + hInfo({ title: 'Как читать сводку', text: 'Значение метрики за последний закрытый месяц сравнивается с ориентиром: с целью, если она утверждена (своя или унаследованная сверху), иначе — с базой.',
               rows: [{ label: 'база', value: benchLabel() }],
               note: ['База собирается из тех же разрезов численности, но по всей компании.', 'Клик по строке раскрывает динамику: год к году и 12 недель. Раскрыть можно несколько строк.'] }));
-  if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Под текущими разрезами в выбранном юните нет сотрудников за два года. Снимите один из разрезов в строке фильтров.');
-  if (!selMetrics('').length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в списке «Метрики» строки фильтров.');
+  if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Под текущими разрезами в выбранном юните нет сотрудников за два года. Снимите один из разрезов: × у его чипа над отчётом.');
+  if (!selMetrics('').length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в «Фильтрах» → «Метрики».');
   s += kpiCardsHTML() + legendHTML(true);
   var any = false;
   for (var b = 0; b < CFG.blocks.length; b++) {
@@ -2233,7 +2308,7 @@ function onepagerHTML() {
       + '<th class="' + P + '-vs">Ориентир<span class="' + P + '-hc">цель или база</span></th>'
       + '<th>Изменение<span class="' + P + '-hc">к ' + esc(monthDat(L - 1)) + '</span></th>'
       + '<th>Год к году<span class="' + P + '-hc">к ' + esc(monthDat(L - 12)) + '</span></th>'
-      + '<th class="' + P + '-c">12 мес<span class="' + P + '-hc">цвет — к ориентиру месяца</span></th></tr></thead><tbody>' + rows + '</tbody></table>';
+      + '<th class="' + P + '-c">12 мес<span class="' + P + '-hc">точка — к ориентиру месяца</span></th></tr></thead><tbody>' + rows + '</tbody></table>';
     s += '<div class="' + P + '-gap">' + hPanel({ title: blk.name, sub: blk.hint, body: tbl, tbl: true }) + '</div>';
   }
   if (!any) s += hEmpty('Под фильтром «Только фокусные» метрик не осталось', 'На этом юните и выше по ветке целей по выбранным метрикам нет. Выключите тумблер или поставьте цель — вкладка «Цели».');
@@ -2518,11 +2593,11 @@ function teamsHTML() {
   var P = CFG.ns, M = MODEL, L = M.L;
   var s = pageHead('Команды', crumbsHTML() + '<span class="' + P + '-ldm"> · ' + (M.depth === 'all' ? 'все уровни вниз' : 'на 3 уровня вниз') + ' · ' + esc(monthLow(L)) + '</span>');
   var tc = teamsCtx();
-  if (tc.live.length === 1) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в списке «Метрики» строки фильтров.');
+  if (tc.live.length === 1) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в «Фильтрах» → «Метрики».');
   s += '<div class="' + P + '-tools">' + hSubs(tc.live, tc.blk, 'block') + '<span class="' + P + '-sp2"></span>'
     + '<span class="' + P + '-dhint"' + tip({ title: 'Глубина — 3 уровня', text: 'Таблица показывает три уровня вниз от юнита отчёта. Глубже: выберите строку и нажмите иконку «Открыть юнит» у её правого края — отчёт встанет на этот юнит, и ниже откроются следующие три уровня.' })
     + '>Глубина — 3 уровня · глубже: выберите строку и откройте юнит ' + OPEN_SVG + '</span></div>';
-  if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Снимите один из разрезов в строке фильтров.');
+  if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Снимите один из разрезов: × у его чипа над отчётом.');
   var sel = tc.sel, mets = tc.mets;
   var cur = sel || { lvl: 0, id: '', ser: M.scope, key: '' };
   var cu = sel ? rowUnit(sel) : scopeUnit(), dyn = state.dyn === 'wow' ? 'wow' : 'yoy', right = '<div class="' + P + '-dyn">';
@@ -2608,15 +2683,19 @@ function trSorted(axis) {
   return list;
 }
 // Пустое значение разреза / атрибута в кубе — '-' (ноут), в подписи — «не указано».
+// Имя значения разреза или атрибута — СТРОКА (фильтры, чипы); строка трансформера — trName.
+// 29.09 trName стал принимать строку трансформера, а фильтры разрезов продолжали звать его
+// со строкой — значения в фильтрах рисовались без имён. Не сливать обратно.
+function cutName(v) { return v === '' || v === '-' || v === '·' || v == null ? 'не указано' : String(v); }
 function trName(r) {
   if (r.rest) return 'Остальные · ' + r.rest + ' ' + plural(r.rest, 'значение', 'значения', 'значений');
-  return r.v === '' || r.v === '-' || r.v === '·' ? 'не указано' : r.v;
+  return cutName(r.v);
 }
 function transformHTML() {
   var P = CFG.ns, M = MODEL, L = M.L;
-  var s = pageHead('Трансформеры', 'Сводная таблица метрики по оси за 12 месяцев. Юнит и разрезы — из строки фильтров, здесь выбирается ось: разрез численности или атрибут сотрудника на конец месяца (грейд, стаж, возраст, город…).');
+  var s = pageHead('Трансформеры', 'Сводная таблица метрики по оси за 12 месяцев. Юнит и разрезы — из «Фильтров», здесь выбирается ось: разрез численности или атрибут сотрудника на конец месяца (грейд, стаж, возраст, город…).');
   var avail = selMetrics('');
-  if (!avail.length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в списке «Метрики» строки фильтров.');
+  if (!avail.length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в «Фильтрах» → «Метрики».');
   var m = avail[0];
   for (var a = 0; a < avail.length; a++) if (avail[a].key === state.tfMetric) m = avail[a];
   var axis = wantAxis(), mOpts = [], aOpts = [];
@@ -2710,7 +2789,7 @@ function goalsHTML() {
       + '<td>' + esc(m ? (m.better === 'higher' ? '≥ ' : '≤ ') + fmtVal(m, r.target) : String(r.target)) + '</td>'
       + '<td class="' + P + '-l">' + (chips || '<span class="' + P + '-muted">вся численность</span>') + '</td>'
       + '<td class="' + P + '-l"><span class="' + P + '-muted">' + esc(ruleSpan(r)) + '</span></td>'
-      + '<td class="' + P + '-l"><span class="' + P + '-st ' + P + '-' + st[0] + '"' + tip({ title: st[1], text: st[0] === 'wait' ? 'Цель привязана к разрезам. Выберите их в строке фильтров — или нажмите «Показать».' : (st[0] === 'good' ? 'Цель действует при текущих разрезах.' : 'Цель вне срока действия на дату данных.'), note: cuts.length ? cuts.join('; ') : null }) + '>' + esc(st[1]) + '</span></td>'
+      + '<td class="' + P + '-l"><span class="' + P + '-st ' + P + '-' + st[0] + '"' + tip({ title: st[1], text: st[0] === 'wait' ? 'Цель привязана к разрезам. Выберите их в «Фильтрах» — или нажмите «Показать».' : (st[0] === 'good' ? 'Цель действует при текущих разрезах.' : 'Цель вне срока действия на дату данных.'), note: cuts.length ? cuts.join('; ') : null }) + '>' + esc(st[1]) + '</span></td>'
       + '<td class="' + P + '-l"><span class="' + P + '-muted">' + esc((r.author || '—') + (r.note ? ' · ' + r.note : '')) + '</span><span class="' + P + '-us ' + P + '-mono">' + esc(r.id) + '</span></td>'
       + '<td>' + (above ? '' : '<button class="' + P + '-lnk" data-action="gorule" data-key="' + esc(r.id) + '"' + tip({ title: 'Показать цель в отчёте', text: 'Открыть юнит цели и выбрать её разрезы — цель станет фокусом «Сводки».' }) + '>Показать</button>') + '</td></tr>';
   }
@@ -2735,7 +2814,7 @@ function goalsHTML() {
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span><input class="' + P + '-inp" type="text" data-kd="from" placeholder="ГГГГ-ММ-ДД" value="' + esc(kdValue('from', y + '-01-01')) + '"></div>'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Комментарий</span><input class="' + P + '-inp" type="text" data-kd="note" placeholder="зачем цель" value="' + esc(kdValue('note', '')) + '"></div>'
     + '</div>'
-    + '<div class="' + P + '-tnote">Разрезы берутся из строки фильтров: ' + (cutsNow.length ? cutsNow.join('') : '<b>вся численность</b>')
+    + '<div class="' + P + '-tnote">Разрезы берутся из «Фильтров»: ' + (cutsNow.length ? cutsNow.join('') : '<b>вся численность</b>')
     + '. Мультивыбор цель не поддерживает — такой разрез уйдёт в строку как «все».</div>'
     + '<div class="' + P + '-chh"><span class="' + P + '-cht">Строка для реестра</span><span class="' + P + '-chl"><span data-kd-msg="1">' + esc(state.copied || '') + '</span>'
     + '<button class="' + P + '-btn" data-action="copy">Скопировать</button></span></div>'
@@ -2803,23 +2882,26 @@ function tourSteps(view) {
     add({ intro: true, title: 'HRBP HUB за минуту', html: tourIntroHTML() });
     add({ sel: P + '-tabbar', lock: true, title: 'Вкладки',
       html: '<b>Сводка</b> — метрики выбранного юнита. <b>Команды</b> — сравнение подразделений. <b>Трансформеры</b> — метрика по грейду, стажу, городу. <b>Цели</b> — реестр целей. <b>Каталог метрик</b> — что и как считается.' });
-    add({ sel: '[data-pop="unit"]', lock: true, title: 'Юнит отчёта',
-      html: 'Нажмите — откроется дерево вашей зоны на всю глубину с поиском: любое подразделение находится сразу, без загрузки. Выберите его — после «Применить» отчёт перестроится под него.' });
-    add({ sel: '[data-pop="hrbp"]', lock: true, need: hrbpVisible(), title: 'HRBP',
+    add({ sel: '[data-action="drawer"]', demo: true, done: function () { return !!state.drawer; }, title: 'Фильтры и настройки',
+      html: 'Юнит, HRBP, разрезы численности и метрики — в одной панели справа. Нажмите — панель откроется.',
+      hint: 'Нажмите на подсвеченную кнопку или «Показать».' });
+    add({ sel: P + '-drw [data-pop="unit"]', drawer: true, lock: true, title: 'Юнит отчёта',
+      html: 'Дерево вашей зоны на всю глубину и поиск по нему — сразу, без загрузки. Выберите подразделение: отчёт перестроится под него после «Применить».' });
+    add({ sel: P + '-drw [data-pop="hrbp"]', drawer: true, lock: true, need: hrbpVisible(), title: 'HRBP',
       html: 'Выберите HRBP — отчёт сузится до его зоны, а «Юнит» будет предлагать только её подразделения.' });
-    add({ sel: '[data-pop^="cut:"]', all: true, rings: true, lock: true, title: 'Разрезы',
+    add({ sel: P + '-drw [data-pop^="cut:"]', drawer: true, all: true, rings: true, lock: true, title: 'Разрезы',
       html: 'Покраска, IT / nonIT, стрим, специализация, штат, тип численности. Можно отметить несколько значений — метрики пересчитаются только по этим сотрудникам.' });
-    add({ sel: '[data-action="apply"]', lock: true, title: 'Применить',
-      html: 'Изменённый фильтр обводится пунктиром — выбор копится. «Применить» пересчитывает отчёт одним запросом, «Отменить» возвращает как было.' });
-    add({ sel: '[data-pop="metrics"],[data-action="focus"]', all: true, rings: true, lock: true, title: 'Что показывать',
-      html: '<b>Метрики</b> — какие строки показывать. <b>Только фокусные</b> — только метрики, у которых есть цель.' });
-    add({ sel: P + '-bench', lock: true, title: 'База сравнения',
-      html: 'Если у метрики нет цели, её сравнивают с базой — всей компанией под теми же разрезами. Юнит на базу не влияет.' });
+    add({ sel: P + '-drw [data-action="apply"]', drawer: true, lock: true, title: 'Применить',
+      html: 'Изменённое помечено «не применено» — выбор копится. «Применить» пересчитывает отчёт одним запросом и закрывает панель, «Отменить» возвращает как было.' });
+    add({ sel: P + '-drw [data-pop="metrics"],' + P + '-drw [data-action="focus"]', drawer: true, all: true, rings: true, lock: true, title: 'Что показывать',
+      html: '<b>Метрики</b> — какие строки показывать. <b>Только фокусные</b> — только метрики, у которых есть цель. Это вид: данные не перезапрашиваются.' });
+    add({ sel: P + '-fbar', lock: true, title: 'Применённые фильтры',
+      html: 'Что применено — чипами рядом с кнопкой «Фильтры»: × снимает фильтр сразу. Справа — база сравнения: вся компания под теми же разрезами, с ней сравниваются метрики без цели.' });
     add({ sel: function (R) { var t = firstOp(R); return t ? [t.querySelector(P + '-vs')].concat(slice(t.querySelectorAll(P + '-row>' + P + '-vs'))) : null; },
       all: true, title: 'Ориентир',
       html: 'С чем сравнивается значение: «Цель ≤ 2,0 %» — утверждённая цель юнита (своя или унаследованная сверху), «База 92,0 %» — вся компания. Пилюля под ним — насколько лучше или хуже.' });
     add({ sel: function (R) { var t = firstOp(R); return t ? t.querySelectorAll(P + '-spk') : null; }, all: true, title: '12 месяцев',
-      html: 'Столбик — месяц, цвет — сравнение месяца с его ориентиром. Наведите на столбик — значение и ориентир за этот месяц.' });
+      html: 'Линия — 12 месяцев. Точка — месяц: цвет — сравнение с его ориентиром, пунктир — сам ориентир (цель или база). Наведите на месяц — значение и ориентир.' });
     add({ sel: 'tr[data-action="openm"]', demo: true, at: 'left', done: function (k) { return opOpen(k); }, title: 'Динамика метрики',
       html: 'Нажмите на строку метрики — под ней откроются графики «год к году» и «12 недель». Открыть можно сразу несколько строк.',
       hint: 'Нажмите на подсвеченную строку или «Показать».' });
@@ -2851,7 +2933,7 @@ function tourSteps(view) {
     add({ sel: function (R) { var x = R.querySelector('select[data-sel="tfa"]'); return x ? x.parentNode.parentNode : null; }, lock: true, title: 'Ось разбивки',
       html: 'Разрез численности или атрибут сотрудника на конец месяца: грейд, сеньорность, стаж, возраст, город… Все оси уже посчитаны — переключаются сразу.' });
     add({ sel: P + '-content ' + P + '-panel', title: 'Сводная таблица',
-      html: 'Строки — значения оси, колонки — 12 месяцев (последний выделен), справа — изменение за год. Юнит и разрезы берутся из строки фильтров.' });
+      html: 'Строки — значения оси, колонки — 12 месяцев (последний выделен), справа — изменение за год. Юнит и разрезы берутся из «Фильтров».' });
   } else if (view === 'goals') {
     add({ sel: P + '-content ' + P + '-panel', title: 'Реестр целей',
       html: 'Цели на юнитах вашей зоны и выше. Цель действует на юнит и всю ветку вниз, пока ниже не встретится своя. Статус: в фокусе, ждёт разреза или вне срока.' });
@@ -2921,6 +3003,7 @@ function buildHTML() {
   h.push(filterBarHTML());
   h.push(noticesHTML());
   h.push('<div class="' + P + '-content" role="tabpanel">' + tabHTML(v) + '</div>');
+  if (state.drawer) h.push(drawerHTML());
   h.push('</div>');
   return buildCSS() + h.join('');
 }
@@ -3139,6 +3222,14 @@ function buildHTML() {
     function tourShow() {
       var t = state.tour, list = tourSteps(t.view), step = list[t.i];
       if (!step) { tourEnd(); return; }
+      // Шаги про панель «Фильтры и настройки» — с открытой панелью, остальные — с закрытой.
+      if (!!state.drawer !== !!step.drawer) {
+        state.drawer = !!step.drawer;
+        state.open = '';
+        state.q = '';
+        render();
+        return;
+      }
       var els = tourEls(step);
       // Цели нет (пустая таблица, нет строк, узкая ячейка) — шаг пропускаем в ту же сторону.
       if (step.sel && !els.length) { tourGo(t.i + (t.dir || 1), t.dir || 1); return; }
@@ -3177,6 +3268,8 @@ function buildHTML() {
     function tourEnd() {
       state.tour = null;
       if (tourNode) tourNode.style.display = 'none';
+      // Панель, открытую туром, закрываем вместе с ним.
+      if (state.drawer) { state.drawer = false; state.open = ''; state.q = ''; render(); }
     }
     // После каждой перерисовки: вкладку сменили — тур окончен; шаг «нажми — будет» сделан
     // (пользователем или показом) — следующий шаг; иначе подсветка — по новому месту цели.
@@ -3256,7 +3349,6 @@ function buildHTML() {
         };
         run('.' + CFG.ns + '-ln', [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { dur: CFG.chart.drawMs, ease: 'cubic-bezier(.4,0,.2,1)' });
         run('.' + CFG.ns + '-fd', [{ opacity: 0 }, { opacity: 1 }], { dur: 320, ease: 'ease-out' });
-        run('.' + CFG.ns + '-bar', [{ transform: 'scaleY(0)' }, { transform: 'scaleY(1)' }], { dur: 480, ease: 'cubic-bezier(.22,.61,.36,1)' });
       }
     }
 
@@ -3304,6 +3396,7 @@ function buildHTML() {
     function relayout() {
       var a = measureNarrow(), b = measureCharts();
       measureNames();
+      placeDrawer();
       if (!a && !b) { tourPos(); return false; }
       var els = overlay.querySelectorAll('[data-ci]');
       for (var k = 0; k < els.length; k++) {
@@ -3321,6 +3414,10 @@ function buildHTML() {
     function render() {
       var st = overlay.scrollTop, sl = overlay.scrollLeft;
       var pl = overlay.querySelector('[data-plist]'), pst = pl ? pl.scrollTop : 0;
+      var ds = overlay.querySelector('.' + CFG.ns + '-drs'), dst = ds ? ds.scrollTop : 0;
+      // Фокус был в панели (флажок, кнопка раздела) — перерисовка его роняет на body, и Esc
+      // перестаёт доходить до чарта: возвращаем фокус панели.
+      var ae = document.activeElement, fin = !!(state.drawer && ae && ae !== overlay && overlay.contains(ae));
       overlay.innerHTML = buildHTML();
       relayout();
       animateCharts();
@@ -3329,6 +3426,13 @@ function buildHTML() {
       overlay.scrollLeft = sl;
       var pl2 = overlay.querySelector('[data-plist]');
       if (pl2) pl2.scrollTop = pst;
+      var ds2 = overlay.querySelector('.' + CFG.ns + '-drs');
+      if (ds2) ds2.scrollTop = dst;
+      placeDrawer();
+      if (fin && !overlay.contains(document.activeElement)) {
+        var dw = overlay.querySelector('.' + CFG.ns + '-drw');
+        if (dw) { try { dw.focus({ preventScroll: true }); } catch (erf) { dw.focus(); } }
+      }
       renderTip();
       tourSync();
     }
@@ -3546,8 +3650,41 @@ function buildHTML() {
         try { inp.setSelectionRange(inp.value.length, inp.value.length); } catch (er) { /* поле без выделения */ }
         return;
       }
-      var pop = overlay.querySelector('.' + CFG.ns + '-pop');
+      var pop = overlay.querySelector('.' + CFG.ns + '-drw');
       if (pop && pop.focus) pop.focus();
+    }
+    // Панель «Фильтры и настройки» — position:fixed по видимой части контейнера чарта
+    // (в Proteus это ячейка борда; на стенде с ?w= — уже окна). fixed считается от окна,
+    // но у предка с transform — от этого предка: ставим панель в 0,0, меряем, где она
+    // оказалась, и сдвигаем на разницу. Зовётся из render, relayout, ресайза и прокрутки.
+    function placeDrawer() {
+      var d = overlay.querySelector('.' + CFG.ns + '-drw'), b = overlay.querySelector('.' + CFG.ns + '-drwb');
+      if (!d) return;
+      var r = overlay.getBoundingClientRect();
+      var top = Math.max(r.top, 0), bottom = Math.min(r.bottom, window.innerHeight);
+      var left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
+      var w = Math.max(280, Math.min(440, right - left - 48)), h = Math.max(200, bottom - top);
+      d.style.top = '0px'; d.style.left = '0px';
+      var o = d.getBoundingClientRect();
+      d.style.top = (top - o.top) + 'px'; d.style.height = h + 'px';
+      d.style.left = (Math.max(left, right - w) - o.left) + 'px'; d.style.width = Math.min(w, right - left) + 'px';
+      if (b) { b.style.top = (top - o.top) + 'px'; b.style.left = (left - o.left) + 'px'; b.style.width = (right - left) + 'px'; b.style.height = h + 'px'; }
+    }
+    function closeDrawer() {
+      state.drawer = false;
+      state.open = '';
+      state.q = '';
+      render();
+    }
+    // Набранное в панели (юнит, HRBP, разрезы) — одним запросом; панель закрывается.
+    function applyStaged() {
+      if (!stageDiff() || state.pend) { render(); return; }
+      var na = staged();
+      if (!sameSet(na.unit, reqNow().unit)) { pushBack(); state.openRows = {}; state.selTeam = ''; state.tq = ''; }
+      state.hz = na.hz || '';
+      state.drawer = false;
+      if (!stageDiff()) state.stage = null;
+      emit(na);
     }
     function refreshList() {
       var box = overlay.querySelector('[data-plist]');
@@ -3578,10 +3715,12 @@ function buildHTML() {
       // Тур «Как работать»: кнопка в шапке.
       var ta = trigger(e.target, 'data-tact');
       if (ta) { tourAct(ta.getAttribute('data-tact')); return; }
-      // Клик мимо открытого поповера закрывает его; data-scope — на обёртке
-      // открывателя вместе с поповером: клик по списку/поиску — «внутри».
+      // Клик мимо открытого раздела закрывает его; data-scope — на обёртке раздела вместе
+      // с телом: клик по списку/поиску — «внутри». Внутри панели разделы сворачивает только
+      // их заголовок (клик по пустому месту панели ничего не закрывает).
       var sc = trigger(e.target, 'data-scope');
-      if (state.open && (!sc || sc.getAttribute('data-scope') !== state.open)) {
+      var inDrawer = state.drawer && trigger(e.target, 'data-drawer');
+      if (state.open && !inDrawer && (!sc || sc.getAttribute('data-scope') !== state.open)) {
         state.open = '';
         state.q = '';
         if (!trigger(e.target, 'data-action') && !trigger(e.target, 'data-view')) { render(); return; }
@@ -3598,6 +3737,34 @@ function buildHTML() {
       var a = trigger(e.target, 'data-action');
       if (!a) return;
       var act = a.getAttribute('data-action'), key = a.getAttribute('data-key') || '', id = a.getAttribute('data-id');
+      if (act === 'drawer') {
+        if (state.drawer) { closeDrawer(); return; }
+        state.drawer = true;
+        state.open = 'unit';
+        state.q = '';
+        state.tip = null;
+        hideTip();
+        render();
+        focusPop();
+        return;
+      }
+      if (act === 'dclose') { closeDrawer(); return; }
+      // Чип применённого: × снимает фильтр сразу (вместе с набранным в панели, если оно есть).
+      if (act === 'chipx') {
+        if (key === 'metrics') { state.metricOff = {}; render(); return; }
+        if (key === 'focus') { state.focusOnly = false; render(); return; }
+        stageEdit(function (st) {
+          var h = st.hz ? MODEL.hBy[st.hz] : null;
+          if (key === 'hz') {
+            if (h && (!st.unit.length || sameSet(st.unit, h.roots))) st.unit = [];
+            st.hz = '';
+          } else if (key === 'unit') {
+            st.unit = h && !sameSet(h.roots, MODEL.roots) ? h.roots.slice() : [];
+          } else if (key.indexOf('cut:') === 0) st.cuts[key.slice(4)] = [];
+        });
+        applyStaged();
+        return;
+      }
       if (act === 'open') {
         var pop = a.getAttribute('data-pop') || '';
         if (state.open === pop) { state.open = ''; render(); return; }
@@ -3634,7 +3801,7 @@ function buildHTML() {
         render();
         return;
       }
-      // Строка фильтров копит выбор: юнит, зона HRBP, разрезы — до «Применить».
+      // Панель фильтров копит выбор: юнит, зона HRBP, разрезы — до «Применить».
       if (act === 'pick' || act === 'hpick') {
         stageEdit(function (st) {
           var h = st.hz ? MODEL.hBy[st.hz] : null;
@@ -3665,11 +3832,7 @@ function buildHTML() {
       }
       if (act === 'apply') {
         if (!stageDiff() || state.pend) return;
-        var na = staged();
-        if (!sameSet(na.unit, reqNow().unit)) { pushBack(); state.openRows = {}; state.selTeam = ''; state.tq = ''; }
-        state.hz = na.hz || '';
-        if (!stageDiff()) state.stage = null;
-        emit(na);
+        applyStaged();
         return;
       }
       if (act === 'unstage') { state.stage = null; render(); return; }
@@ -3680,6 +3843,7 @@ function buildHTML() {
       }
       if (act === 'focus') { state.focusOnly = !state.focusOnly; render(); return; }
       if (act === 'reset') {
+        state.drawer = false;
         state.metricOff = {};
         state.focusOnly = false;
         state.openM = {};
@@ -3822,6 +3986,7 @@ function buildHTML() {
         refreshTeams();
         return;
       }
+      if (k === 27 && state.drawer) { closeDrawer(); return; }
       if (k === 27 && state.open) {
         state.open = '';
         state.q = '';
@@ -3850,8 +4015,13 @@ function buildHTML() {
     // Старый снимаем ЯВНО, ссылку держим в state. Escape вешай здесь же,
     // тем же способом, и никогда не внутри render().
     if (state.onWinResize) window.removeEventListener('resize', state.onWinResize);
-    state.onWinResize = function () { if (state.tip) renderTip(); if (state.tour) tourPos(); };
+    state.onWinResize = function () { if (state.tip) renderTip(); if (state.tour) tourPos(); if (state.drawer) placeDrawer(); };
     window.addEventListener('resize', state.onWinResize);
+    // Прокрутка страницы борда (любого контейнера — поэтому capture) при открытой панели:
+    // ячейка уезжает, панель — за ней.
+    if (state.onAnyScroll) document.removeEventListener('scroll', state.onAnyScroll, true);
+    state.onAnyScroll = function () { if (state.drawer) placeDrawer(); };
+    document.addEventListener('scroll', state.onAnyScroll, true);
     // Клик мимо виджета (по дашборду) закрывает поповер.
     if (state.onDocDown) document.removeEventListener('mousedown', state.onDocDown, true);
     state.onDocDown = function (ev) {
