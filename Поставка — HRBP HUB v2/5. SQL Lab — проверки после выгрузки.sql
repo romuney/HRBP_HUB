@@ -4,16 +4,18 @@
 -- датасет и чарт; «ждали / пришло» расходятся — смотреть параграф «HH · проверки».
 -- ============================================================================
 
--- 1. Все семь таблиц на месте и свежие: строки и дата данных.
---    Ждали: calendar 48 строк; unit, access, cube, base, attr — не пусто; kpi — сколько
---    целей в реестре. base — тысячи строк (комбинации разрезов), cube — десятки тысяч.
+-- 1. Все восемь таблиц на месте и свежие: строки и дата данных.
+--    Ждали: calendar 48 строк; unit, access, cube, base, attr, attr_top — не пусто; kpi —
+--    сколько целей в реестре. base — тысячи строк (комбинации разрезов), cube — десятки
+--    тысяч, attr_top — около десятой части attr.
 SELECT 'hrbp_hub_calendar' AS t, count() AS rows, toString(max(ifNull(data_dt, toDate('1970-01-01')))) AS data_dt FROM prod_proteus.hrbp_hub_calendar
 UNION ALL SELECT 'hrbp_hub_unit', count(), toString(max(ifNull(last_dt, toDate('1970-01-01')))) FROM prod_proteus.hrbp_hub_unit
 UNION ALL SELECT 'hrbp_hub_access', count(), '' FROM prod_proteus.hrbp_hub_access
 UNION ALL SELECT 'hrbp_hub_kpi', count(), '' FROM prod_proteus.hrbp_hub_kpi
 UNION ALL SELECT 'hrbp_hub_cube', count(), '' FROM prod_proteus.hrbp_hub_cube
 UNION ALL SELECT 'hrbp_hub_base', count(), '' FROM prod_proteus.hrbp_hub_base
-UNION ALL SELECT 'hrbp_hub_attr', count(), '' FROM prod_proteus.hrbp_hub_attr;
+UNION ALL SELECT 'hrbp_hub_attr', count(), '' FROM prod_proteus.hrbp_hub_attr
+UNION ALL SELECT 'hrbp_hub_attr_top', count(), '' FROM prod_proteus.hrbp_hub_attr_top;
 
 -- 2. Календарь: какие месяцы и недели лежат в позициях массивов, последний закрытый.
 --    Ждали: m 0–23 = январь прошлого года … декабрь текущего, closed = 1 до последнего
@@ -51,6 +53,24 @@ FROM prod_proteus.hrbp_hub_attr
 GROUP BY attr
 ORDER BY attr;
 
+-- 5б. Свёртка атрибутов сходится с кубом атрибутов: свёртки верхних узлов дерева
+--     (компания) — это весь куб. Ждали: в каждой из 11 строк diff = 0; units_with_top —
+--     сколько юнитов со свёрткой (корни зон HRBP, компания, блоки, ветки от 300 юнитов).
+SELECT t.attr, t.hc AS top_hc, l.hc AS leaf_hc, t.hc - l.hc AS diff,
+       (SELECT countIf(ifNull(attr_top, 0) = 1) FROM prod_proteus.hrbp_hub_unit) AS units_with_top
+FROM (
+  SELECT ifNull(a.attr_k, '') AS attr, sum(toInt64(ifNull(arrayElement(a.m_hc, (SELECT toUInt32(max(idx) + 1) FROM prod_proteus.hrbp_hub_calendar WHERE grain = 'm' AND is_closed = 1)), 0))) AS hc
+  FROM prod_proteus.hrbp_hub_attr_top a
+  WHERE ifNull(a.unit_id, '') IN (SELECT ifNull(id, '') FROM prod_proteus.hrbp_hub_unit WHERE ifNull(pid, '') = '')
+  GROUP BY attr
+) t
+LEFT JOIN (
+  SELECT ifNull(attr_k, '') AS attr, sum(toInt64(ifNull(arrayElement(m_hc, (SELECT toUInt32(max(idx) + 1) FROM prod_proteus.hrbp_hub_calendar WHERE grain = 'm' AND is_closed = 1)), 0))) AS hc
+  FROM prod_proteus.hrbp_hub_attr
+  GROUP BY attr
+) l ON l.attr = t.attr
+ORDER BY t.attr;
+
 -- 6. Уровни оргструктуры — как в ультраширокой: 1 (компания) и 3…12.
 --    Ждали: lvl 1 — одна строка; lvl 2 и больше 12 — нет; path_len = число уровней
 --    от компании (1 → 1, 3 → 2 … 12 → 11); у 12-го уровня children = 0.
@@ -66,7 +86,7 @@ ORDER BY lvl;
 
 -- 7. Доступ: кто что видит. role super / admin — вся компания, hrbp — корни зоны.
 --    Впишите логин вместо 'ivanov.i' — пусто = у логина нет зоны, отчёт скажет «нет зоны HRBP».
---    units — юнитов в поддереве корня: зона больше 1 500 юнитов выбирается окрестностью + поиском.
+--    units — юнитов в поддереве корня: справочник отчёта везёт всю зону, на всю глубину.
 SELECT a.login, a.role, a.hrbp_nm, u.nm AS root_unit, u.lvl, u.hc_now, u.sub_n AS units
 FROM prod_proteus.hrbp_hub_access a
 LEFT JOIN prod_proteus.hrbp_hub_unit u ON u.id = a.root_id
@@ -101,5 +121,5 @@ ORDER BY cut, headcount DESC;
 
 -- 11. Датасет целиком: вставьте в SQL Lab текст файла 2 и выполните — Jinja отработает
 --     с пустыми фильтрами и вашим логином. Ждали: строка role = meta (в j — ваша роль,
---     зона, zone_n и dict_mode: full — зона до 1 500 юнитов, part — больше), dict, base,
---     scope, c, g, f; время ответа — секунды.
+--     зона, zone_n — юнитов в зоне, tr_top = 1 — атрибуты трансформеров из свёртки), dict
+--     (n = zone_n + предки корней), base, scope, c, g, f, tr (17 осей); время ответа — секунды.

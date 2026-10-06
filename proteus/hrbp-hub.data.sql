@@ -11,11 +11,9 @@
     Строки различаются колонкой role:
       meta   1 строка — эхо применённых условий, доступ, календарь слотов (j = JSON)
       dict   1 строка — юниты пакетом: id, родитель, уровень, численность сейчас,
-             текущий ли, rk, имя, число детей (j: поля через \t, строки через \n).
-             Зона до DICT_FULL_MAX юнитов — целиком; больше (супер-HRBP, админ на
-             100 тыс. сотрудников) — путь до юнита с соседями, вся выбранная область, если
-             она не больше DICT_FULL_MAX (иначе — дерево «Команд»: 3 уровня или все), корни
-             с детьми, корни зон HRBP, найденное поиском q_f (сначала — внутри области)
+             текущий ли, (пусто — rk приезжает в meta для выбранного юнита), имя, число
+             детей (j: поля через \t, строки через \n). Вся зона логина на всю глубину и
+             предки её корней — всегда: выбор и поиск юнита в чарте идут без запроса
       hrbps  1 строка — HRBP, чьи зоны внутри моей: логин, имя, корни, численность,
              пути корней (по ним чарт строит дерево «кто под кем»)
       base   вся компания под выбранными разрезами — база сравнения (hrbp_hub_base)
@@ -25,36 +23,37 @@
       x      третий уровень вниз и глубже: pid = путь родителя от узла −1 через '/'; '·' — прямо в нём
       f      фасеты фильтров: id = значение, pid = разрез, n = численность на конец
              последнего закрытого месяца при ОСТАЛЬНЫХ разрезах
-      tr     трансформеры, все оси разом: pid — ось, id — значение. 6 разрезов — всегда;
-             11 атрибутов — все, если в ветке юнита не больше TR_ALL_MAX юнитов, иначе
-             только атрибут из tr_f; у атрибута — до TR_TOP значений, хвост — строкой '…'
-             (n — сколько в ней значений). Массивы — 12 последних закрытых месяцев, прочие
-             слоты — нули
+      tr     трансформеры, все 17 осей разом: pid — ось, id — значение. 6 разрезов — из
+             прохода фасетов; 11 атрибутов — из свёртки hrbp_hub_attr_top, когда разрезы не
+             выбраны и у открытых юнитов она есть (корни зон, компания, блоки, большие ветки),
+             иначе — из листового куба ветки. У атрибута — до TR_TOP значений, хвост —
+             строкой '…' (n — сколько в ней значений). Массивы — 12 последних закрытых
+             месяцев, прочие слоты — нули
       kpi    правила целей: id = rule_id, pid = юнит, j = поля через \t
     Массивы m_* — 24 месяца, w_* — 24 недели (позиция = idx календаря), строкой
     через запятую. Проценты не храним: чарт делит числитель на знаменатель.
 
     Кросс-фильтры (эмитит сам чарт, самовлияние ВКЛЮЧЕНО): unit_f — id юнитов;
     paint_f / it_f / stream_f / spec_f / staff_f / hct_f — значения разрезов;
-    tr_f — атрибут трансформеров для большой ветки; depth_f — глубина «Команд» ('all' — все уровни); q_f —
-    поиск юнита по имени (большие зоны). Колонки-носители в SELECT не выводятся
+    tr_f — атрибут трансформеров (запасной режим TR_ALL_MAX: большая ветка с разрезами);
+    depth_f — глубина «Команд» ('all' — все уровни, в запасе). Колонки-носители в SELECT не выводятся
     (иначе Superset повесит авто-IN на внешний запрос). Доступ — current_username():
     юниты вне зоны пользователя не приезжают ни в каком виде.
 
     Масштаб: куб читается только в поддереве выбранного юнита (ORDER BY path_s —
     ветка лежит подряд, условие по пути уходит в PREWHERE), база — из крошечной
-    hrbp_hub_base, а не суммой всего куба.
+    hrbp_hub_base, а не суммой всего куба, атрибуты открытого по умолчанию юнита — из
+    готовой свёртки (сотни строк вместо сотен тысяч).
 ============================================================================ -#}
 {% set CUTS = [['paint', 'paint_f'], ['it', 'it_f'], ['stream', 'stream_f'], ['spec', 'spec_f'], ['staff', 'staff_f'], ['hct', 'hct_f']] %}
 {% set CUT_COLS = ['paint', 'it', 'stream', 'spec', 'staff', 'hct'] %}
 {% set ATTRS = ['grade', 'seniority', 'exp', 'gender', 'age', 'office', 'work', 'head', 'legal', 'macro', 'city'] %}
 {% set COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire'] %}
-{#- Зона до стольких юнитов уходит в справочник целиком (поиск — в чарте, мгновенно). -#}
-{% set DICT_FULL_MAX = 1500 %}
-{#- Трансформеры: все 11 атрибутов в каждом ответе — пока в ветке юнита не больше TR_ALL_MAX
-    юнитов (куб атрибутов в ~20 раз больше куба разрезов: для всей компании его не читаем на
-    каждый ответ — там атрибут догружается по tr_f). -#}
-{% set TR_ALL_MAX = 1500 %}
+{#- Трансформеры: все 11 атрибутов в каждом ответе. Без разрезов — из свёртки (если она есть
+    у открытых юнитов), с разрезами — из листового куба ветки, пока в ней не больше TR_ALL_MAX
+    юнитов. По умолчанию предела нет; запасной режим — TR_ALL_MAX = 1500: большая ветка с
+    разрезами получит атрибут по запросу (tr_f), чарт это понимает сам. -#}
+{% set TR_ALL_MAX = 1000000 %}
 {#- У атрибута — не больше TR_TOP значений по численности, остальные — одной строкой '…'
     (город, офис: сотни значений раздули бы ответ зоны в разы). -#}
 {% set TR_TOP = 30 %}
@@ -76,10 +75,10 @@
 {% set DEEP = 10 %}
 {% set depth_req = 'all' if (filter_values('depth_f')|first|default('', true))|string == 'all' else '3' %}
 {% set D = DEEP if depth_req == 'all' else 3 %}
-{% set q_req = [] %}{% for v in (filter_values('q_f') or []) %}{% if v|string|trim != '' and q_req|length < 1 %}{% set _ = q_req.append((v|string|trim)[:60]) %}{% endif %}{% endfor %}
-{% set q = q_req|first|default('', true) %}
 {% set F = {} %}
 {% for c in CUTS %}{% set vals = [] %}{% for v in (filter_values(c[1]) or []) %}{% if v|string != '' and vals|length < 200 %}{% set _ = vals.append(v|string) %}{% endif %}{% endfor %}{% set _ = F.update({c[0]: vals}) %}{% endfor %}
+{#- Выбран ли хоть один разрез: без разрезов атрибуты берутся из свёртки. -#}
+{% set ANYCUT = [] %}{% for c in CUT_COLS %}{% if F[c]|length > 0 %}{% set _ = ANYCUT.append(c) %}{% endif %}{% endfor %}
 {% set axis = filter_values('tr_f')|first|default('', true) %}
 {% set axis = axis|string if (axis|string in CUT_COLS or axis|string in ATTRS) else '' %}
 {#- Закрепляемость от active_hire_dt — только когда «Тип численности» = ровно «Активная». -#}
@@ -136,23 +135,31 @@ WITH
            un.anc AS anc, un.zone_n AS zone_n, lm.last_m AS last_m
     FROM acc CROSS JOIN un CROSS JOIN lm
   ),
-  {#- Пути до выбранного юнита — для справочника; lo / hi — диапазон ключа куба (path_s),
-      в котором лежит ветка юнита: куб читается только в нём. scope_n — юнитов в ветке;
-      depth — сколько уровней «Команд» реально отдаём (3 или DEEP). -#}
+  {#- Область: lo / hi — диапазон ключа куба (path_s), в котором лежит её ветка (куб читается
+      только в нём); scope_n — юнитов в ветке; depth — сколько уровней «Команд» отдаём (3 или
+      DEEP). smin — юниты области без предка в ней же; если у всех есть свёртка атрибутов
+      (attr_top) и разрезы не выбраны, tops = smin: атрибуты читаются из свёртки, а диапазон
+      листового куба атрибутов (alo / ahi) пустой. rk1 — rk выбранного юнита (строка реестра целей). -#}
   ex AS (
-    SELECT groupUniqArrayArrayIf(p, has(ctx.scope, uid)) AS sanc,
-           minIf(arrayStringConcat(p, '/'), has(ctx.scope, uid)) AS lo,
-           maxIf(concat(arrayStringConcat(p, '/'), '0'), has(ctx.scope, uid)) AS hi,
-           toInt64(sumIf(ifNull(sub_n, 1), has(ctx.scope, uid))) AS scope_n,
-           toUInt32(if({{ '1' if depth_req == 'all' else '0' }} = 1 AND scope_n <= {{ ALL_MAX }}, {{ DEEP }}, 3)) AS depth,
-           {#- диапазон куба атрибутов: пустой, если ветка больше TR_ALL_MAX (тогда не читается вовсе) #}
-           if(scope_n <= {{ TR_ALL_MAX }}, lo, '') AS alo, if(scope_n <= {{ TR_ALL_MAX }}, hi, '') AS ahi
+    SELECT lo, hi, scope_n, depth, rk1,
+           if({{ '0' if ANYCUT else '1' }} = 1 AND top_all = 1, smin, CAST([], 'Array(String)')) AS tops,
+           if(notEmpty(tops) OR scope_n > {{ TR_ALL_MAX }}, '', lo) AS alo,
+           if(notEmpty(tops) OR scope_n > {{ TR_ALL_MAX }}, '', hi) AS ahi
     FROM (
-      SELECT ifNull(id, '') AS uid, arrayMap(x -> ifNull(x, ''), path) AS p, sub_n
-      FROM prod_proteus.hrbp_hub_unit
-      WHERE id IN (SELECT arrayJoin(scope) FROM ctx)
-    ) AS ue
-    CROSS JOIN ctx
+      SELECT minIf(arrayStringConcat(p, '/'), has(ctx.scope, uid)) AS lo,
+             maxIf(concat(arrayStringConcat(p, '/'), '0'), has(ctx.scope, uid)) AS hi,
+             toInt64(sumIf(ifNull(sub_n, 1), has(ctx.scope, uid))) AS scope_n,
+             toUInt32(if({{ '1' if depth_req == 'all' else '0' }} = 1 AND scope_n <= {{ ALL_MAX }}, {{ DEEP }}, 3)) AS depth,
+             groupArrayIf(uid, has(ctx.scope, uid) AND NOT hasAny(arrayPopBack(p), ctx.scope)) AS smin,
+             minIf(toUInt8(ifNull(attr_top, 0) = 1), has(ctx.scope, uid) AND NOT hasAny(arrayPopBack(p), ctx.scope)) AS top_all,
+             anyIf(urk, has(ctx.scope, uid)) AS rk1
+      FROM (
+        SELECT ifNull(id, '') AS uid, arrayMap(x -> ifNull(x, ''), path) AS p, sub_n, attr_top, ifNull(rk, '') AS urk
+        FROM prod_proteus.hrbp_hub_unit
+        WHERE id IN (SELECT arrayJoin(scope) FROM ctx)
+      ) AS ue
+      CROSS JOIN ctx
+    )
   )
 SELECT role, id, pid, n, j,
   {% for c in COMP %}m_{{ c }}, {% endfor %}{% for c in COMP %}w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
@@ -200,7 +207,7 @@ FROM (
           FROM (
             SELECT *
             FROM prod_proteus.hrbp_hub_cube
-            WHERE path_s >= tupleElement((SELECT (lo, hi, alo, ahi) FROM ex), 1) AND path_s < tupleElement((SELECT (lo, hi, alo, ahi) FROM ex), 2)
+            WHERE path_s >= tupleElement((SELECT (lo, hi, alo, ahi, tops) FROM ex), 1) AND path_s < tupleElement((SELECT (lo, hi, alo, ahi, tops) FROM ex), 2)
           ) AS cb
           CROSS JOIN ctx{% if D > 3 %}
           CROSS JOIN ex{% endif %}
@@ -223,8 +230,8 @@ FROM (
       без массивов. Трансформер (tr): pid — разрез, id — значение, массивы 12 последних закрытых
       месяцев (прочие слоты — нули: сводная их не смотрит), строка — только если в неё попала хоть одна
       строка куба. Отдельный проход ради трансформера стоил бы ещё одной подстановки контекста.
-      Диапазон куба — общий скаляр (lo, hi, alo, ahi) на все ветки: одинаковый скаляр ClickHouse
-      считает один раз, разные — каждый заново вместе с цепочкой CTE. #}
+      Диапазон куба — общий скаляр (lo, hi, alo, ahi, tops) на все ветки: одинаковый скаляр
+      ClickHouse считает один раз, разные — каждый заново вместе с цепочкой CTE. #}
   SELECT if(kk = 1, 'f', 'tr') AS role, fk.2 AS id, fk.1 AS pid, if(kk = 1, n_f, toInt64(1)) AS n, '' AS j,
     {% for c in COMP %}if(kk = 1, '', {{ out('arrayMap((x, i) -> if(i > lmv - 11 AND i <= lmv + 1, x, 0), a_m_' ~ c ~ ', arrayEnumerate(a_m_' ~ c ~ '))') }}) AS m_{{ c }}, {% endfor %}
     {% for c in COMP %}'' AS w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
@@ -243,7 +250,7 @@ FROM (
       FROM (
         SELECT *
         FROM prod_proteus.hrbp_hub_cube
-        WHERE path_s >= tupleElement((SELECT (lo, hi, alo, ahi) FROM ex), 1) AND path_s < tupleElement((SELECT (lo, hi, alo, ahi) FROM ex), 2)
+        WHERE path_s >= tupleElement((SELECT (lo, hi, alo, ahi, tops) FROM ex), 1) AND path_s < tupleElement((SELECT (lo, hi, alo, ahi, tops) FROM ex), 2)
       ) AS cb
       CROSS JOIN ctx
       WHERE notEmpty(ctx.roots)
@@ -256,10 +263,13 @@ FROM (
 
   UNION ALL
   {#- ---------- трансформер по атрибутам сотрудника (грейд, стаж, город…) ----------
-      Все 11 атрибутов, если ветка не больше TR_ALL_MAX юнитов (диапазон alo…ahi), иначе —
-      только атрибут из tr_f во всей ветке. pid — атрибут, id — значение; у атрибута — не
-      больше TR_TOP значений по численности последнего месяца, остальные — одной строкой '…'
-      (n — сколько в ней значений). Массивы — 12 последних закрытых месяцев, прочие слоты — нули. #}
+      Все 11 атрибутов: без разрезов у юнитов со свёрткой — из hrbp_hub_attr_top (tops),
+      иначе — из листового куба ветки (диапазон alo…ahi); запасной режим TR_ALL_MAX — только
+      атрибут из tr_f во всей ветке (и только когда свёртки нет: иначе он посчитался бы дважды).
+      Источники сходятся в один проход с одной подстановкой
+      контекста. pid — атрибут, id — значение; у атрибута — не больше TR_TOP значений по
+      численности последнего месяца, остальные — одной строкой '…' (n — сколько в ней
+      значений). Массивы — 12 последних закрытых месяцев, прочие слоты — нули. #}
   SELECT 'tr' AS role, tv AS id, tk AS pid, nv AS n, '' AS j,
     {% for c in COMP %}{{ out('arrayMap((x, i) -> if(i > lmv - 11 AND i <= lmv + 1, x, 0), t_m_' ~ c ~ ', arrayEnumerate(t_m_' ~ c ~ '))') }} AS m_{{ c }}, {% endfor %}
     {% for c in COMP %}'' AS w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
@@ -275,14 +285,22 @@ FROM (
           {% for c in COMP %}sumForEach({{ arr('ab.m_' ~ src(c)) }}) AS a_m_{{ c }}{% if not loop.last %},{% endif %}
           {% endfor %}
         FROM (
-          SELECT *
+          {%- if not ANYCUT %}
+          SELECT CAST([], 'Array(Nullable(String))') AS path, attr_k, attr_v,
+            {% for c in COMP %}m_{{ src(c) }}, {% endfor %}toUInt8(1) AS top
+          FROM prod_proteus.hrbp_hub_attr_top
+          WHERE has(tupleElement((SELECT (lo, hi, alo, ahi, tops) FROM ex), 5), ifNull(unit_id, ''))
+          UNION ALL
+          {%- endif %}
+          SELECT path, attr_k, attr_v,
+            {% for c in COMP %}m_{{ src(c) }}, {% endfor %}toUInt8(0) AS top
           FROM prod_proteus.hrbp_hub_attr
-          WHERE {% if axis in ATTRS %}(attr_k = {{ qs(axis) }} AND path_s >= tupleElement((SELECT (lo, hi, alo, ahi) FROM ex), 1) AND path_s < tupleElement((SELECT (lo, hi, alo, ahi) FROM ex), 2)) OR {% endif %}(path_s >= tupleElement((SELECT (lo, hi, alo, ahi) FROM ex), 3) AND path_s < tupleElement((SELECT (lo, hi, alo, ahi) FROM ex), 4))
+          WHERE ({% if axis in ATTRS %}(attr_k = {{ qs(axis) }} AND empty(tupleElement((SELECT (lo, hi, alo, ahi, tops) FROM ex), 5)) AND path_s >= tupleElement((SELECT (lo, hi, alo, ahi, tops) FROM ex), 1) AND path_s < tupleElement((SELECT (lo, hi, alo, ahi, tops) FROM ex), 2)) OR {% endif %}(path_s >= tupleElement((SELECT (lo, hi, alo, ahi, tops) FROM ex), 3) AND path_s < tupleElement((SELECT (lo, hi, alo, ahi, tops) FROM ex), 4)))
+            AND ({{ cond('') }})
         ) AS ab
         CROSS JOIN ctx
         WHERE notEmpty(ctx.roots)
-          AND hasAny(arrayMap(x -> ifNull(x, ''), ab.path), ctx.scope)
-          AND ({{ cond('') }})
+          AND (ab.top = 1 OR hasAny(arrayMap(x -> ifNull(x, ''), ab.path), ctx.scope))
         GROUP BY tk, tv0
       )
     )
@@ -308,43 +326,19 @@ FROM (
 
 
   UNION ALL
-  {#- ---------- справочник юнитов: зона целиком или путь + окрестность юнита ---------- #}
+  {#- ---------- справочник юнитов: вся зона логина на всю глубину и предки её корней ----------
+      Не зависит от выбранного юнита и разрезов: выбор и поиск юнита в чарте — без запроса.
+      rk здесь пустой (на супер-HRBP это сотни КБ): выбранному юниту он приезжает в meta. #}
   SELECT 'dict' AS role, '' AS id, '' AS pid, toInt64(count()) AS n,
     arrayStringConcat(groupArray(line), '\n') AS j, {{ empty_cols() }}
   FROM (
     SELECT concat(ifNull(u.id, ''), '\t', ifNull(u.pid, ''), '\t', toString(ifNull(u.lvl, 0)), '\t',
-                  toString(ifNull(u.hc_now, 0)), '\t', toString(ifNull(u.is_current, 0)), '\t', ifNull(u.rk, ''), '\t',
+                  toString(ifNull(u.hc_now, 0)), '\t', toString(ifNull(u.is_current, 0)), '\t\t',
                   replaceRegexpAll(ifNull(u.nm, ''), '[\\t\\n\\r]', ' '), '\t', toString(ifNull(u.kids_n, 0))) AS line
     FROM prod_proteus.hrbp_hub_unit u
     CROSS JOIN ctx
-    CROSS JOIN ex
     WHERE notEmpty(ctx.roots)
-      AND (has(ctx.anc, ifNull(u.id, ''))
-           OR (hasAny(arrayMap(x -> ifNull(x, ''), u.path), ctx.roots)
-               AND (ctx.zone_n <= {{ DICT_FULL_MAX }}
-                    {# выбранная область (юнит или зона HRBP) не больше DICT_FULL_MAX — целиком:
-                       дерево выбора юнита в ней полное, поиск по ней — в чарте, без запроса #}
-                    OR (ex.scope_n <= {{ DICT_FULL_MAX }} AND hasAny(arrayMap(x -> ifNull(x, ''), u.path), ctx.scope))
-                    OR has(ex.sanc, ifNull(u.id, ''))
-                    OR has(ex.sanc, ifNull(u.pid, ''))
-                    OR has(ctx.roots, ifNull(u.pid, ''))
-                    {#- всё дерево «Команд»: юнит встречается в пути не дальше depth шагов вверх -#}
-                    OR hasAny(arraySlice(arrayMap(x -> ifNull(x, ''), u.path),
-                                         greatest(toInt64(length(u.path)) - ex.depth, 1),
-                                         least(toInt64(ex.depth), toInt64(length(u.path)) - 1)), ctx.scope)
-                    OR ifNull(u.id, '') IN (SELECT ifNull(unit_id, '') FROM prod_proteus.hrbp_hub_kpi)
-                    OR ifNull(u.id, '') IN (SELECT ifNull(root_id, '') FROM prod_proteus.hrbp_hub_access
-                                            WHERE ifNull(role, '') = 'hrbp')
-                    {%- if q %}
-                    OR has((SELECT groupUniqArrayArray(pp) FROM (
-                              SELECT arrayMap(x -> ifNull(x, ''), h.path) AS pp
-                              FROM prod_proteus.hrbp_hub_unit h CROSS JOIN ctx
-                              WHERE positionCaseInsensitiveUTF8(ifNull(h.nm, ''), {{ qs(q) }}) > 0
-                                AND hasAny(arrayMap(x -> ifNull(x, ''), h.path), ctx.roots)
-                              {# сначала найденное внутри выбранной области (зоны HRBP), потом остальное #}
-                              ORDER BY hasAny(arrayMap(x -> ifNull(x, ''), h.path), ctx.scope) DESC, ifNull(h.lvl, 0), ifNull(h.nm, '')
-                              LIMIT 60)), ifNull(u.id, ''))
-                    {%- endif %})))
+      AND (has(ctx.anc, ifNull(u.id, '')) OR hasAny(arrayMap(x -> ifNull(x, ''), u.path), ctx.roots))
   )
   HAVING count() > 0
 
@@ -402,14 +396,13 @@ FROM (
       ',"depth":', toJSONString(if(ex.depth > 3, 'all', '3')),
       ',"scope_n":', toString(ex.scope_n),
       ',"all_max":', toString({{ ALL_MAX }}),
-      ',"q":', toJSONString({{ qs(q) }}),
       ',"zone_n":', toString(ctx.zone_n),
-      ',"dict_mode":', toJSONString(if(ctx.zone_n <= {{ DICT_FULL_MAX }}, 'full', 'part')),
-      ',"scope_full":', toString(if(ctx.zone_n <= {{ DICT_FULL_MAX }} OR ex.scope_n <= {{ DICT_FULL_MAX }}, 1, 0)),
       {% for c in CUT_COLS %}',"f_{{ c }}":', toJSONString({{ qa(F[c]) }}),
       {% endfor %}
       ',"axis":', toJSONString('{{ axis }}'),
-      ',"tr_all":', toString(if(ex.scope_n <= {{ TR_ALL_MAX }}, 1, 0)),
+      ',"tr_all":', toString(if(notEmpty(ex.tops) OR ex.scope_n <= {{ TR_ALL_MAX }}, 1, 0)),
+      ',"tr_top":', toString(notEmpty(ex.tops)),
+      ',"rk":', toJSONString(if(length(ctx.scope) = 1, ex.rk1, '')),
       ',"ret_base":', toJSONString('{{ 'active' if RA else 'company' }}'),
       ',"last_m":', toString(ctx.last_m),
       ',"cal":', (SELECT toJSONString(arrayMap(t -> t.3, arraySort(groupArray(tuple(

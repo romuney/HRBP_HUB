@@ -14,8 +14,8 @@
    анализатор, prefer_column_name_to_alias = 1, join_use_nulls = 1, типы без Nullable.
 5. Глубина и масштаб: путь отчёта lvl1 + lvl3…lvl12; «Команды» на 3 уровня и все
    уровни (depth_f) число в число, Σ детей == узел на каждом уровне, «Напрямую в …»
-   только рядом с подразделениями, порог «все уровни»; справочник большой зоны
-   (путь + дерево «Команд» + корни HRBP), поиск q_f, пути корней HRBP.
+   только рядом с подразделениями, порог «все уровни»; справочник — вся зона логина на
+   всю глубину при любом выборе; свёртка атрибутов == листовой куб; пути корней HRBP.
 """
 import hashlib
 import json
@@ -134,6 +134,8 @@ def vsum(rows_, g):
 def main():
     root = W.ROOT.rk
     U = W.BY_NAME
+    prow, _ = ch.run("SELECT ifNull(id, '') AS id, arrayMap(x -> ifNull(x, ''), path) AS p FROM prod_proteus.hrbp_hub_unit")
+    UTP = {r['id']: r['p'] for r in prow}
     # ---------------- 1. число в число ----------------
     scenarios = [
         ('супер-HRBP, вся компания', 'a.sergeeva', {}, {}, X.under({root})),
@@ -187,33 +189,60 @@ def main():
             if CARRIER[cut] in flt:
                 continue
             ok(sum(int(r['n']) for r in fs) == sc[0]['hc'][last], 'фасеты «%s» == численность области [%s]' % (cut, user))
-    # Трансформеры: все 17 осей в ответе (зона мира меньше TR_ALL_MAX); Σ значений оси == область
-    # за 12 последних месяцев, прежние слоты — нули.
+    # Трансформеры: все 17 осей в каждом ответе; Σ значений оси == область за 12 последних
+    # месяцев, прежние слоты — нули. Без разрезов у юнитов со свёрткой (attr_top) атрибуты — из
+    # неё (tr_top = 1), иначе — из листового куба; оба пути дают одни и те же строки.
     AXES = list(CARRIER) + ['grade', 'seniority', 'exp', 'gender', 'age', 'office', 'work', 'head', 'legal', 'macro', 'city']
     W_GRADES = len([r for r in by(ask({}, 'a.sergeeva')[0], 'tr') if r['pid'] == 'grade'])
-    for user, flt in [('a.sergeeva', {}), ('b.kotov', {'staff_f': ['Штат']}), ('s.volkov', {}), ('e.lapin', {'unit_f': [sid(U['Отдел бэкенда'].rk)]})]:
+    urows, _ = ch.run('SELECT ifNull(id, \'\') AS id, ifNull(attr_top, 0) AS t FROM prod_proteus.hrbp_hub_unit')
+    TOP = {r['id'] for r in urows if int(r['t']) == 1}
+    trkey = lambda rs: sorted((r['pid'], r['id'], r['n'], tuple(r['m_' + c] for c in COMP)) for r in rs if r['role'] == 'tr')
+    for user, flt in [('a.sergeeva', {}), ('b.kotov', {}), ('b.kotov', {'staff_f': ['Штат']}), ('s.volkov', {}),
+                      ('e.lapin', {}), ('e.lapin', {'unit_f': [sid(U['Отдел бэкенда'].rk)]}),
+                      ('a.sergeeva', {'unit_f': [sid(U['Технологии'].rk)]}), ('a.sergeeva', {'unit_f': [sid(U['Ячейка A1-1'].rk)]}),
+                      ('s.volkov', {'unit_f': [sid(U['Департамент данных'].rk), sid(U['Управление ML'].rk)]})]:
         rows, _ = ask(flt, user)
+        m = meta(rows)
         tr_ok(rows, AXES, '%s %s' % (user, flt))
-        ok(meta(rows).get('tr_all') == 1, 'атрибуты — все, ветка меньше порога [%s]' % user)
+        cuts = any(k in flt for k in CARRIER.values())
+        # юниты области без предка в ней же: у всех ли есть свёртка
+        smin = [u for u in m['scope'] if not set(UTP[u][:-1]) & set(m['scope'])]
+        want_top = 0 if cuts else int(all(u in TOP for u in smin))
+        ok(m.get('tr_all') == 1 and m.get('tr_top') == want_top,
+           'атрибуты — все, источник %s [%s %s]' % ('свёртка' if want_top else 'листовой куб', user, flt))
+        leaf, _ = ch.dataset(flt, user, attr_top=False)
+        ok(trkey(rows) == trkey(leaf), 'свёртка == листовой куб: те же строки трансформеров [%s %s]' % (user, flt))
     rows, _ = ask({'spec_f': ['Разработка', 'Аналитика']}, 'a.sergeeva')
     tr_ok(rows, AXES, 'фильтр по специализации')
     ok(sorted(r['id'] for r in by(rows, 'tr') if r['pid'] == 'spec') == ['Аналитика', 'Разработка'],
        'ось отфильтрованного разреза — только выбранные значения')
-    # Ветка больше порога: атрибуты не читаются (только разрезы), атрибут из tr_f — во всей ветке.
+    # Запасной режим TR_ALL_MAX: без разрезов свёртка всё равно отдаёт все атрибуты; с разрезами
+    # ветка больше порога — только разрезы, атрибут из tr_f — во всей ветке.
     rows, _ = ch.dataset({}, 'a.sergeeva', tr_all_max=10)
+    ok(meta(rows).get('tr_all') == 1 and meta(rows).get('tr_top') == 1 and {r['pid'] for r in by(rows, 'tr')} == set(AXES),
+       'TR_ALL_MAX ниже ветки, разрезов нет: все оси из свёртки')
+    rows, _ = ch.dataset({'staff_f': ['Штат']}, 'a.sergeeva', tr_all_max=10)
     ok(meta(rows).get('tr_all') == 0 and {r['pid'] for r in by(rows, 'tr')} == set(CARRIER),
-       'ветка больше TR_ALL_MAX: атрибутов нет, разрезы — все')
+       'TR_ALL_MAX ниже ветки + разрез: атрибутов нет, разрезы — все')
     tr_ok(rows, list(CARRIER), 'порог, только разрезы')
-    # Хвост атрибута: TR_TOP крупнейших значений + строка '…' (n — сколько в ней), Σ — прежняя.
-    rows, _ = ch.dataset({}, 'a.sergeeva', tr_top=5)
-    gr = [r for r in by(rows, 'tr') if r['pid'] == 'grade']
-    rest = [r for r in gr if r['id'] == '…']
-    ok(len(gr) == 6 and len(rest) == 1 and int(rest[0]['n']) == W_GRADES - 5,
-       'грейд при TR_TOP=5: 5 значений + «…» (%s)' % [(r['id'], r['n']) for r in gr])
-    tr_ok(rows, AXES, 'TR_TOP=5')
-    rows, _ = ch.dataset({'tr_f': ['grade']}, 'a.sergeeva', tr_all_max=10)
-    ok({r['pid'] for r in by(rows, 'tr')} == set(CARRIER) | {'grade'}, 'ветка больше TR_ALL_MAX + tr_f=grade: разрезы и грейд')
+    rows, _ = ch.dataset({'staff_f': ['Штат'], 'tr_f': ['grade']}, 'a.sergeeva', tr_all_max=10)
+    ok({r['pid'] for r in by(rows, 'tr')} == set(CARRIER) | {'grade'}, 'TR_ALL_MAX ниже ветки + разрез + tr_f=grade: разрезы и грейд')
     tr_ok(rows, list(CARRIER) + ['grade'], 'порог + tr_f')
+    # tr_f без разрезов (ось осталась в маске после снятых разрезов) — атрибут не задваивается:
+    # он уже есть в свёртке, лист по нему не читается.
+    for kw in ({}, {'tr_all_max': 10}):
+        rows, _ = ch.dataset({'tr_f': ['grade']}, 'a.sergeeva', **kw)
+        ok(meta(rows).get('tr_top') == 1, 'tr_f без разрезов %s: атрибуты из свёртки' % kw)
+        tr_ok(rows, AXES, 'tr_f без разрезов %s' % kw)
+    # Хвост атрибута: TR_TOP крупнейших значений + строка '…' (n — сколько в ней), Σ — прежняя;
+    # у свёртки и у листового куба — одинаково.
+    for top in (True, False):
+        rows, _ = ch.dataset({}, 'a.sergeeva', tr_top=5, attr_top=top)
+        gr = [r for r in by(rows, 'tr') if r['pid'] == 'grade']
+        rest = [r for r in gr if r['id'] == '…']
+        ok(len(gr) == 6 and len(rest) == 1 and int(rest[0]['n']) == W_GRADES - 5,
+           'грейд при TR_TOP=5 (%s): 5 значений + «…» (%s)' % ('свёртка' if top else 'лист', [(r['id'], r['n']) for r in gr]))
+        tr_ok(rows, AXES, 'TR_TOP=5, %s' % ('свёртка' if top else 'лист'))
     rows, _ = ask({'spec_f': ['Разработка']})
     fs = {r['id']: int(r['n']) for r in by(rows, 'f') if r['pid'] == 'spec'}
     ok(len(fs) > 3 and fs.get('Разработка', 0) > 0, 'фасет выбранного разреза показывает ВСЕ значения (кроме себя не фильтрует)')
@@ -294,57 +323,27 @@ def main():
     dct = [r for r in rows if r['role'] == 'c' and r['id'] == '·']
     ok(len(dct) == 1, 'люди lvl1/lvl2 — строка «прямо в компании»')
     compare('прямо в компании (lvl1 + lvl2)', dct[0], X.direct(root), {}, ('m',))
-    # справочник большой зоны: путь + дерево «Команд» + корни HRBP; поиск по имени
+    # справочник: вся зона логина на всю глубину и предки её корней — при любом выборе юнита,
+    # разрезах и глубине (поиск и выбор юнита в чарте — без запроса); rk — в meta, не в справочнике
     def dict_ids(rs):
         return {ln.split('\t')[0] for ln in by(rs, 'dict')[0]['j'].split('\n')}
-    ok(meta(rows3)['dict_mode'] == 'full' and dict_ids(rows3) == set(UT), 'маленькая зона: справочник целиком')
-    acc, _ = ch.run("SELECT ifNull(root_id, '') AS r FROM prod_proteus.hrbp_hub_access WHERE ifNull(role, '') = 'hrbp'")
-    hroots = {r['r'] for r in acc}
     acc_all, _ = ch.run("SELECT ifNull(login, '') AS login, ifNull(root_id, '') AS r FROM prod_proteus.hrbp_hub_access WHERE ifNull(role, '') = 'hrbp'")
-    for depth_f, dep in (([], 3), (['all'], 10)):
-        flt = {'unit_f': [sid(tech.rk)]}
-        if depth_f:
-            flt['depth_f'] = depth_f
-        rows, _ = ch.dataset(flt, 'a.sergeeva', dict_full_max=10)
-        m = meta(rows)
-        kpi_units = {r['pid'] for r in by(rows, 'kpi')}
-        scope = {sid(tech.rk)}
-        sanc = set(UT[sid(tech.rk)]['path'])
-        small = m['scope_n'] <= 10
-        want = {i for i, r in UT.items()
-                if i in sanc or r['pid'] in sanc or r['pid'] == sid(root) or i in kpi_units or i in hroots
-                or set(r['path'][max(0, len(r['path']) - 1 - dep):len(r['path']) - 1]) & scope
-                or (small and set(r['path']) & scope)}
-        ok(m['dict_mode'] == 'part' and dict_ids(rows) == want,
-           'большая зона, глубина %s: путь, соседи, дерево «Команд», цели, корни HRBP (%d из %d юнитов)' % (dep, len(want), len(UT)))
-        t_ids = {r['id'] for r in rows if r['role'] in ('c', 'g', 'x') and r['id'] != '·'}
-        ok(t_ids <= dict_ids(rows), 'все строки «Команд» (глубина %s) есть в справочнике' % dep)
-    # область не больше DICT_FULL_MAX при большой зоне — приезжает целиком (дерево выбора
-    # юнита в зоне HRBP полное, поиск по ней — в чарте)
-    sub_tech = {i for i, r in UT.items() if sid(tech.rk) in r['path']}
-    rows, _ = ch.dataset({'unit_f': [sid(tech.rk)]}, 'a.sergeeva', dict_full_max=len(sub_tech))
-    m = meta(rows)
-    ok(m['dict_mode'] == 'part' and m['scope_n'] == len(sub_tech) and m['scope_full'] == 1 and sub_tech <= dict_ids(rows),
-       'большая зона, область ≤ порога: вся ветка «Технологий» в справочнике (%d юнитов), scope_full = 1' % len(sub_tech))
-    rows, _ = ch.dataset({'unit_f': [sid(tech.rk)]}, 'a.sergeeva', dict_full_max=len(sub_tech) - 1)
-    ok(meta(rows)['scope_full'] == 0 and not sub_tech <= dict_ids(rows), 'область больше порога — окрестностью, scope_full = 0')
-    vz = [r for r in acc_all if r['login'] == 's.volkov']
-    vroots = sorted(r['r'] for r in vz)
-    sub_v = {i for i, r in UT.items() if set(vroots) & set(r['path'])}
-    rows, _ = ch.dataset({'unit_f': vroots}, 'a.sergeeva', dict_full_max=len(sub_v))
-    ok(meta(rows)['scope_full'] == 1 and sub_v <= dict_ids(rows), 'зона HRBP (s.volkov, %d юнитов) выбрана областью — в справочнике целиком' % len(sub_v))
-    # поиск: сначала находки внутри области — даже когда по всей зоне их больше лимита
-    qs_ = 'а'
-    allhits = [i for i, r in UT.items() if qs_ in r['nm'].lower()]
-    inside = {i for i in allhits if sid(tech.rk) in UT[i]['path']}
-    rows, _ = ch.dataset({'unit_f': [sid(tech.rk)], 'q_f': [qs_]}, 'a.sergeeva', dict_full_max=10)
-    ok(len(allhits) > 60 and inside <= dict_ids(rows) if len(inside) <= 60 else True,
-       'поиск «%s»: %d находок по зоне, %d внутри области — все внутренние в справочнике' % (qs_, len(allhits), len(inside)))
-    rows, _ = ch.dataset({'unit_f': [sid(tech.rk)], 'q_f': ['ЯЧЕЙКА']}, 'a.sergeeva', dict_full_max=10)
-    ok(meta(rows)['q'] == 'ЯЧЕЙКА' and yach in dict_ids(rows) and set(UT[yach]['path']) <= dict_ids(rows),
-       'поиск по всей зоне: найденный юнит и его путь в справочнике')
-    rows, _ = ch.dataset({'q_f': ['ячейка']}, 'b.kotov', dict_full_max=1)
-    ok(yach not in dict_ids(rows), 'поиск не выходит за зону HRBP')
+    for user, flts in [('a.sergeeva', [{}, {'unit_f': [sid(tech.rk)]}, {'unit_f': [yach], 'depth_f': ['all']}, {'paint_f': ['HQ']}]),
+                       ('s.volkov', [{}, {'unit_f': [sid(U['Департамент данных'].rk)]}, {'spec_f': ['Разработка']}]),
+                       ('e.lapin', [{}, {'unit_f': [sid(U['Отдел бэкенда'].rk)]}])]:
+        roots_ = {r['r'] for r in acc_all if r['login'] == user} or {sid(root)}
+        want = {i for i, r in UT.items() if set(r['path']) & roots_} | {a for r_ in roots_ for a in UT[r_]['path']}
+        for flt in flts:
+            rows, _ = ask(flt, user)
+            dl = by(rows, 'dict')[0]['j'].split('\n')
+            t_ids = {r['id'] for r in rows if r['role'] in ('c', 'g', 'x') and r['id'] != '·'}
+            ok(dict_ids(rows) == want and int(by(rows, 'dict')[0]['n']) == len(want) and t_ids <= want
+               and all(ln.split('\t')[5] == '' for ln in dl),
+               'справочник %s %s: вся зона и предки корней (%d юнитов), все строки «Команд» в нём, rk пустой' % (user, flt, len(want)))
+    rows, _ = ask({'unit_f': [sid(tech.rk)]})
+    ok(meta(rows)['rk'] == tech.rk, 'rk выбранного юнита — в meta')
+    rows, _ = ask({}, 's.volkov')
+    ok(meta(rows)['rk'] == '', 'у зоны из двух корней rk в meta пустой')
     # HRBP: пути корней для дерева «кто под кем»
     rows, _ = ask({}, 's.volkov')
     hl = [ln.split('\t') for ln in by(rows, 'hrbps')[0]['j'].split('\n')]

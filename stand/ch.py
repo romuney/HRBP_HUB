@@ -45,6 +45,7 @@ TABLES = {
     'hrbp_hub_kpi': ('(unit_id)', {}),
     'hrbp_hub_cube': ('(path_s)', {}),
     'hrbp_hub_attr': ('(attr_k, path_s)', {}),
+    'hrbp_hub_attr_top': ('(unit_id)', {}),
     'hrbp_hub_base': ('(paint, it, stream, spec, staff, hct)', {}),
 }
 PG2CH = {'text': 'String', 'integer': 'Int32', 'bigint': 'Int64', 'smallint': 'Int16', 'numeric': 'Float64',
@@ -133,14 +134,14 @@ def where_in(values, mark="'"):
     return '(' + ', '.join(q(v) for v in values) + ')'
 
 
-def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET, dict_full_max=None, all_max=None, tr_all_max=None,
-           tr_top=None):
-    """dict_full_max — подменить порог «справочник целиком», all_max — порог «все уровни»,
-    tr_all_max — порог «все атрибуты трансформеров», tr_top — сколько значений атрибута до
-    строки '…' (стенд маленький: так проверяются режимы больших зон). По умолчанию — из
-    окружения HH_DICT_FULL_MAX / HH_ALL_MAX / HH_TR_ALL_MAX / HH_TR_TOP."""
+def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET, all_max=None, tr_all_max=None,
+           tr_top=None, attr_top=True):
+    """all_max — подменить порог «все уровни», tr_all_max — порог листового куба атрибутов
+    (запасной режим «атрибут по запросу»), tr_top — сколько значений атрибута до строки '…'
+    (стенд маленький: так проверяются режимы больших веток), attr_top=False — не читать
+    свёртку атрибутов (только листовой куб: так свёртка сверяется с ним). По умолчанию — из
+    окружения HH_ALL_MAX / HH_TR_ALL_MAX / HH_TR_TOP / HH_ATTR_TOP=0."""
     flt = flt or {}
-    dict_full_max = dict_full_max or os.environ.get('HH_DICT_FULL_MAX')
     all_max = all_max or os.environ.get('HH_ALL_MAX')
     tr_all_max = tr_all_max or os.environ.get('HH_TR_ALL_MAX')
     tr_top = tr_top or os.environ.get('HH_TR_TOP')
@@ -158,14 +159,14 @@ def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET, dict_fu
     def current_username(add_to_cache_keys=True):
         return user
     text = open(path, encoding='utf-8').read()
-    if dict_full_max:
-        text = text.replace('{% set DICT_FULL_MAX = 1500 %}', '{% set DICT_FULL_MAX = ' + str(int(dict_full_max)) + ' %}')
     if all_max:
         text = text.replace('{% set ALL_MAX = 1000 %}', '{% set ALL_MAX = ' + str(int(all_max)) + ' %}')
     if tr_all_max:
-        text = text.replace('{% set TR_ALL_MAX = 1500 %}', '{% set TR_ALL_MAX = ' + str(int(tr_all_max)) + ' %}')
+        text = text.replace('{% set TR_ALL_MAX = 1000000 %}', '{% set TR_ALL_MAX = ' + str(int(tr_all_max)) + ' %}')
     if tr_top:
         text = text.replace('{% set TR_TOP = 30 %}', '{% set TR_TOP = ' + str(int(tr_top)) + ' %}')
+    if not attr_top or os.environ.get('HH_ATTR_TOP') == '0':
+        text = text.replace('{% set ANYCUT = [] %}', "{% set ANYCUT = ['-'] %}")
     return env.from_string(text).render(filter_values=filter_values, current_username=current_username)
 
 
@@ -175,10 +176,10 @@ def run(sql, settings=''):
     return d['data'], d.get('statistics', {})
 
 
-def dataset(flt=None, user='a.sergeeva', settings='', always_true=False, dict_full_max=None, all_max=None, tr_all_max=None,
-            tr_top=None):
-    return run(render(flt, user, always_true, dict_full_max=dict_full_max, all_max=all_max, tr_all_max=tr_all_max,
-                      tr_top=tr_top), settings)
+def dataset(flt=None, user='a.sergeeva', settings='', always_true=False, all_max=None, tr_all_max=None,
+            tr_top=None, attr_top=True):
+    return run(render(flt, user, always_true, all_max=all_max, tr_all_max=tr_all_max,
+                      tr_top=tr_top, attr_top=attr_top), settings)
 
 
 if __name__ == '__main__':

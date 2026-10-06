@@ -10,10 +10,11 @@
 с HH_SCALE_COMBOS=4 — ≈ 60 тыс.), база — сумма куба по разрезам, 200 зон HRBP,
 супер-HRBP и админ, 50 целей. Куб атрибутов — из куба разрезов: у каждой строки 11
 атрибутов по 1–4 значения из пула (грейд — 16, офис — 60, город — 300…), ≈ 23 строки
-атрибутов на строку куба (на стенде мира — 21). Печатает лучшее из трёх время ответа,
-число строк, размер JSON и строк трансформеров для типовых запросов: супер-HRBP на
-компании, блок, департамент на всех уровнях, поиск, HRBP своей зоны, разрезы, атрибут
-большой ветки по tr_f.
+атрибутов на строку куба (на стенде мира — 21); свёртка атрибутов — как в ноуте: верх
+дерева, блоки, ветки от 300 юнитов и корни зон (attr_top = 1). Печатает лучшее из трёх
+время ответа, число строк, размер JSON, справочника и строк трансформеров для типовых
+запросов: супер-HRBP на компании, блок, департамент на всех уровнях, HRBP своей зоны,
+разрезы (атрибуты — из листового куба), запасной режим TR_ALL_MAX.
 """
 import json
 import os
@@ -92,7 +93,7 @@ def main():
     people = sum(u['people'] for u in units)
     print('юнитов %d, людей %d, уровни %s' % (len(units), people,
           sorted(set(u['lvl'] for u in units))))
-    for t in ('hrbp_hub_unit', 'hrbp_hub_cube', 'hrbp_hub_base', 'hrbp_hub_access', 'hrbp_hub_kpi', 'hrbp_hub_attr'):
+    for t in ('hrbp_hub_unit', 'hrbp_hub_cube', 'hrbp_hub_base', 'hrbp_hub_access', 'hrbp_hub_kpi', 'hrbp_hub_attr', 'hrbp_hub_attr_top'):
         S.query('TRUNCATE TABLE prod_proteus.%s' % t)
     lines = [json.dumps(dict(id=u['id'], rk='rk' + u['id'], nm=u['nm'], lvl=u['lvl'], pid=u['pid'], path=u['path'],
                              is_current=1, hc_now=0, kids_n=u['kids'], sub_n=u['sub'], last_dt='2026-09-27'), ensure_ascii=False)
@@ -170,6 +171,15 @@ def main():
             used.add(mids[i]['id'])
             acc.append(dict(login='hrbp%03d' % n, hrbp_rk=str(n), hrbp_nm='HRBP %03d' % n, role='hrbp', root_id=mids[i]['id']))
     S.query('INSERT INTO prod_proteus.hrbp_hub_access FORMAT JSONEachRow\n' + '\n'.join(json.dumps(a, ensure_ascii=False) for a in acc))
+    # свёртка атрибутов — как в ноуте: юниты с attr_top = 1, массивы по всей ветке без разрезов
+    S.query("ALTER TABLE prod_proteus.hrbp_hub_unit UPDATE attr_top = if(ifNull(pid, '') = '' OR ifNull(lvl, 0) <= 3 OR ifNull(sub_n, 1) >= 300 "
+            "OR ifNull(id, '') IN (SELECT ifNull(root_id, '') FROM prod_proteus.hrbp_hub_access), 1, 0) WHERE 1 SETTINGS mutations_sync = 2")
+    S.query('INSERT INTO prod_proteus.hrbp_hub_attr_top (unit_id, attr_k, attr_v, %s) '
+            'SELECT u, attr_k, attr_v, %s FROM (SELECT arrayJoin(arrayFilter(x -> has(tops, x), arrayMap(x -> ifNull(x, \'\'), path))) AS u, '
+            'attr_k, attr_v, %s FROM prod_proteus.hrbp_hub_attr CROSS JOIN (SELECT groupUniqArray(ifNull(id, \'\')) AS tops '
+            'FROM prod_proteus.hrbp_hub_unit WHERE attr_top = 1) AS tt) GROUP BY u, attr_k, attr_v'
+            % (', '.join(acols), ', '.join('arrayMap(x -> toInt32(x), sumForEach(%s))' % c for c in acols),
+               ', '.join('arrayMap(x -> toInt64(ifNull(x, 0)), %s) AS %s' % (c, c) for c in acols)))
     kp = []
     for n in range(50):
         u = R.choice(units)
@@ -180,33 +190,42 @@ def main():
     S.query('INSERT INTO prod_proteus.hrbp_hub_kpi FORMAT JSONEachRow\n' + '\n'.join(json.dumps(k, ensure_ascii=False) for k in kp))
     n_cube = S.query('SELECT count() FROM prod_proteus.hrbp_hub_cube', 'CSV').bytes().decode().strip()
     n_attr = S.query('SELECT count() FROM prod_proteus.hrbp_hub_attr', 'CSV').bytes().decode().strip()
+    n_top = S.query('SELECT count(), uniqExact(unit_id) FROM prod_proteus.hrbp_hub_attr_top', 'CSV').bytes().decode().strip().split(',')
     n_base = S.query('SELECT count() FROM prod_proteus.hrbp_hub_base', 'CSV').bytes().decode().strip()
     tot = S.query('SELECT sum(toInt64(ifNull(m_hc[20], 0))) FROM prod_proteus.hrbp_hub_cube', 'CSV').bytes().decode().strip()
-    print('куб %s строк, куб атрибутов %s, база %s, численность %s, логинов %d · подготовка %.0f с'
-          % (n_cube, n_attr, n_base, tot, len({a['login'] for a in acc}), time.time() - t0))
+    print('куб %s строк, куб атрибутов %s, свёртка %s строк на %s юнитов, база %s, численность %s, логинов %d · подготовка %.0f с'
+          % (n_cube, n_attr, n_top[0], n_top[1], n_base, tot, len({a['login'] for a in acc}), time.time() - t0))
 
     by_lvl = {}
     for u in units:
         by_lvl.setdefault(u['lvl'], []).append(u)
     blk = max(by_lvl[3], key=lambda u: u['hc'])
     dep = max((u for u in by_lvl[4] if blk['id'] in u['path']), key=lambda u: u['hc'])
-    hr = [a for a in acc if a['role'] == 'hrbp'][0]['login']
+    nz = {}
+    for a in acc:
+        if a['role'] == 'hrbp':
+            nz[a['login']] = nz.get(a['login'], 0) + 1
+    hr1 = sorted(lg for lg, n in nz.items() if n == 1)[0]
+    hr2 = sorted(lg for lg, n in nz.items() if n >= 2)[0]
+    low = min((u for u in units if u['lvl'] == 6 and 20 <= u['sub'] <= 200), key=lambda u: u['id'])
     cases = [
-        ('супер-HRBP, компания (3 уровня)', 'super', {}),
-        ('супер-HRBP, блок (lvl3)', 'super', {'unit_f': [blk['id']]}),
-        ('супер-HRBP, блок, «все уровни» (порог)', 'super', {'unit_f': [blk['id']], 'depth_f': ['all']}),
-        ('супер-HRBP, департамент, все уровни', 'super', {'unit_f': [dep['id']], 'depth_f': ['all']}),
-        ('супер-HRBP, поиск «Юнит 9.»', 'super', {'unit_f': [blk['id']], 'q_f': ['Юнит 9.']}),
-        ('супер-HRBP, компания + 2 специализации', 'super', {'spec_f': CUTV['spec'][:2]}),
-        ('супер-HRBP, компания + атрибут «Город» (tr_f)', 'super', {'tr_f': ['city']}),
-        ('супер-HRBP, блок + атрибут «Город» (tr_f)', 'super', {'unit_f': [blk['id']], 'tr_f': ['city']}),
-        ('HRBP своей зоны', hr, {}),
+        ('супер-HRBP, компания (3 уровня)', 'super', {}, {}),
+        ('супер-HRBP, блок (lvl3)', 'super', {'unit_f': [blk['id']]}, {}),
+        ('супер-HRBP, блок, «все уровни» (порог)', 'super', {'unit_f': [blk['id']], 'depth_f': ['all']}, {}),
+        ('супер-HRBP, департамент, все уровни', 'super', {'unit_f': [dep['id']], 'depth_f': ['all']}, {}),
+        ('супер-HRBP, отдел без свёртки (lvl6)', 'super', {'unit_f': [low['id']]}, {}),
+        ('супер-HRBP, компания + 2 специализации', 'super', {'spec_f': CUTV['spec'][:2]}, {}),
+        ('супер-HRBP, компания + «Штат»', 'super', {'staff_f': ['Штат']}, {}),
+        ('компания + «Штат», запасной TR_ALL_MAX=1500', 'super', {'staff_f': ['Штат']}, {'tr_all_max': 1500}),
+        ('HRBP своей зоны (один корень)', hr1, {}, {}),
+        ('HRBP своей зоны (два корня и больше)', hr2, {}, {}),
+        ('HRBP своей зоны + «Штат»', hr2, {'staff_f': ['Штат']}, {}),
     ]
     print('%-44s %6s %6s %8s %9s  %s' % ('запрос', 'с', 'строк', 'JSON КБ', 'трансф.', 'справочник'))
-    for label, user, flt in cases:
+    for label, user, flt, kw in cases:
         best, rows = None, None
         for k in range(3):
-            sql = '-- %d %f\n' % (k, time.time()) + ch.render(flt, user)
+            sql = '-- %d %f\n' % (k, time.time()) + ch.render(flt, user, **kw)
             t = time.time()
             rows, _ = ch.run(sql)
             dt_ = time.time() - t
@@ -217,9 +236,10 @@ def main():
         dsz = len(d[0]['j'].encode()) // 1024 if d else 0
         tr = [r for r in rows if r['role'] == 'tr']
         trk = len(json.dumps(tr, ensure_ascii=False).encode()) // 1024
-        print('%-44s %6.2f %6d %8.0f %9s  %s, %s юн., %d КБ · глубина %s (ветка %s юн.) · осей %d, атрибуты %s'
-              % (label, best, len(rows), size / 1024, '%d/%dКБ' % (len(tr), trk), meta.get('dict_mode'), d[0]['n'] if d else 0, dsz,
-                 meta.get('depth'), meta.get('scope_n'), len({r['pid'] for r in tr}), 'все' if meta.get('tr_all') else (meta.get('axis') or '—')))
+        print('%-44s %6.2f %6d %8.0f %9s  %s юн., %d КБ · глубина %s (ветка %s юн.) · осей %d, атрибуты %s'
+              % (label, best, len(rows), size / 1024, '%d/%dКБ' % (len(tr), trk), d[0]['n'] if d else 0, dsz,
+                 meta.get('depth'), meta.get('scope_n'), len({r['pid'] for r in tr}),
+                 ('из свёртки' if meta.get('tr_top') else 'из листа') if meta.get('tr_all') else 'по запросу (tr_f)'))
 
 
 if __name__ == '__main__':

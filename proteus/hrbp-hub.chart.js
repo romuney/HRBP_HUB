@@ -35,7 +35,7 @@ var CFG = {
     w: { hc: 'w_hc', jun: 'w_jun', rg: 'w_rg', nrg: 'w_nrg', hcw: 'w_hcw', nr: 'w_nr',
          r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire' }
   },
-  carriers: { unit: 'unit_f', axis: 'tr_f', depth: 'depth_f', q: 'q_f' },
+  carriers: { unit: 'unit_f', axis: 'tr_f', depth: 'depth_f' },
   // Разрезы численности: ключ колонки куба → носитель кросс-фильтра. Один перечень
   // и для фильтра отчёта, и для условий целей KPI (f_*), иначе разъедутся.
   cuts: [
@@ -139,8 +139,6 @@ var CFG = {
   // (lvl2 отчёт пропускает). Подпись — по номеру, у юнитов одного уровня разные слова
   // в названиях («Департамент …», «Отдел …»), поэтому слово не выдумываем.
   levels: { 1: 'Компания' },
-  searchMin: 2,              // с какой длины строки поиск идёт по всей зоне
-  searchDelay: 500,          // пауза ввода перед поиском по всей зоне, мс
   tabs: [
     { key: 'onepager', label: 'Сводка' }, { key: 'teams', label: 'Команды' },
     { key: 'transform', label: 'Трансформеры' }, { key: 'goals', label: 'Цели' },
@@ -210,7 +208,6 @@ var STATE0 = {
   open: '',              // открытый поповер: 'unit' | 'hrbp' | 'cut:<разрез>' | 'metrics' | ''
   q: '',                 // строка поиска открытого поповера
   stage: null,           // набранные, но не применённые фильтры: {unit: [...], cuts: {разрез: [...]}}
-  qT: null,              // таймер поиска по всей зоне
   treeOpen: {},          // раскрытые узлы дерева в выборе юнита
   hOpen: {},             // раскрытые узлы дерева HRBP
   openM: {},             // раскрытые строки сводки: ключ метрики → true (можно несколько)
@@ -321,7 +318,7 @@ function buildModel() {
   var M = { ok: false, missing: [], meta: null, cal: { m: [], w: [] }, L: -1, dataDt: '',
             units: {}, kids: {}, hrbps: [], base: null, scope: null, c: [], g: {}, x: {}, facets: {},
             trBy: {}, trAll: false, rules: [], role: 'none', scopeIds: [], roots: [], single: false,
-            sel: {}, axis: '', reqUnit: [], q: '', dictMode: 'full', zoneN: 0, scopeFull: false,
+            sel: {}, axis: '', reqUnit: [], scopeRk: '',
             depth: '3', depthReq: '3', scopeN: 0, allMax: 0, hKids: {}, hTop: [], hBy: {} };
   if (!rawData.length) return M;
   var need = [F.role, F.id, F.pid, F.n, F.j];
@@ -337,8 +334,10 @@ function buildModel() {
       var recs = splitRecords(r[F.j]);
       for (var k = 0; k < recs.length; k++) {
         var f = recs[k];
+        // rk (6-е поле) датасет оставляет пустым: выбранному юниту он приезжает в meta.rk
         var u = { id: f[0], pid: f[1] || '', lvl: num(f[2]) || 0, hc: num(f[3]) || 0, cur: f[4] === '1', rk: f[5] || '', nm: f[6] || '—',
                   nk: f.length > 7 ? (num(f[7]) || 0) : -1 };
+        u.lc = u.nm.toLowerCase();
         M.units[u.id] = u;
       }
     } else if (role === 'hrbps') {
@@ -370,19 +369,15 @@ function buildModel() {
   M.roots = (meta.roots || []).slice().sort();
   M.single = M.scopeIds.length === 1;
   M.axis = meta.axis || '';
-  // Трансформеры: разрезы приезжают всегда, атрибуты — все, если ветка не больше порога
-  // датасета (tr_all), иначе — только атрибут, запрошенный по tr_f.
+  // Трансформеры: все 17 осей приезжают с каждым ответом (tr_all = 1). Запасной режим
+  // датасета (TR_ALL_MAX): у большой ветки с разрезами — только атрибут, запрошенный по tr_f.
   M.trAll = num(meta.tr_all) === 1;
   M.reqUnit = meta.req_unit || [];
   M.depth = meta.depth === 'all' ? 'all' : '3';
   M.depthReq = meta.depth_req === 'all' ? 'all' : '3';
   M.scopeN = num(meta.scope_n) || 0;
   M.allMax = num(meta.all_max) || 0;
-  M.q = meta.q || '';
-  M.dictMode = meta.dict_mode || 'full';
-  // Выбранная область приехала в справочник целиком (не больше DICT_FULL_MAX юнитов).
-  M.scopeFull = num(meta.scope_full) === 1 || M.dictMode === 'full';
-  M.zoneN = num(meta.zone_n) || 0;
+  M.scopeRk = meta.rk || '';
   for (var cc = 0; cc < CFG.cuts.length; cc++) M.sel[CFG.cuts[cc].key] = (meta['f_' + CFG.cuts[cc].key] || []).slice();
   var cal = meta.cal || [];
   for (var q = 0; q < cal.length; q++) {
@@ -635,20 +630,19 @@ function reqNow() {
   for (var i = 0; i < CFG.cuts.length; i++) cuts[CFG.cuts[i].key] = (MODEL.sel[CFG.cuts[i].key] || []).slice();
   // Глубина «Команд» — всегда 3 уровня (depth_f не шлётся): глубже — «Открыть юнит».
   return { unit: sameSet(MODEL.scopeIds, MODEL.roots) ? [] : MODEL.scopeIds.slice(), cuts: cuts, axis: MODEL.axis || '',
-           depth: '3', q: '' };
+           depth: '3' };
 }
 // Эхо запроса: что датасет получил (req_unit — как пришло, до проверки доступа).
 function reqEcho() {
   var r = reqNow(), u = [];
   for (var i = 0; i < MODEL.reqUnit.length; i++) if (MODEL.reqUnit[i]) u.push(MODEL.reqUnit[i]);
   r.unit = u;
-  r.q = MODEL.q;
   return r;
 }
 function sigOf(o) {
   var s = 'u:' + (o.unit || []).slice().sort().join(',');
   for (var i = 0; i < CFG.cuts.length; i++) s += '|' + CFG.cuts[i].key + ':' + ((o.cuts && o.cuts[CFG.cuts[i].key]) || []).slice().sort().join('\u0001');
-  return s + '|a:' + (o.axis || '') + '|d:' + (o.depth === 'all' ? 'all' : '3') + '|q:' + (o.q || '');
+  return s + '|a:' + (o.axis || '') + '|d:' + (o.depth === 'all' ? 'all' : '3');
 }
 // Строка фильтров копит выбор (юнит, HRBP, разрезы) и отправляет его одной кнопкой
 // «Применить»: staged() — применённое плюс набранное, stageDiff() — сколько фильтров изменено.
@@ -705,7 +699,6 @@ function maskOf(o) {
   for (var c = 0; c < CFG.cuts.length; c++) add(CFG.cuts[c].carrier, o.cuts ? o.cuts[CFG.cuts[c].key] : []);
   if (o.axis) add(CFG.carriers.axis, [o.axis]);
   if (o.depth === 'all') add(CFG.carriers.depth, ['all']);
-  if (o.q) add(CFG.carriers.q, [o.q]);
   return out;
 }
 
@@ -1146,7 +1139,6 @@ function buildCSS() {
     P + '-tn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
     P + '-tl{color:' + C.muted2 + ';font-size:' + F.cap + 'px;font-weight:400;white-space:nowrap;}',
     P + '-th{color:' + C.muted + ';font-size:' + F.note + 'px;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:44px;text-align:right;}',
-    P + '-thint ' + P + '-tn{color:' + C.act + ';font-weight:400;font-size:' + F.note + 'px;white-space:normal;}',
     P + '-hzc{flex:0 1 auto !important;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;letter-spacing:0;font-size:' + F.note + 'px;font-weight:500;color:#2b5fd0;background:' + C.blueBg + ';border-radius:999px;padding:2px 8px;}',
     P + '-hzt{display:inline-block;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.blueBg + ';color:#2b5fd0;margin-left:6px;vertical-align:1px;white-space:nowrap;}',
     P + '-tpath{display:block;color:' + C.muted + ';font-size:' + F.cap + 'px;font-weight:400;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
@@ -1770,8 +1762,8 @@ function treeRows(id, depth, cur, out) {
   var P = CFG.ns, u = MODEL.units[id];
   if (!u || out.n > 600) return;
   out.n++;
-  // Большая зона: справочник приходит окрестностью — дети узла могут быть не загружены (nk > 0).
-  var kids = kidsOf(id), more = !kids.length && u.nk > 0, open = treeOpen(id, depth);
+  // Справочник — вся зона на всю глубину: дети каждого узла уже здесь.
+  var kids = kidsOf(id), open = treeOpen(id, depth);
   // Корень компактного дерева зоны HRBP — с путём сверху (где эта зона в компании);
   // во всей зоне видимости корни зоны выбранного HRBP помечены.
   var path = '';
@@ -1782,29 +1774,14 @@ function treeRows(id, depth, cur, out) {
   }
   var mark = out.hzRoots && out.hzRoots.indexOf(id) > -1 ? '<span class="' + P + '-hzt">зона HRBP</span>' : '';
   out.s += '<div class="' + P + '-tr' + (id === cur ? ' ' + P + '-cur' : '') + (mark ? ' ' + P + '-hzr' : '') + '" data-action="pick" data-id="' + esc(id) + '" style="padding-left:' + (9 + depth * 16) + 'px">'
-    + (kids.length || more ? '<button class="' + P + '-tw" data-action="tree" data-id="' + esc(id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button>' : '<span class="' + P + '-tsp"></span>')
+    + (kids.length ? '<button class="' + P + '-tw" data-action="tree" data-id="' + esc(id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button>' : '<span class="' + P + '-tsp"></span>')
     + '<span class="' + P + '-tn">' + esc(u.nm) + (u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>') + mark + path + '</span>'
     + '<span class="' + P + '-tl">' + esc(levelShort(u.lvl)) + '</span><span class="' + P + '-th">' + fmtInt(u.hc) + '</span></div>';
   if (!open) return;
-  if (more) {
-    out.s += '<div class="' + P + '-tr ' + P + '-thint" data-action="pick" data-id="' + esc(id) + '" style="padding-left:' + (9 + (depth + 1) * 16) + 'px">'
-      + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + u.nk + ' ' + plural(u.nk, 'подразделение', 'подразделения', 'подразделений')
-      + ' — выберите юнит и примените, они подгрузятся</span></div>';
-    return;
-  }
   for (var i = 0; i < kids.length; i++) treeRows(kids[i], depth + 1, cur, out);
 }
 // Юнит внутри зоны HRBP (на пути юнита есть один из её корней).
 function inHzZone(id, h) { return !h || idsInside([id], h.roots); }
-// Поиск юнита уходит в датасет, только если справочник неполон там, где ищем: большая зона
-// без HRBP — всегда; зона HRBP — если она не приехала целиком (область ≠ зона или > порога).
-function searchRemote() {
-  var M = MODEL, h = stagedHz();
-  if (M.dictMode !== 'part') return false;
-  if (h && !state.unitAll) return !(M.scopeFull && sameSet(h.roots, M.scopeIds));
-  return true;
-}
-function searchPending() { return !!state.qT || (!!state.pend && !!String(state.q || '').replace(/^\s+|\s+$/g, '')); }
 function unitListHTML() {
   var P = CFG.ns, M = MODEL, q = String(state.q || '').replace(/^\s+|\s+$/g, '').toLowerCase();
   var ids = stagedUnit(), cur = ids.length === 1 ? ids[0] : '', h = stagedHz(), inHz = h && !state.unitAll;
@@ -1824,22 +1801,13 @@ function unitListHTML() {
   var hits = [];
   for (var id in M.units) {
     if (!M.units.hasOwnProperty(id)) continue;
-    var u = M.units[id], nm = u.nm.toLowerCase(), at = nm.indexOf(q);
+    var u = M.units[id], at = u.lc.indexOf(q);
     if (at < 0 || !inZone(id) || (inHz && !inHzZone(id, h))) continue;
     hits.push({ id: id, u: u, rank: (at === 0 ? 0 : 1) * 100 + u.lvl });
   }
-  // Большая зона: справочник — окрестность юнита; остальное ищет датасет (q_f) сам,
-  // после паузы в наборе — без Enter.
+  // Справочник — вся зона логина на всю глубину: поиск идёт здесь же, без запроса.
   var r = '';
-  if (searchRemote()) {
-    var done = M.q && M.q.toLowerCase() === q;
-    r += done
-      ? '<div class="' + P + '-nores">Найдено по всей зоне: ' + hits.length + '</div>'
-      : (q.length >= CFG.searchMin
-         ? '<div class="' + P + '-nores">' + (searchPending() ? 'Ищу «' + esc(state.q) + '» по всей зоне…' : 'Ищу по всей зоне (' + fmtInt(M.zoneN) + ' юнитов)…') + '</div>'
-         : '<div class="' + P + '-nores">Введите от ' + CFG.searchMin + ' букв — найдём по всей зоне</div>');
-  }
-  if (!hits.length) return r + (searchRemote() && !(M.q && M.q.toLowerCase() === q) ? '' : '<div class="' + P + '-nores">Ничего не найдено</div>');
+  if (!hits.length) return '<div class="' + P + '-nores">Ничего не найдено</div>';
   hits.sort(function (a, b) { return a.rank - b.rank || (a.u.nm < b.u.nm ? -1 : 1); });
   for (var k = 0; k < hits.length && k < 80; k++) {
     var h = hits[k], chain = pathTo(h.id), names = [];
@@ -2652,11 +2620,11 @@ function transformHTML() {
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('tfm', mOpts, m.key) + '</div>'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Ось разбивки</span>' + hSel('tfa', aOpts, axis) + '</div>'
     + '</div>';
-  // Разрезы и (для ветки до порога) все атрибуты приезжают с каждым ответом — смена оси мгновенная.
-  // Атрибут очень большой ветки (вся компания) догружается один раз по запросу.
+  // Все 17 осей приезжают с каждым ответом — смена оси мгновенная. Запасной режим датасета
+  // (TR_ALL_MAX): у большой ветки с разрезами атрибут догружается один раз по запросу.
   if (!axisReady(axis)) {
-    if (state.pend) return s + hEmpty('Загружаю разбивку «' + axisLabel(axis) + '»', 'Ветка большая: атрибуты сотрудников по ней считаются отдельным запросом, один раз.');
-    return s + hEmpty('Разбивка «' + axisLabel(axis) + '» ещё не загружена', 'Ветка большая: атрибуты по ней считаются отдельным запросом. Нажмите «Загрузить».')
+    if (state.pend) return s + hEmpty('Загружаю разбивку «' + axisLabel(axis) + '»', 'Ветка большая и выбраны разрезы: атрибуты по ней считаются отдельным запросом, один раз.');
+    return s + hEmpty('Разбивка «' + axisLabel(axis) + '» ещё не загружена', 'Ветка большая и выбраны разрезы: атрибуты по ней считаются отдельным запросом. Нажмите «Загрузить».')
       + '<div class="' + P + '-tnote"><button class="' + P + '-btn ' + P + '-pri" data-action="axis" data-key="' + esc(axis) + '">Загрузить</button></div>';
   }
   var list = trSorted(axis), months = [];
@@ -2692,6 +2660,12 @@ function ruleSpan(r) {
   var b = r.to < '2099-12-31' ? 'по ' + fmtDay(r.to) : 'бессрочно';
   return a ? a + ' ' + b : b;
 }
+// rk юнита для строки реестра целей: справочник его не везёт (на супер-HRBP — сотни КБ),
+// выбранному юниту он приезжает в meta.rk.
+function unitRk(u) {
+  if (!u) return '';
+  return u.rk || (MODEL.single && MODEL.scopeIds[0] === u.id ? MODEL.scopeRk : '');
+}
 function kdValue(k, dflt) { return state.kd && state.kd[k] !== undefined && state.kd[k] !== null ? state.kd[k] : dflt; }
 function sqlStr(v) { return "'" + String(v).replace(/'/g, "''") + "'"; }
 function kdLine() {
@@ -2704,7 +2678,7 @@ function kdLine() {
     var sel = M.sel[CFG.cuts[i].key] || [];
     f.push(sqlStr(sel.length === 1 ? sel[0] : 'all'));
   }
-  var rk = u ? u.rk : '<rk юнита>';
+  var rk = unitRk(u) || '<rk юнита>';
   var id = 'R-' + String(from).replace(/-/g, '').slice(0, 6) + '-' + String(rk).slice(0, 6) + '-' + mk;
   var num = tg !== '' && !isNaN(Number(tg)) ? String(Number(tg)) : '<цель>';
   return '(' + [sqlStr(id), sqlStr(rk), sqlStr(mk), num].concat(f).concat([sqlStr(from), 'null', sqlStr(M.meta && M.meta.me || ''), sqlStr(note)]).join(', ') + '),';
@@ -2749,7 +2723,7 @@ function goalsHTML() {
   }
   var form = '<div class="' + P + '-form">'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Юнит</span><span class="' + P + '-cn">' + esc(u ? u.nm : 'выберите один юнит в шапке') + '</span>'
-    + '<span class="' + P + '-mono">rk: ' + esc(u ? u.rk : '—') + '</span></div>'
+    + '<span class="' + P + '-mono">rk: ' + esc(unitRk(u) || '—') + '</span></div>'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('kdm', mOpts, kdValue('metric', 'regret')) + '</div>'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Цель, %</span><input class="' + P + '-inp" type="text" inputmode="decimal" data-kd="target" placeholder="например, 3,5" value="' + esc(kdValue('target', '')) + '"></div>'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span><input class="' + P + '-inp" type="text" data-kd="from" placeholder="ГГГГ-ММ-ДД" value="' + esc(kdValue('from', y + '-01-01')) + '"></div>'
@@ -2824,7 +2798,7 @@ function tourSteps(view) {
     add({ sel: P + '-tabbar', lock: true, title: 'Вкладки',
       html: '<b>Сводка</b> — метрики выбранного юнита. <b>Команды</b> — сравнение подразделений. <b>Трансформеры</b> — метрика по грейду, стажу, городу. <b>Цели</b> — реестр целей. <b>Каталог метрик</b> — что и как считается.' });
     add({ sel: '[data-pop="unit"]', lock: true, title: 'Юнит отчёта',
-      html: 'Нажмите — откроется дерево вашей зоны с поиском. Выберите подразделение, и весь отчёт перестроится под него.' });
+      html: 'Нажмите — откроется дерево вашей зоны на всю глубину с поиском: любое подразделение находится сразу, без загрузки. Выберите его — после «Применить» отчёт перестроится под него.' });
     add({ sel: '[data-pop="hrbp"]', lock: true, need: hrbpVisible(), title: 'HRBP',
       html: 'Выберите HRBP — отчёт сузится до его зоны, а «Юнит» будет предлагать только её подразделения.' });
     add({ sel: '[data-pop^="cut:"]', all: true, rings: true, lock: true, title: 'Разрезы',
@@ -3483,7 +3457,6 @@ function buildHTML() {
     function withUnit(ids) {
       var n = reqNow();
       n.unit = sameSet(ids, MODEL.roots) ? [] : ids.slice();
-      n.q = '';
       state.openRows = {};
       state.selTeam = '';
       state.stage = null;
@@ -3505,17 +3478,6 @@ function buildHTML() {
       if (sameSet(nu, reqNow().unit)) return;
       pushBack();
       emit(withUnit(ids));
-    }
-    // Поиск юнита по всей зоне (справочник большой зоны приходит окрестностью):
-    // после паузы в наборе или по Enter. Уходят применённые фильтры + строка поиска —
-    // набранное в строке фильтров остаётся набранным.
-    function searchZone() {
-      if (state.qT) { clearTimeout(state.qT); state.qT = null; }
-      var q = String(state.q || '').replace(/^\s+|\s+$/g, '');
-      if (q.length < CFG.searchMin || !searchRemote() || q.toLowerCase() === String(MODEL.q || '').toLowerCase()) { refreshList(); return; }
-      var n = reqNow();
-      n.q = q.slice(0, 60);
-      emit(n, true);
     }
     function forgetDrawn(prefix) {
       for (var k in state.drawn) if (state.drawn.hasOwnProperty(k) && k.indexOf(prefix) === 0) delete state.drawn[k];
@@ -3719,7 +3681,7 @@ function buildHTML() {
         state.openRows = {};
         state.stage = null;
         state.hz = '';
-        emit({ unit: [], cuts: {}, axis: MODEL.axis || '', depth: '3', q: '' });
+        emit({ unit: [], cuts: {}, axis: MODEL.axis || '', depth: '3' });
         return;
       }
       // Строки «Сводки» раскрываются независимо: можно смотреть несколько динамик сразу.
@@ -3820,12 +3782,6 @@ function buildHTML() {
       var ps = t.getAttribute('data-psearch');
       if (ps !== null) {
         state.q = t.value;
-        // Большая зона: поиск по всей зоне сам уходит после паузы в наборе — без Enter.
-        if (ps === 'unit' && searchRemote()) {
-          if (state.qT) clearTimeout(state.qT);
-          state.qT = String(state.q).replace(/^\s+|\s+$/g, '').length >= CFG.searchMin
-            ? setTimeout(function () { state.qT = null; searchZone(); }, CFG.searchDelay) : null;
-        }
         refreshList();
         return;
       }
@@ -3840,7 +3796,8 @@ function buildHTML() {
       tourPos();
     }
 
-    // Escape закрывает открытый поповер (smoke E24); Enter в поиске юнита — поиск по всей зоне.
+    // Escape закрывает открытый поповер (smoke E24); Enter в поиске юнита ничего не отправляет:
+    // поиск идёт по справочнику всей зоны прямо при наборе.
     function onKeydown(e) {
       var k = e.keyCode || e.which;
       if ((k === 37 || k === 39) && e.target && e.target.getAttribute && e.target.getAttribute('data-split')) {
@@ -3851,7 +3808,6 @@ function buildHTML() {
       }
       if (k === 13 && e.target && e.target.getAttribute && e.target.getAttribute('data-psearch') === 'unit') {
         e.preventDefault();
-        searchZone();
         return;
       }
       if (k === 27 && e.target && e.target.getAttribute && e.target.getAttribute('data-tsearch') !== null && state.tq) {

@@ -9,7 +9,10 @@ GP-спецификой: distributed by / randomly / replicated. Каждый о
 чтобы видеть, где упало, и печатать результаты стоп-проверок и диагностики.
 Стенд не заменяет прогон в GP: версия и планировщик другие (GP6 ≈ PostgreSQL 9.4),
 поэтому SQL держится в подмножестве 9.4 — без FILTER, GROUPING SETS, LATERAL и т. п.
+current_date стенда — день после последнего дня данных мира (world.D + 1): ноут проверяет
+свежесть источника (не старше недели), а синтетический мир застыл на своей дате.
 """
+import datetime as dt
 import os
 import re
 import sys
@@ -20,10 +23,15 @@ import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NB = os.path.join(HERE, '..', 'helicopter', 'HRBP HUB.yaml')
+sys.path.insert(0, HERE)
+import world as W  # noqa: E402
+
+TODAY = W.D + dt.timedelta(days=1)
 
 
 def to_pg(sql):
     sql = re.sub(r'\bdistributed\s+(by\s*\([^)]*\)|randomly|replicated)', '', sql, flags=re.I)
+    sql = re.sub(r'\bcurrent_date\b', "date '%s'" % TODAY.isoformat(), sql, flags=re.I)
     return re.sub(r'^\s*set\s+optimizer\s*=\s*\w+\s*;\s*$', '', sql, flags=re.I | re.M)
 
 
