@@ -81,18 +81,18 @@ var CFG = {
       fmt: 'pct', better: 'higher', share: true, num: 'r3n', den: 'r3d',
       hint: 'Доля новичков, которые работают в компании через 3 месяца после найма.',
       calc: 'Когорта — новички, у кого 3 месяца от найма исполнились в окне; дожившие / когорта. Окно созревания 3 мес (13 нед). База отсчёта — company_hire_dt, при типе численности «Активная» — active_hire_dt.',
-      numL: 'продолжают работать', denL: 'новичков в когорте', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира' },
+      numL: 'продолжают работать', denL: 'новичков в когорте', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
     { key: 'retention_new_6', block: 'retention', name: 'Закрепляемость новичков · 6 мес', short: 'Закрепл. 6 мес',
       fmt: 'pct', better: 'higher', share: true, num: 'r6n', den: 'r6d',
       hint: 'Доля новичков, которые работают в компании через 6 месяцев после найма.',
       calc: 'Как на 3 месяцах, горизонт 6 мес (26 нед).',
-      numL: 'продолжают работать', denL: 'новичков в когорте', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира' },
+      numL: 'продолжают работать', denL: 'новичков в когорте', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
     { key: 'regret', block: 'turnover', name: 'Regrettable текучесть', short: 'Regret',
       fmt: 'pct', better: 'lower', num: 'rg', den: 'hcw', denDiv: { m: 12, w: 52 },
       hint: 'Годовой темп уходов ценных сотрудников (нежелательные увольнения).',
       calc: 'Regrettable-увольнения за 12 мес (52 нед) / средняя списочная численность за то же окно. Разметка — usr_cross_data.regrettable_n_non_regrettable_base.',
       numL: 'regrettable-уходов за 12 мес', denL: 'средняя численность за 12 мес', cnt: { n: ['уход', 'ухода', 'уходов'], tail: 'за год' },
-      exL: 'уходов за год сверх ориентира' },
+      exL: 'уходов сверх ориентира', exA: 'сверх ориентира' },
     { key: 'nonregret', block: 'turnover', name: 'Non regrettable текучесть', short: 'Non-reg.',
       fmt: 'pct', better: 'flat', num: 'nrg', den: 'hcw', denDiv: { m: 12, w: 52 },
       hint: 'Текучесть без сожаления (управляемые уходы). Нейтральная: больше не значит лучше.',
@@ -103,7 +103,7 @@ var CFG = {
       hint: 'Уволенные без проставленной причины (30+ дней после увольнения) от численности юнита. В бизнес-контексте — «Заполнение причин увольнений».',
       calc: 'Увольнения за 3 мес (13 нед) без причины в legal_position_dismissal_reason, с непустой датой и старше 30 дней / численность на конец периода.',
       numL: 'увольнений без причины за 3 мес', denL: 'численность на конец месяца', cnt: { n: ['увольнение', 'увольнения', 'увольнений'], tail: 'за 3 мес' },
-      exL: 'увольнений без причины сверх ориентира' },
+      exL: 'увольнений без причины сверх ориентира', exA: 'сверх ориентира' },
     { key: 'headcount', block: 'structure', name: 'Численность', short: 'Числ.',
       fmt: 'int', better: 'flat', num: 'hc',
       hint: 'Списочная численность на конец периода (active_employee_flg = 1). Абсолютная величина — с базой не сравнивается.',
@@ -112,7 +112,7 @@ var CFG = {
       fmt: 'pct', better: 'higher', share: true, num: 'jun', den: 'hc',
       hint: 'Доля сотрудников с seniority intern / jun / jun+ в списочной численности.',
       calc: 'Джуны (seniority ILIKE intern% или jun%) / численность на конец периода.',
-      numL: 'джунов', denL: 'численность', cnt: { of: ['чел.', 'чел.', 'чел.'] }, exL: 'джунов не хватает до ориентира' }
+      numL: 'джунов', denL: 'численность', cnt: { of: ['чел.', 'чел.', 'чел.'] }, exL: 'джунов не хватает до ориентира', exA: 'до ориентира не хватает' }
   ],
   catalog: {
     postponed: [
@@ -138,14 +138,14 @@ var CFG = {
   deadZone: 0.05,
   // Маленькие команды (владелец, 06.10: «не смотреть закрепляемость и текучесть в командах
   // меньше чем 30 чел»): у юнита с численностью меньше min на последний закрытый месяц метрики
-  // этих блоков не оцениваются — ни процента, ни цвета, ни графиков, ни места в «Требует внимания».
+  // этих блоков не оцениваются — ни процента, ни цвета, ни графиков, ни фактов в «Что видно в данных».
   small: { min: 30, blocks: ['retention', 'turnover'] },
-  // «Требует внимания» на «Сводке»: команд сразу (top) и по «Показать все» (all — не больше: у
-  // супер-HRBP их сотни, остальные — сортировкой в «Командах»), порог «сверх ориентира» в людях (minPeople);
-  // conc — проблема юнита «сидит» в подразделении, если на него приходится не меньше этой доли
-  // (тогда показываем подразделение, а не юнит); всплеск уходов — последние spikeWeeks недель
-  // против обычного темпа: не меньше spikeMin человек и в spikeX раза больше обычного.
-  attn: { top: 3, all: 30, minPeople: 0.5, conc: 0.5, spikeWeeks: 4, spikeMin: 3, spikeX: 2 },
+  // «Что видно в данных» на «Сводке» (как Proteus Adoption, ДС §4.10) — факты по порогам, не шаблон:
+  // dev — отклонение от ориентира (доля ориентира); minPeople — «сверх ориентира» у юнита в людях,
+  // teamMin — у команды; conc — доля «лишних» людей в одной команде («больше половины — там»);
+  // trend — месяцев ухудшения подряд; всплеск уходов — последние spikeWeeks недель против обычного
+  // темпа (не меньше spikeMin человек и в spikeX раза больше); hc — изменение численности за год; max — фактов.
+  obs: { dev: 0.10, minPeople: 0.5, teamMin: 1, conc: 0.5, trend: 3, spikeWeeks: 4, spikeMin: 3, spikeX: 2, hc: 0.10, max: 8 },
   pendingWarnMs: 9000,
   // Уровни — номера mapped-структуры, как в ультраширокой: 1 — компания, дальше 3…12
   // (lvl2 отчёт пропускает). Подпись — по номеру, у юнитов одного уровня разные слова
@@ -236,8 +236,8 @@ var STATE0 = {
   hz: '',                // HRBP, чья зона выбрана (логин): выбор юнита сужается до неё
   unitAll: false,        // выбор юнита при выбранном HRBP: показать всю зону видимости
   selTeam: '',           // выбранная строка «Команд» ('' — ИТОГО)
-  scrollSel: false,      // после перерисовки прокрутить к выбранной строке «Команд» («Показать» на «Сводке»)
-  attnAll: false,        // «Требует внимания»: показаны все строки, а не первые CFG.attn.top
+  scrollSel: false,      // после перерисовки прокрутить к выбранной строке «Команд» (команда из «Что видно в данных»)
+  obsOpen: false,        // «Что видно в данных»: список фактов раскрыт вниз
   tq: '',                // поиск по таблице «Команд» (по загруженным уровням)
   tsort: { key: '', dir: '' }, // сортировка таблицы «Команд»: '' — по численности, 'name' или ключ метрики
   unitBack: [],          // «← Назад»: юниты отчёта до переходов (стек, до 10)
@@ -1544,7 +1544,7 @@ function buildCSS() {
     // стопка графиков: зазор 26 (chart-gap профиля)
     P + '-dyn{display:flex;flex-direction:column;gap:26px;}',
 
-    // ---- числа людей, маленькие команды, «Требует внимания» ----
+    // ---- числа людей, маленькие команды ----
     P + '-t td ' + P + '-abs{white-space:normal;line-height:1.25;}',
     P + '-t td' + P + '-sm0{cursor:help;}',
     P + '-t tr' + P + '-smr{cursor:default;}',
@@ -1552,24 +1552,33 @@ function buildCSS() {
     P + '-snote{font-size:' + F.note + 'px;line-height:1.45;color:' + C.ink2 + ';background:' + C.surface2 + ';border-radius:9px;padding:10px 12px;}',
     P + '-dash0{display:inline-block;width:10px;text-align:center;font-weight:600;color:' + C.muted + ';}',
     P + '-mvn{font-weight:600;color:' + C.ink + ';}',
-    P + '-t tr' + P + '-arow td{height:46px;}',
-    P + '-t td[rowspan]{vertical-align:top;padding-top:10px;}',
-    // Во второй строке группы метрика — первая ячейка строки: отступ и вес — как у соседних.
-    P + '-t td' + P + '-amc{padding-left:8px;font-weight:400;color:' + C.ink2 + ';}',
-    P + '-anm{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;}',
-    P + '-exn{font-weight:600;color:' + C.ink + ';}',
-    P + '-abtn{height:28px;padding:0 10px;}',
-    P + '-attm{padding:4px 12px 10px;}',
-    P + '-attl{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap;padding:10px 12px;border-top:1px solid ' + C.line2 + ';font-size:' + F.body + 'px;color:' + C.ink2 + ';}',
-    P + '-pb' + P + '-tbl>' + P + '-attl:first-child{border-top:0;}',
-    P + '-attk{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.3px;color:' + C.muted + ';font-weight:500;cursor:help;white-space:nowrap;}',
-    P + '-attx b{font-weight:600;color:' + C.ink + ';}',
-    P + '-attok{color:' + C.greenTx + ';}',
-    P + '-attc{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;}',
-    P + '-achip{display:inline-flex;align-items:center;gap:6px;height:24px;max-width:280px;padding:0 9px;border:1px solid ' + C.line + ';border-radius:999px;background:' + C.card + ';font:inherit;font-size:' + F.note + 'px;font-weight:400;color:' + C.ink2 + ';cursor:pointer;}',
-    P + '-achip:hover{border-color:' + C.act + ';color:' + C.actInk + ';}',
-    P + '-achip b{font-weight:600;color:' + C.ink + ';}',
-    P + '-acn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}',
+    // ---- «Что видно в данных» — как Proteus Adoption (pa-area -obs): одна строка 42 px, мягкая заливка
+    // по важности (жёлтый здесь разрешён — это не светофор метрики, ДС §3.3), список растёт вниз ----
+    P + '-obs{border-radius:12px;background:' + C.card + ';box-shadow:' + SH + ';margin-bottom:12px;min-width:0;}',
+    P + '-obs' + P + '-sevh{background:linear-gradient(100deg,#fff0f1 0%,#fdf6f8 45%,#fff 100%);}',
+    P + '-obs' + P + '-sevm{background:linear-gradient(100deg,#fff6e6 0%,#fdf9f2 45%,#fff 100%);}',
+    P + '-obs' + P + '-sevg{background:linear-gradient(100deg,#eaf8ef 0%,#f5faf7 45%,#fff 100%);}',
+    P + '-obs-h{display:flex;align-items:center;gap:10px;height:42px;padding:0 8px 0 14px;min-width:0;}',
+    P + '-obs-ico{width:20px;height:20px;border-radius:6px;background:rgba(255,255,255,.8);display:inline-flex;align-items:center;justify-content:center;'
+      + 'font-size:' + F.control + 'px;font-weight:600;color:' + C.greenTx + ';flex:0 0 auto;box-shadow:inset 0 0 0 1px rgba(31,31,31,.06);}',
+    P + '-sevh ' + P + '-obs-ico{color:' + C.redTx + ';}',
+    P + '-sevm ' + P + '-obs-ico{color:' + C.warnTx + ';}',
+    P + '-obs-t{font-size:' + F.body + 'px;font-weight:500;color:' + C.ink2 + ';flex:0 0 auto;display:inline-flex;align-items:center;}',
+    P + '-obs-h ' + P + '-info{margin-left:-4px;}',
+    P + '-obs-lead{font-size:' + F.body + 'px;color:' + C.ink2 + ';flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:help;}',
+    P + '-obs-tog{border:0;background:rgba(255,255,255,.75);height:26px;padding:0 10px;border-radius:8px;cursor:pointer;color:' + C.act + ';font:inherit;'
+      + 'font-size:' + F.note + 'px;font-weight:500;flex:0 0 auto;margin-left:auto;}',
+    P + '-obs-tog:hover{background:#fff;}',
+    P + '-obs-list{list-style:none;margin:0;padding:0 14px 12px 44px;display:flex;flex-direction:column;gap:8px;}',
+    P + '-obs-li{display:flex;gap:8px;align-items:baseline;font-size:' + F.body + 'px;color:' + C.ink2 + ';line-height:1.45;}',
+    P + '-obs-dot{width:7px;height:7px;border-radius:50%;flex:0 0 auto;transform:translateY(-1px);background:' + C.greenTx + ';cursor:help;}',
+    P + '-obs-dot' + P + '-sevh{background:' + C.redTx + ';}',
+    P + '-obs-dot' + P + '-sevm{background:' + C.warn + ';}',
+    P + '-obs-li b{font-weight:500;color:' + C.ink + ';}',
+    P + '-obs-li span{color:' + C.muted + ';}',
+    // Команда в факте — ссылка в «Команды»: цвет текста и пунктир (список читается спокойно), синий — при наведении.
+    P + '-obs-a{border:0;background:transparent;padding:0;font:inherit;color:' + C.ink2 + ';cursor:pointer;text-decoration:underline dotted ' + C.muted2 + ';text-underline-offset:3px;}',
+    P + '-obs-a:hover{color:' + C.act + ';text-decoration-color:' + C.act + ';}',
     P + '-pull{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:' + C.redBg + ';color:' + C.redTx + ';font-size:' + F.micro + 'px;font-weight:500;letter-spacing:.2px;vertical-align:1px;white-space:nowrap;cursor:help;}',
     P + '-cpok{font-size:' + F.note + 'px;font-weight:500;color:' + C.greenTx + ';white-space:nowrap;margin-right:4px;align-self:center;}',
 
@@ -2361,12 +2370,13 @@ function moveTip(mv, hire, fire) {
   return t;
 }
 
-// ---- «Требует внимания»: где хуже ориентира сильнее всего — в людях ----
-// Кандидаты — строки трёх загруженных уровней «Команд» от CFG.small.min человек, метрики удержания
-// и текучести (структура — только против своей цели). Мера — люди «сверх ориентира» (excessPeople),
-// а не п.п.: большая команда с небольшим отклонением стоит выше маленькой с большим. Если на
-// подразделение приходится не меньше CFG.attn.conc «лишних» людей юнита, в списке оно, а не юнит.
-function blockName(k) { for (var i = 0; i < CFG.blocks.length; i++) if (CFG.blocks[i].key === k) return CFG.blocks[i].tab || CFG.blocks[i].name; return ''; }
+// ---- «Что видно в данных» (как Proteus Adoption, ДС §4.10): пороговый отбор фактов ----
+// Факт — то, что прошло порог CFG.obs, а не текстовый шаблон: метрика юнита хуже (лучше) цели
+// или базы на dev и больше — в людях сверх ориентира (excessPeople); «больше половины — в одной
+// команде» (conc); команды хуже своего ориентира (от teamMin человек сверх); ухудшение trend месяцев
+// подряд; всплеск уходов; незаполненные причины; численность ±hc за год. По одному факту на метрику,
+// порядок — важность (high · mid · good), затем люди. Команды — три загруженных уровня «Команд» от
+// CFG.small.min человек; юнит меньше порога закрепляемость и текучесть не оценивает.
 function rowPpfx(r) { return r.key.slice(r.key.indexOf(':') + 1, r.key.lastIndexOf(':')); }
 // d лежит внутри a («Напрямую в …» — внутри своего узла).
 function rowUnder(d, a) {
@@ -2375,41 +2385,120 @@ function rowUnder(d, a) {
   var dp = rowPpfx(d);
   return dp === a.pfx || dp.indexOf(a.pfx + '/') === 0;
 }
-function attnItems(all) {
-  var L = MODEL.L, A = CFG.attn, mets = selMetrics(''), cand = [], out = [];
-  for (var i = 0; i < all.length; i++) {
-    var r = all[i];
-    if (isSmall(r.ser)) continue;
-    var uid = rowUnit(r);
-    for (var k = 0; k < mets.length; k++) {
-      var m = mets[k];
-      if (!m.exL) continue;
-      var v = mval(r.ser, 'm', m, L);
-      if (v === null) continue;
-      var bl = baseline(uid, m, v, 'm', L);
-      if (bl.state !== 'bad' || ((state.focusOnly || !smallGate(m)) && bl.kind !== 'kpi')) continue;
-      var ex = excessPeople(m, r.ser, L, bl.ref);
-      if (ex >= A.minPeople) cand.push({ r: r, m: m, v: v, bl: bl, ex: ex });
-    }
+// Ориентир факта: у метрик структуры (и при «Только фокусные») — только цель; база для них — масштаб.
+function obsBase(unitId, m, v) {
+  if (v === null || v === undefined) return null;
+  var bl = baseline(unitId, m, v, 'm', MODEL.L);
+  if (bl.kind === 'none' || ((state.focusOnly || !smallGate(m)) && bl.kind !== 'kpi')) return null;
+  return bl;
+}
+function relDev(v, ref) { return ref ? Math.abs(v - ref) / Math.abs(ref) : (v ? 1 : 0); }
+function refWord(bl) { return bl.kind === 'kpi' ? 'цели' : 'базы'; }
+// «сверх цели ≈ 3,1», «до базы не хватает ≈ 2,4»: число — в конце, падеж не согласуется (≈ 3,1 — дробь).
+function exPhrase(m, bl, ex) { return m.exA.replace('ориентира', refWord(bl)) + ' ' + fmtPeople(ex); }
+// Имя команды в тексте: «Напрямую в «…»» уже в кавычках.
+function qName(r) { return r.id === '·' ? rowName(r) : '«' + rowName(r) + '»'; }
+// Текст факта — сегменты: строка или команда {r, mk} (в списке — ссылка в «Команды», в подсказке — имя).
+function segsHTML(segs) {
+  var P = CFG.ns, s = '';
+  for (var i = 0; i < segs.length; i++) {
+    var g = segs[i];
+    if (typeof g === 'string') { s += esc(g); continue; }
+    s += '<button type="button" class="' + P + '-obs-a" data-action="goteam" data-key="' + esc(g.r.key) + '" data-id="' + esc(g.mk || '') + '"'
+      + tip({ title: rowName(g.r), text: 'Показать в «Командах».' }) + '>' + esc(g.t || qName(g.r)) + '</button>';
   }
-  for (var a = 0; a < cand.length; a++) {
+  return s;
+}
+function segsText(segs) {
+  var s = '';
+  for (var i = 0; i < segs.length; i++) s += typeof segs[i] === 'string' ? segs[i] : (segs[i].t ? '' : qName(segs[i].r));
+  return s;
+}
+// Команды хуже своего ориентира — от teamMin человек сверх; проблема, которая «сидит» в
+// подразделении (не меньше conc «лишних» людей родителя), показана у подразделения.
+function badTeams(m, teams) {
+  var L = MODEL.L, O = CFG.obs, all = [], out = [];
+  for (var i = 0; i < teams.length; i++) {
+    var t = teams[i], v = mval(t.ser, 'm', m, L), bl = obsBase(rowUnit(t), m, v);
+    if (!bl || bl.state !== 'bad') continue;
+    var ex = excessPeople(m, t.ser, L, bl.ref);
+    if (ex >= O.teamMin) all.push({ r: t, v: v, bl: bl, ex: ex });
+  }
+  for (var a = 0; a < all.length; a++) {
     var inner = false;
-    for (var b = 0; b < cand.length && !inner; b++) {
-      if (a !== b && cand[b].m === cand[a].m && rowUnder(cand[b].r, cand[a].r) && cand[b].ex >= A.conc * cand[a].ex) inner = true;
+    for (var b = 0; b < all.length && !inner; b++) if (a !== b && rowUnder(all[b].r, all[a].r) && all[b].ex >= O.conc * all[a].ex) inner = true;
+    if (!inner) out.push(all[a]);
+  }
+  out.sort(function (x, y) { return y.ex - x.ex; });
+  return out;
+}
+// Ухудшение trend месяцев подряд и на dev за них: {a, b} — значение в начале и сейчас, иначе null.
+function worsening(m, ser) {
+  var L = MODEL.L, n = CFG.obs.trend, v0 = mval(ser, 'm', m, L - n), prev = v0;
+  if (v0 === null) return null;
+  for (var i = L - n + 1; i <= L; i++) {
+    var v = mval(ser, 'm', m, i);
+    if (v === null || (m.better === 'higher' ? v >= prev : v <= prev)) return null;
+    prev = v;
+  }
+  return relDev(prev, v0) >= CFG.obs.dev ? { a: v0, b: prev } : null;
+}
+// «снижение 3 месяца подряд» — существительным: имена метрик бывают и в единственном, и во множественном.
+function trendWord(m) { var n = CFG.obs.trend; return (m.better === 'higher' ? 'снижение ' : 'рост ') + n + ' ' + plural(n, 'месяц', 'месяца', 'месяцев') + ' подряд'; }
+function trendText(m, tr) { var L = MODEL.L, n = CFG.obs.trend; return monthLabel(L - n) + ' ' + fmtVal(m, tr.a) + ' → ' + monthLabel(L) + ' ' + fmtVal(m, tr.b); }
+function endDot(t) { return /[.!?]$/.test(t) ? t : t + '.'; }
+// Один факт на метрику: юнит хуже ориентира (с командой, где отклонение сидит, и трендом) →
+// иначе команды хуже ориентира → иначе ухудшение подряд → иначе юнит заметно лучше ориентира.
+function metricFact(m, teams) {
+  var M = MODEL, L = M.L, O = CFG.obs, small = smallHide(M.scope, m);
+  var v = small ? null : mval(M.scope, 'm', m, L), bl = obsBase(scopeUnit(), m, v);
+  var bt = badTeams(m, teams), tr = small ? null : worsening(m, M.scope), ab = small ? '' : absText(m, M.scope, L);
+  var ex = bl ? excessPeople(m, M.scope, L, bl.ref) : 0, dir = m.better === 'higher';
+  if (bl && bl.state === 'bad' && relDev(v, bl.ref) >= O.dev && ex >= O.minPeople) {
+    var body = [(ab ? ab + ' · ' : '') + exPhrase(m, bl, ex)], rule = ['хуже ' + refWord(bl) + ' на ' + Math.round(O.dev * 100) + '% и больше'];
+    if (bt.length && bt[0].ex >= O.conc * ex) {
+      body.push(' · больше половины — ', { r: bt[0].r, mk: m.key }, ' (' + fmtPeople(bt[0].ex) + ')');
+      rule.push('больше половины отклонения — в одной команде');
+    } else if (bt.length) {
+      body.push(' · больше всего — ', { r: bt[0].r, mk: m.key }, ' (' + fmtPeople(bt[0].ex) + ')');
+      if (bt.length > 1) body.push(', ', { r: bt[1].r, mk: m.key }, ' (' + fmtPeople(bt[1].ex) + ')');
     }
-    if (!inner) out.push(cand[a]);
+    if (tr) { body.push(' · ' + trendWord(m) + ': ' + trendText(m, tr)); rule.push('ухудшение ' + O.trend + ' месяца подряд'); }
+    body.push('.');
+    return { sev: bl.kind === 'kpi' ? 'high' : 'mid', pri: 1, w: ex, body: body, rule: rule.join('; '),
+      lead: m.name + ' ' + fmtVal(m, v) + ' — ' + (dir ? 'ниже ' : 'выше ') + refWord(bl) + ' ' + fmtVal(m, bl.ref) };
   }
-  // Группы по строке: одна команда — одна группа (её метрики подряд); порядок — по сумме людей.
-  var by = {}, groups = [];
-  for (var q = 0; q < out.length; q++) {
-    var g = by[out[q].r.key];
-    if (!g) { g = by[out[q].r.key] = { r: out[q].r, list: [], sum: 0 }; groups.push(g); }
-    g.list.push(out[q]);
-    g.sum += out[q].ex;
+  if (bt.length === 1) {
+    var b1 = bt[0];
+    return { sev: 'mid', pri: 2, w: b1.ex, rule: 'команда от ' + CFG.small.min + ' человек хуже своего ориентира на ' + O.teamMin + ' человека и больше',
+      body: [fmtVal(m, b1.v) + ' при ' + (b1.bl.kind === 'kpi' ? 'цели ' : 'базе ') + fmtVal(m, b1.bl.ref) + ' · ' + exPhrase(m, b1.bl, b1.ex) + ' · ',
+             { r: b1.r, mk: m.key, t: 'открыть в «Командах»' }],
+      lead: m.name + ': ' + qName(b1.r) + ' хуже ' + refWord(b1.bl) };
   }
-  for (var z = 0; z < groups.length; z++) groups[z].list.sort(function (x, y) { return y.ex - x.ex; });
-  groups.sort(function (x, y) { return y.sum - x.sum || (rowName(x.r) < rowName(y.r) ? -1 : 1); });
-  return groups;
+  if (bt.length) {
+    var tb = [], w = 0;
+    for (var i = 0; i < bt.length && i < 3; i++) {
+      // Первая команда — с полной подписью «≈ 1,2 новичков ушло сверх базы», дальше — только число.
+      tb.push(i ? '; ' : '', { r: bt[i].r, mk: m.key }, ' — ' + fmtVal(m, bt[i].v) + ' при ' + (bt[i].bl.kind === 'kpi' ? 'цели ' : 'базе ') + fmtVal(m, bt[i].bl.ref)
+        + ' (' + (i ? fmtPeople(bt[i].ex) : exPhrase(m, bt[i].bl, bt[i].ex)) + ')');
+      w += bt[i].ex;
+    }
+    tb.push(bt.length > 3 ? '; и ещё ' + (bt.length - 3) + '.' : '.');
+    return { sev: 'mid', pri: 2, w: w, body: tb, rule: 'команда от ' + CFG.small.min + ' человек хуже своего ориентира на ' + O.teamMin + ' человека и больше',
+      lead: m.name + ': ' + bt.length + ' ' + plural(bt.length, 'команда', 'команды', 'команд') + ' хуже ориентира' };
+  }
+  if (tr) {
+    return { sev: 'mid', pri: 3, w: 0, rule: 'ухудшение ' + O.trend + ' месяца подряд, за них — на ' + Math.round(O.dev * 100) + '% и больше',
+      body: [capFirst(trendText(m, tr)) + (bl ? ' · ' + (bl.kind === 'kpi' ? 'цель ' : 'база ') + fmtVal(m, bl.ref) : '') + '.'],
+      lead: m.name + ': ' + trendWord(m) };
+  }
+  // Хороший факт по причинам увольнений не ставим, пока есть что заполнять (задача — отдельным фактом).
+  var todo = m.num === 'nr' && M.scope.m.nr && (M.scope.m.nr[L] || 0) > 0;
+  if (bl && bl.state === 'good' && relDev(v, bl.ref) >= O.dev && !todo) {
+    return { sev: 'good', pri: 1, w: -ex, body: [ab ? endDot(ab) : ''], rule: 'лучше ' + refWord(bl) + ' на ' + Math.round(O.dev * 100) + '% и больше',
+      lead: m.name + ' ' + fmtVal(m, v) + ' — ' + (dir ? 'выше ' : 'ниже ') + refWord(bl) + ' ' + fmtVal(m, bl.ref) };
+  }
+  return null;
 }
 // Увольнения из компании за недели a…b (поток недели, без окна).
 function weekFire(ser, a, b) {
@@ -2420,108 +2509,87 @@ function weekFire(ser, a, b) {
 }
 // Всплеск уходов: последние spikeWeeks недель против обычного темпа (среднее предыдущих недель).
 function exitSpike(ser) {
-  var W = lastIdx('w'), A = CFG.attn, n = A.spikeWeeks;
+  var W = lastIdx('w'), O = CFG.obs, n = O.spikeWeeks;
   if (W < n * 2) return null;
   var last = weekFire(ser, W - n + 1, W), usual = weekFire(ser, 0, W - n) / (W - n + 1) * n;
-  if (last < A.spikeMin || last < A.spikeX * usual) return null;
+  if (last < O.spikeMin || last < O.spikeX * usual) return null;
   return { last: last, usual: usual, a: W - n + 1, b: W };
 }
-function attnChip(r, mk, n) {
-  var P = CFG.ns;
-  return '<button type="button" class="' + P + '-achip" data-action="attn" data-key="' + esc(r.key) + '" data-id="' + esc(mk) + '"'
-    + tip({ title: rowName(r), text: 'Показать в «Командах».' }) + '><span class="' + P + '-acn">' + esc(rowName(r)) + '</span><b>' + fmtInt(n) + '</b></button>';
-}
-// Группа команды: имя и кнопка — на всю группу (rowspan), строки — её метрики хуже ориентира.
-function attnGroup(g) {
-  var P = CFG.ns, M = MODEL, r = g.r, unit = M.units[r.id], n = g.list.length, blk = g.list[0].m.block;
-  var chain = r.id !== '·' ? pathTo(r.id) : [], up = [], s = '';
-  for (var c = Math.max(0, chain.length - 4); c < chain.length - 1; c++) up.push(unitName(M, chain[c]));
-  for (var b = 1; b < n; b++) if (g.list[b].m.block !== blk) blk = '';
-  for (var i = 0; i < n; i++) {
-    s += '<tr class="' + P + '-arow' + (i === 0 ? ' ' + P + '-afirst' : '') + '">';
-    if (i === 0) {
-      s += '<td class="' + P + '-l" rowspan="' + n + '"><span class="' + P + '-anm"' + tip({ title: rowName(r), text: up.join(' › ') }) + '>' + esc(rowName(r)) + '</span>'
-        + '<span class="' + P + '-us">' + (unit ? esc(levelShort(unit.lvl)) + ' · ' : '') + fmtInt(hcOf(r.ser)) + ' чел'
-        + (n > 1 ? ' · всего ' + fmtPeople(g.sum) + ' чел. сверх' : '') + '</span></td>';
-    }
-    s += attnCells(g.list[i]);
-    if (i === 0) {
-      s += '<td rowspan="' + n + '"><button type="button" class="' + P + '-btn ' + P + '-ghost ' + P + '-abtn" data-action="attn" data-key="' + esc(r.key) + '" data-id="' + esc(blk ? g.list[0].m.key : '') + '"'
-        + tip({ title: 'Показать в «Командах»', text: 'Откроет «Команды» с этой строкой: её графики — справа.' }) + '>Показать</button></td>';
-    }
-    s += '</tr>';
+function obsFacts() {
+  var M = MODEL, L = M.L, O = CFG.obs, all = teamRows(true), teams = [], leaves = [], out = [], i;
+  for (i = 0; i < all.length; i++) {
+    if (!isSmall(all[i].ser)) teams.push(all[i]);
+    if (all[i].id === '·' || !rowCanExp(all[i])) leaves.push(all[i]);
   }
-  return s;
-}
-function attnCells(it) {
-  var P = CFG.ns, M = MODEL, L = M.L, r = it.r, m = it.m, kpi = it.bl.kind === 'kpi';
-  var t = tip({ title: m.name + ' · ' + rowName(r),
-    rows: [{ label: 'факт', value: fmtVal(m, it.v) }].concat(absRows(m, r.ser, L), [
-      { label: kpi ? 'цель' : benchLabel(), value: fmtVal(m, it.bl.ref), dash: true, color: kpi ? CFG.colors.kpi : CFG.colors.bench },
-      { label: 'отклонение', value: fmtDelta(m, deltaOf(m, it.v, it.bl.ref)) }, { label: m.exL, value: fmtPeople(it.ex) }]),
-    note: kpi ? (it.bl.inherited ? 'Цель унаследована с уровня «' + unitName(M, it.bl.owner) + '».' : 'Цель стоит на этом юните.') : 'Цели нет — сравнение с базой.' });
-  return '<td class="' + P + '-l ' + P + '-amc"' + t + '>' + esc(m.short) + '<span class="' + P + '-us">' + esc(blockName(m.block)) + '</span></td>'
-    + '<td' + t + '>' + hPill('bad', fmtVal(m, it.v)) + '<span class="' + P + '-cref">' + (kpi ? 'цель ' + (m.better === 'higher' ? '≥' : '≤') + ' ' : 'база ') + esc(fmtVal(m, it.bl.ref)) + '</span></td>'
-    + '<td class="' + P + '-l"' + t + '><b class="' + P + '-exn">' + esc(fmtPeople(it.ex)) + '</b><span class="' + P + '-us">' + esc(m.exL) + '</span></td>';
-}
-function spikeHTML(sp, leaves) {
-  var P = CFG.ns, M = MODEL, n = sp.b - sp.a + 1, rows = [], top = [], chips = '';
-  for (var i = sp.a; i <= sp.b; i++) rows.push({ label: weekRange(i), value: fmtInt(M.scope.w.fire[i] || 0) });
-  for (var j = 0; j < leaves.length; j++) { var c = weekFire(leaves[j].ser, sp.a, sp.b); if (c > 0) top.push({ r: leaves[j], n: c }); }
-  top.sort(function (x, y) { return y.n - x.n; });
-  for (var k = 0; k < top.length && k < 3; k++) chips += attnChip(top[k].r, '', top[k].n);
-  return '<div class="' + P + '-attl"><span class="' + P + '-attk"' + tip({ title: 'Всплеск уходов',
-      text: 'Увольнения из компании за последние ' + n + ' ' + plural(n, 'неделю', 'недели', 'недель') + ' против обычного темпа — среднего за предыдущие недели.',
-      rows: rows, note: 'Сигнал раньше месячных метрик: текучесть считается окном в 12 месяцев, и свежий всплеск в ней почти не виден.' }) + '>Всплеск уходов</span>'
-    + '<span class="' + P + '-attx">за ' + n + ' ' + plural(n, 'неделю', 'недели', 'недель') + ' — <b>' + fmtInt(sp.last) + '</b>, обычно '
-    + (sp.usual < 1 ? 'меньше 1' : 'около ' + fmtInt(sp.usual)) + '</span>'
-    + (chips ? '<span class="' + P + '-attc">' + chips + '</span>' : '') + '</div>';
-}
-function reasonsHTML(nr, leaves) {
-  var P = CFG.ns, L = MODEL.L, top = [], chips = '';
-  for (var j = 0; j < leaves.length; j++) {
-    var c = leaves[j].ser.m.nr ? (leaves[j].ser.m.nr[L] || 0) : 0;
-    if (c > 0) top.push({ r: leaves[j], n: c });
+  var mets = selMetrics('');
+  for (i = 0; i < mets.length; i++) if (mets[i].exL) { var f = metricFact(mets[i], teams); if (f) out.push(f); }
+  function topLeaves(get, k) {
+    var t = [], segs = [];
+    for (var j = 0; j < leaves.length; j++) { var c = get(leaves[j]); if (c > 0) t.push({ r: leaves[j], n: c }); }
+    t.sort(function (x, y) { return y.n - x.n || (rowName(x.r) < rowName(y.r) ? -1 : 1); });
+    for (var q = 0; q < t.length && q < k; q++) segs.push(q ? ', ' : '', { r: t[q].r, mk: '' }, ' — ' + fmtInt(t[q].n));
+    if (t.length > k) segs.push(' и ещё ' + (t.length - k));
+    return segs;
   }
-  top.sort(function (x, y) { return y.n - x.n || (rowName(x.r) < rowName(y.r) ? -1 : 1); });
-  for (var k = 0; k < top.length && k < 6; k++) chips += attnChip(top[k].r, 'exit_reasons', top[k].n);
-  if (top.length > 6) chips += '<span class="' + P + '-ks">и ещё ' + (top.length - 6) + '</span>';
-  return '<div class="' + P + '-attl"><span class="' + P + '-attk"' + tip({ title: 'Причины увольнений не заполнены',
-      text: 'Увольнения за 3 месяца, у которых через 30 и больше дней после даты нет причины в кадровой системе. Это задача, а не оценка: в список попадают и команды меньше ' + CFG.small.min + ' человек.',
-      note: 'Кто именно — в отчёте «Детальные списки».' }) + '>Причины не заполнены</span>'
-    + '<span class="' + P + '-attx"><b>' + fmtInt(nr) + '</b> ' + plural(nr, 'увольнение', 'увольнения', 'увольнений') + ' за 3 мес</span>'
-    + (chips ? '<span class="' + P + '-attc">' + chips + '</span>' : '') + '</div>';
-}
-function attnHTML() {
-  var P = CFG.ns, M = MODEL, L = M.L, A = CFG.attn, all = teamRows(true), leaves = [];
-  for (var i = 0; i < all.length; i++) if (all[i].id === '·' || !rowCanExp(all[i])) leaves.push(all[i]);
-  var items = attnItems(all), sp = exitSpike(M.scope);
+  var sp = exitSpike(M.scope);
+  if (sp) {
+    var nw = sp.b - sp.a + 1, tl = topLeaves(function (r) { return weekFire(r.ser, sp.a, sp.b); }, 3);
+    out.push({ sev: sp.last >= 3 * sp.usual ? 'high' : 'mid', pri: 0, w: sp.last - sp.usual,
+      lead: 'Всплеск уходов: ' + fmtInt(sp.last) + ' за ' + nw + ' ' + plural(nw, 'неделю', 'недели', 'недель') + ' — обычно ' + (sp.usual < 1 ? 'меньше 1' : 'около ' + fmtInt(sp.usual)),
+      body: (tl.length ? ['Больше всего: '].concat(tl, ['. ']) : []).concat(['Месячная текучесть считается окном в 12 месяцев — свежий всплеск в ней почти не виден.']),
+      rule: 'увольнений за ' + nw + ' ' + plural(nw, 'неделю', 'недели', 'недель') + ' в ' + O.spikeX + ' раза больше обычного темпа и не меньше ' + O.spikeMin });
+  }
   var nr = !state.metricOff.exit_reasons && M.scope.m.nr ? (M.scope.m.nr[L] || 0) : 0;
-  if (!all.length && !sp && !nr) return '';
-  var body = '';
-  if (items.length) {
-    var lim = Math.min(state.attnAll ? A.all : A.top, items.length);
-    body += '<table class="' + P + '-t ' + P + '-fix ' + P + '-attn"><colgroup><col style="width:33%"><col style="width:17%"><col style="width:17%">'
-      + '<col style="width:22%"><col style="width:11%"></colgroup><tbody>';
-    for (var k = 0; k < lim; k++) body += attnGroup(items[k]);
-    body += '</tbody></table>';
-    if (items.length > A.top) {
-      var nMore = Math.min(items.length, A.all);
-      body += '<div class="' + P + '-attm"><button type="button" class="' + P + '-lnk" data-action="attnall">'
-        + (state.attnAll ? 'Свернуть' : (items.length > A.all ? 'Показать первые ' + nMore + ' из ' + items.length : 'Показать все ' + items.length + ' ' + plural(items.length, 'команду', 'команды', 'команд'))) + '</button>'
-        + (state.attnAll && items.length > A.all ? '<span class="' + P + '-ks"> · остальные ' + (items.length - A.all) + ' — в «Командах»: сортировка по колонке метрики</span>' : '') + '</div>';
-    }
-  } else if (all.length) {
-    body += '<div class="' + P + '-attl ' + P + '-attok">Команд от ' + CFG.small.min + ' человек хуже ориентира нет' + (state.focusOnly ? ' — по метрикам с целью' : '') + '.</div>';
+  if (nr) {
+    var rl = topLeaves(function (r) { return r.ser.m.nr ? (r.ser.m.nr[L] || 0) : 0; }, 4);
+    out.push({ sev: 'mid', pri: 4, w: nr,
+      lead: fmtInt(nr) + ' ' + plural(nr, 'увольнение', 'увольнения', 'увольнений') + ' без причины за 3 мес',
+      body: (rl.length ? ['Заполнить в кадровой системе: '].concat(rl, ['. ']) : []).concat(['Кто именно — в отчёте «Детальные списки».']),
+      rule: 'причина не проставлена через 30 и больше дней после увольнения' });
   }
-  if (sp) body += spikeHTML(sp, leaves);
-  if (nr) body += reasonsHTML(nr, leaves);
-  var info = hInfo({ title: 'Требует внимания',
-    text: 'Команды трёх уровней ниже юнита отчёта, где метрика хуже ориентира (цели или базы) сильнее всего. Мера — сколько людей сверх ориентира: лишних уходов за год, ушедших новичков, увольнений без причины. Так большая команда с небольшим отклонением стоит выше маленькой с большим.',
-    note: ['Команды меньше ' + CFG.small.min + ' человек не оцениваются.', 'Если почти всё отклонение юнита сидит в одном подразделении, в списке — подразделение.', 'Глубже трёх уровней — откройте юнит.'] });
-  return '<div class="' + P + '-gap">' + hPanel({ cls: P + '-attnp', title: 'Требует внимания', info: info,
-    sub: all.length ? 'команды на 3 уровня вниз · сверх ориентира — в людях · меньше ' + CFG.small.min + ' человек не оцениваются' : 'подразделений ниже нет — сигналы по самому юниту',
-    body: body, tbl: true }) + '</div>';
+  var mv = moveOf(M.scope);
+  if (mv && mv.from && Math.abs(mv.to - mv.from) / mv.from >= O.hc) {
+    var dp = Math.round(Math.abs(mv.to - mv.from) / mv.from * 100);
+    out.push({ sev: 'mid', pri: 5, w: 0,
+      lead: 'Численность ' + (mv.to > mv.from ? '+' : MINUS) + dp + '% за год: ' + fmtInt(mv.from) + ' → ' + fmtInt(mv.to),
+      body: ['Найм ' + fmtInt(mv.hire) + ', уходы ' + fmtInt(mv.fire) + ', переводы и прочее ' + signed(mv.other) + '.'],
+      rule: 'изменение численности за год на ' + Math.round(O.hc * 100) + '% и больше' });
+  }
+  // Важность, затем тип факта (pri: всплеск · юнит · команды · тренд · причины · численность), затем люди.
+  var rank = { high: 0, mid: 1, good: 2 };
+  out.sort(function (a, b) { return rank[a.sev] - rank[b.sev] || a.pri - b.pri || b.w - a.w; });
+  return out.slice(0, O.max);
+}
+// Одна строка: важность, главный факт, «Ещё N ▾» (или «Подробнее ▾»); список растёт вниз.
+var SEV_CLS = { high: '-sevh', mid: '-sevm', good: '-sevg' };
+function obsHTML() {
+  var P = CFG.ns, O = CFG.obs, list = obsFacts();
+  var info = hInfo({ title: 'Что видно в данных', text: 'Только факты, которые прошли пороги. Нет фактов — метрики в пределах обычного разброса.',
+    rows: [{ label: 'хуже или лучше цели, базы', value: 'от ' + Math.round(O.dev * 100) + '%' }, { label: 'сверх ориентира у команды', value: 'от ' + O.teamMin + ' чел.' },
+           { label: 'отклонение в одной команде', value: 'от ' + Math.round(O.conc * 100) + '%' }, { label: 'ухудшение подряд', value: O.trend + ' мес.' },
+           { label: 'всплеск уходов за ' + O.spikeWeeks + ' нед.', value: '×' + O.spikeX + ', от ' + O.spikeMin + ' чел.' }, { label: 'численность за год', value: '±' + Math.round(O.hc * 100) + '%' }],
+    note: 'Команды — три уровня ниже юнита отчёта; меньше ' + CFG.small.min + ' человек не оцениваются. Отклонение — в людях: сколько уходов, новичков, увольнений без причины сверх ориентира.' });
+  if (!list.length) {
+    return '<div class="' + P + '-obs"><div class="' + P + '-obs-h"><span class="' + P + '-obs-ico" aria-hidden="true">✓</span>'
+      + '<span class="' + P + '-obs-t">Что видно в данных</span>' + info
+      + '<span class="' + P + '-obs-lead">Отклонений выше порогов нет: метрики в пределах обычного разброса.</span></div></div>';
+  }
+  var o = list[0], open = !!state.obsOpen;
+  var h = '<div class="' + P + '-obs ' + P + SEV_CLS[o.sev] + '"><div class="' + P + '-obs-h">'
+    + '<span class="' + P + '-obs-ico" aria-hidden="true">' + (o.sev === 'good' ? '✓' : '!') + '</span>'
+    + '<span class="' + P + '-obs-t">Что видно в данных</span>' + info
+    + (open ? '<span class="' + P + '-obs-lead"></span>' : '<span class="' + P + '-obs-lead"' + tip({ title: o.lead, text: segsText(o.body), note: 'Отбор по порогу: ' + o.rule }) + '>' + esc(o.lead) + '</span>')
+    + '<button type="button" class="' + P + '-obs-tog" data-action="obs" aria-expanded="' + open + '">'
+    + (open ? 'Свернуть ▴' : (list.length > 1 ? 'Ещё ' + (list.length - 1) + ' ▾' : 'Подробнее ▾')) + '</button></div>';
+  if (open) {
+    h += '<ul class="' + P + '-obs-list">';
+    for (var i = 0; i < list.length; i++) {
+      h += '<li class="' + P + '-obs-li"><i class="' + P + '-obs-dot ' + P + SEV_CLS[list[i].sev] + '"' + tip({ title: list[i].lead, text: 'Отбор по порогу: ' + list[i].rule }) + '></i>'
+        + '<div><b>' + esc(list[i].lead) + '.</b> <span>' + segsHTML(list[i].body) + '</span></div></li>';
+    }
+    h += '</ul>';
+  }
+  return h + '</div>';
 }
 // Метрики, строки которых раскрыты на «Сводке» (раскрыть можно несколько сразу).
 function opOpen(mk) { return !!state.openM[mk]; }
@@ -2535,7 +2603,7 @@ function onepagerHTML() {
   if (!selMetrics('').length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики в «Фильтрах» → «Метрики».');
   var smallScope = isSmall(M.scope), gatedOn = false;
   for (var g0 = 0; g0 < CFG.small.blocks.length; g0++) if (selMetrics(CFG.small.blocks[g0]).length) gatedOn = true;
-  s += kpiCardsHTML() + attnHTML()
+  s += kpiCardsHTML() + obsHTML()
     + (smallScope && gatedOn ? '<div class="' + P + '-note ' + P + '-ninfo ' + P + '-gap">В юните ' + fmtInt(hcOf(M.scope)) + ' ' + plural(hcOf(M.scope), 'человек', 'человека', 'человек')
       + ' — меньше ' + CFG.small.min + ': закрепляемость и текучесть не оцениваются, под прочерком — сколько это людей. Оценка — у юнита уровнем выше.</div>' : '')
     + legendHTML(true, smallScope && gatedOn);
@@ -3073,14 +3141,14 @@ function transformHTML() {
   if (!list.length || !M.scope) return s + hEmpty('Нет данных для разбивки', 'Под текущими разрезами в выбранном юните нет сотрудников.');
   for (var k = L - 11; k <= L; k++) months.push(k);
   // Что тянет метрику: значения оси, которые сильнее всего уводят её хуже ориентира юнита (цели или
-  // базы) в последнем месяце — в людях (excessPeople). До 3 значений от CFG.attn.minPeople; у
+  // базы) в последнем месяце — в людях (excessPeople). До 3 значений от CFG.obs.minPeople; у
   // удержания и текучести — только от CFG.small.min человек, как у команд. «Остальные» не помечаются.
   var vS = mval(M.scope, 'm', m, L), blS = vS === null ? null : baseline(scopeUnit(), m, vS, 'm', L), pull = {}, pulls = [];
   if (blS && blS.ref !== null && m.exL) {
     for (var q = 0; q < list.length; q++) {
       if (list[q].rest || smallHide(list[q].ser, m)) continue;
       var exq = excessPeople(m, list[q].ser, L, blS.ref);
-      if (exq >= CFG.attn.minPeople) pulls.push({ i: q, ex: exq });
+      if (exq >= CFG.obs.minPeople) pulls.push({ i: q, ex: exq });
     }
     pulls.sort(function (a2, b2) { return b2.ex - a2.ex; });
     pulls = pulls.slice(0, 3);
@@ -3278,8 +3346,8 @@ function tourSteps(view) {
       html: 'Что применено — чипами рядом с кнопкой «Фильтры»: × снимает фильтр сразу. Справа — база сравнения: вся компания под теми же разрезами, с ней сравниваются метрики без цели.' });
     add({ sel: function (R) { var k = R.querySelectorAll(P + '-kpis>' + P + '-kpi'); return k.length > 1 ? k[1] : null; }, title: 'Сотрудники и движение',
       html: 'Численность на конец месяца и как она менялась за год: найм в компанию, увольнения из компании, переводы между подразделениями. Помесячно — в ⓘ.' });
-    add({ sel: P + '-attnp', lock: true, title: 'Требует внимания',
-      html: 'Команды на 3 уровня вниз, где метрика хуже ориентира сильнее всего — <b>в людях</b>: сколько уходов или ушедших новичков сверх ориентира. «Показать» откроет команду в «Командах». Ниже — всплеск уходов за последние недели и незаполненные причины увольнений. Команды меньше ' + CFG.small.min + ' человек не оцениваются.' });
+    add({ sel: P + '-obs', title: 'Что видно в данных',
+      html: 'Короткая сводка: только факты, которые прошли пороги, — хуже или лучше цели и базы на 10% и больше (в людях), в какой команде сидит отклонение, ухудшение 3 месяца подряд, всплеск уходов, незаполненные причины. <b>«Ещё N»</b> раскрывает список, имя команды в нём открывает её в «Командах». Команды меньше ' + CFG.small.min + ' человек не оцениваются.' });
     add({ sel: function (R) { var t = firstOp(R); return t ? t.querySelectorAll(P + '-row>' + P + '-lead') : null; }, all: true, title: 'Значение',
       html: 'Метрика за последний закрытый месяц, под ней — сколько это людей: «9 уходов за год», «16 из 17 новичков».' });
     add({ sel: function (R) { var t = firstOp(R); return t ? [t.querySelector(P + '-vs')].concat(slice(t.querySelectorAll(P + '-row>' + P + '-vs'))) : null; },
@@ -4191,9 +4259,10 @@ function buildHTML() {
         return;
       }
       if (act === 'dclose') { closeDrawer(); return; }
-      // «Требует внимания»: строка — в «Командах», выбрана, предки раскрыты, группа метрики.
-      if (act === 'attn') { showTeamRow(key, id || ''); return; }
-      if (act === 'attnall') { state.attnAll = !state.attnAll; render(); return; }
+      // «Что видно в данных»: раскрыть / свернуть список; команда из факта — строка в «Командах»
+      // (выбрана, предки раскрыты, группа метрики), без запроса.
+      if (act === 'obs') { state.obsOpen = !state.obsOpen; render(); return; }
+      if (act === 'goteam') { showTeamRow(key, id || ''); return; }
       if (act === 'copy') {
         var td0 = key === 'tr' ? trTSV() : teamsTSV(), okc = td0.n > 0 && copyText(td0.text);
         copyNote(a, okc ? 'Скопировано: ' + td0.n + ' ' + plural(td0.n, 'строка', 'строки', 'строк') : 'Не удалось: браузер закрыл буфер обмена');
