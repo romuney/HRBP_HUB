@@ -30,8 +30,16 @@
              строкой '…' (n — сколько в ней значений). Массивы — 12 последних закрытых
              месяцев, прочие слоты — нули
       kpi    правила целей: id = rule_id, pid = юнит, j = поля через \t
+      end    1 строка-маркер «ответ целиком»: всегда последняя
     Массивы m_* — 24 месяца, w_* — 24 недели (позиция = idx календаря), строкой
     через запятую. Проценты не храним: чарт делит числитель на знаменатель.
+
+    Порядок строк задан (ORDER BY по роли): meta, f, scope, base, kpi, hrbps, dict, c, g,
+    tr, x, end. Proteus оборачивает датасет в SELECT … LIMIT «лимит строк чарта» и молча
+    отрезает хвост: так первыми уходят третий уровень «Команд», а не значения фильтров и
+    служебные строки (06.10 в бою пропали значения фильтров: плечо фасетов досчитывается
+    последним, и его строки шли в хвосте — на стенде воспроизведено). Нет строки end — ответ
+    обрезан, чарт говорит об этом сам.
 
     Кросс-фильтры (эмитит сам чарт, самовлияние ВКЛЮЧЕНО): unit_f — id юнитов;
     paint_f / it_f / stream_f / spec_f / staff_f / hct_f — значения разрезов;
@@ -405,6 +413,7 @@ FROM (
       ',"rk":', toJSONString(if(length(ctx.scope) = 1, ex.rk1, '')),
       ',"ret_base":', toJSONString('{{ 'active' if RA else 'company' }}'),
       ',"last_m":', toString(ctx.last_m),
+      ',"end":1',
       ',"cal":', (SELECT toJSONString(arrayMap(t -> t.3, arraySort(groupArray(tuple(
                         ifNull(grain, '') = 'w', ifNull(idx, 0),
                         concat(ifNull(grain, ''), '|', toString(ifNull(idx, 0)), '|',
@@ -414,4 +423,13 @@ FROM (
     '}') AS j,
     {{ empty_cols() }}
   FROM ctx CROSS JOIN ex
+
+  UNION ALL
+  {#- ---------- маркер «ответ целиком»: последняя строка; нет её — лимит строк чарта обрезал хвост ---------- #}
+  SELECT 'end' AS role, '' AS id, '' AS pid, toInt64(0) AS n, '' AS j, {{ empty_cols() }}
 )
+{#- Порядок строк: под обёрткой Proteus (SELECT … FROM (датасет) LIMIT N) лимит режет хвост —
+    там то, без чего отчёт живёт (третий уровень «Команд»), а служебное и фильтры — в начале. -#}
+ORDER BY multiIf(role = 'meta', 0, role = 'f', 1, role = 'scope', 2, role = 'base', 3, role = 'kpi', 4,
+                 role = 'hrbps', 5, role = 'dict', 6, role = 'c', 7, role = 'g', 8, role = 'tr', 9,
+                 role = 'x', 10, 11)

@@ -31,10 +31,10 @@ chdb 2.1.1 (= 24.8.4.1) ставится в отдельный venv, систе�
 python3 stand/gen_sources.py              # синтетический мир (stand/world.py) → источники в БД gp
 python3 stand/run_gp.py --seed-kpi        # ВСЕ gp-параграфы из YAML, в том числе стоп-проверки (current_date = день после даты мира)
 python3 stand/ch.py load [nullable|plain] # hrbp_hub_* → prod_proteus.* в chdb (Nullable, как gp_to_click)
-python3 stand/check.py                    # 461 проверка датасета против stand/expect.py (независимый расчёт), свёртка == куб атрибутов
-<venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 463 (+ старый анализатор); HH_CHDB=stand/.chdb24plain после `ch.py load plain` — без Nullable
+python3 stand/check.py                    # 470 проверок датасета против stand/expect.py (независимый расчёт), свёртка == куб атрибутов
+<venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 472 (+ старый анализатор); HH_CHDB=stand/.chdb24plain после `ch.py load plain` — без Nullable
 <venv chdb 2.1.1>/bin/python stand/scale.py <каталог>  # 100 тыс. сотрудников, 10 тыс. юнитов, куб атрибутов 0,86 млн + свёртка: время, строки, JSON, справочник, источник атрибутов (HH_SCALE_COMBOS=4 — тяжёлый куб)
-python3 stand/live.py                     # чарт в браузере поверх chdb: ?user=a.sergeeva|b.kotov|s.volkov|nobody, ?w=900, ?selfoff=1, ?long=1 (длинные имена, как в бою)
+python3 stand/live.py                     # чарт в браузере поверх chdb: ?user=a.sergeeva|b.kotov|s.volkov|nobody, ?w=900, ?selfoff=1, ?long=1 (длинные имена, как в бою), ?limit=N (лимит строк, как режет Proteus)
 HH_CHDB=stand/.chdb_scale <venv chdb 2.1.1>/bin/python stand/live.py 8766  # тот же чарт на масштабе (?user=super): справочник 10 тыс. юнитов, поиск
 HH_TR_ALL_MAX=10 python3 stand/live.py    # запасной режим: ветка больше порога с разрезами — атрибут по запросу (HH_TR_TOP — хвост «…», HH_ATTR_TOP=0 — без свёртки)
 node $(npm root -g)/eslint/bin/eslint.js -c stand/eslint.chart.cjs --no-config-lookup proteus/hrbp-hub.chart.js  # no-undef: 0 ошибок
@@ -56,8 +56,13 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   (`hc, jun, rg, nrg, hcw, nr, r3n, r3d, r6n, r6d, hire, fire`), проценты — в JS.
 - **Время — позиция в массиве** (`hrbp_hub_calendar`): месяцы 0–11 прошлый год, 12–23 текущий;
   недели 0–23, 23 — последняя закрытая. Окна (12/52, 3/13) считаются в параграфе 10.
-- **Датасет — один на отчёт**, строки ролей meta/dict/hrbps/base/scope/c/g/x/f/tr/kpi,
+- **Датасет — один на отчёт**, строки ролей meta/dict/hrbps/base/scope/c/g/x/f/tr/kpi/end,
   29 колонок. Новая колонка = правка «Измерений» в Proteus владельцем (FIELDS.md).
+- **Порядок строк ответа — `ORDER BY` по роли** (meta, f, scope, base, kpi, hrbps, dict, c, g,
+  tr, x, end): Proteus режет ответ лимитом строк чарта снаружи (`SELECT … LIMIT N`) молча, с
+  хвоста. Служебное и фильтры — в начале, третий уровень «Команд» — в конце, строка `end` —
+  последней (нет её — чарт пишет «ответ обрезан»). 06.10 без порядка пропали значения
+  фильтров. Новая роль — в этот порядок; лимит строк чарта — 50 000.
 - **Уровни** — как в ультраширокой: путь = `lvl1` + `lvl3…lvl12` (до 11 id), `lvl` в
   справочнике — номер уровня источника; `lvl2` и глубже 12-го в путь не берутся.
 - **Масштаб ≈100 тыс.**: куб читается только диапазоном `path_s` области, база — из

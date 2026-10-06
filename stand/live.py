@@ -11,6 +11,8 @@ applyCrossFilter(mask). Маска превращается в фильтры д
 предупреждения «фильтр не применился»).
 ?long=1 — длинные имена юнитов, как в бою (у каждого второго юнита имя на
 3–4 строки): проверка имён «одной строкой с …» в «Командах» и шапке «Динамики».
+?limit=N — лимит строк чарта, как его применяет Proteus: SELECT … FROM (датасет) LIMIT N
+(хвост ответа молча отрезается — проверка плашки «ответ обрезан» и того, что фильтры целы).
 """
 import http.server
 import json
@@ -23,6 +25,8 @@ import ch  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHART = os.path.join(HERE, '..', 'proteus', 'hrbp-hub.chart.js')
+COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire']
+COLS = ', '.join(['role', 'id', 'pid', 'n', 'j'] + ['m_' + c for c in COMP] + ['w_' + c for c in COMP])
 
 PAGE = r'''<!doctype html><html><head><meta charset="utf-8"><title>HRBP HUB · стенд</title>
 <style>html,body{margin:0;height:100%;background:#e9ebef;font:13px Arial}
@@ -30,7 +34,7 @@ PAGE = r'''<!doctype html><html><head><meta charset="utf-8"><title>HRBP HUB · �
 <body><div id="cell"><div _echarts_instance_="ec_1" style="width:100%;height:100%;position:relative"><canvas></canvas></div></div>
 <script>
 var Q = new URLSearchParams(location.search);
-var USER = Q.get('user') || 'a.sergeeva', SELFOFF = Q.get('selfoff') === '1', LONG = Q.get('long') === '1';
+var USER = Q.get('user') || 'a.sergeeva', SELFOFF = Q.get('selfoff') === '1', LONG = Q.get('long') === '1', LIMIT = Q.get('limit') || '';
 document.getElementById('cell').style.width = (Q.get('w') ? Q.get('w') + 'px' : '100%');
 var SRC = null, FILTERS = JSON.parse(Q.get('flt') || '{}');
 window.__masks = []; window.__runs = 0;
@@ -39,7 +43,7 @@ function run(rows) {
   (new Function('data', 'applyCrossFilter', SRC + '\n;return typeof option !== "undefined" ? option : null;'))(rows, applyCrossFilter);
 }
 function load() {
-  return fetch('/data?user=' + encodeURIComponent(USER) + '&flt=' + encodeURIComponent(JSON.stringify(FILTERS)) + (LONG ? '&long=1' : ''))
+  return fetch('/data?user=' + encodeURIComponent(USER) + '&flt=' + encodeURIComponent(JSON.stringify(FILTERS)) + (LONG ? '&long=1' : '') + (LIMIT ? '&limit=' + LIMIT : ''))
     .then(function (r) { return r.json(); });
 }
 function applyCrossFilter(mask) {
@@ -94,7 +98,10 @@ class H(http.server.BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(u.query)
             try:
                 flt = json.loads(q.get('flt', ['{}'])[0])
-                rows, _ = ch.dataset(flt, q.get('user', ['a.sergeeva'])[0])
+                sql = ch.render(flt, q.get('user', ['a.sergeeva'])[0])
+                if q.get('limit'):
+                    sql = 'SELECT %s FROM (%s) AS virtual_table LIMIT %d' % (COLS, sql, int(q['limit'][0]))
+                rows, _ = ch.run(sql)
                 if q.get('long') == ['1']:
                     rows = lengthen(rows)
                 return self.send(200, json.dumps(rows, ensure_ascii=False), 'application/json')

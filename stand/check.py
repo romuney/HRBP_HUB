@@ -257,7 +257,7 @@ def main():
     kp = by(rows, 'kpi')
     ok({r['id'] for r in kp} == {'T-004', 'T-005', 'T-006', 'T-007'}, 'цели Котова: карты (2) + компанейские (2), без чужих: %s' % sorted(r['id'] for r in kp))
     rows, _ = ask({}, 'nobody')
-    ok([r['role'] for r in rows] == ['meta'] and meta(rows)['role'] == 'none', 'без роли — только meta')
+    ok([r['role'] for r in rows] == ['meta', 'end'] and meta(rows)['role'] == 'none', 'без роли — только meta (и маркер end)')
     rows, _ = ask({}, 'A.SERGEEVA ')
     ok(meta(rows)['role'] == 'super', 'логин нормализуется (регистр, пробелы)')
     rows, _ = ask({}, 's.volkov')
@@ -281,6 +281,22 @@ def main():
     rows, _ = ch.run(ch.render({}, 'a.sergeeva', always_true=True))
     ok(meta(rows)['scope'] == [sid(root)], 'AlwaysTrue (сохранение датасета) → дефолт: зона пользователя')
     ok(len(json.loads(by(base_rows, 'meta')[0]['j'])['cal']) == 48, 'календарь: 48 слотов в meta')
+    # Порядок строк и маркер end: Proteus оборачивает датасет в SELECT … LIMIT «лимит строк» и
+    # режет хвост — служебное и значения фильтров обязаны идти первыми, end — последним.
+    RANK = ['meta', 'f', 'scope', 'base', 'kpi', 'hrbps', 'dict', 'c', 'g', 'tr', 'x', 'end']
+    cols = ', '.join(['role', 'id', 'pid', 'n', 'j'] + ['m_' + c for c in COMP] + ['w_' + c for c in COMP])
+    for user, flt in [('a.sergeeva', {}), ('b.kotov', {'staff_f': ['Штат']}), ('s.volkov', {'tr_f': ['grade']})]:
+        sql = ch.render(flt, user)
+        rows, _ = ch.run(sql)
+        seq = [RANK.index(r['role']) for r in rows]
+        ok(seq == sorted(seq) and rows[0]['role'] == 'meta' and rows[-1]['role'] == 'end' and meta(rows).get('end') == 1,
+           'порядок строк по роли, meta первой, end последней [%s %s]' % (user, flt))
+        nf = len(by(rows, 'f'))
+        cut, _ = ch.run('SELECT %s FROM (%s) AS virtual_table LIMIT %d' % (cols, sql, len(rows) - 5))
+        ok(cut[0]['role'] == 'meta' and len(by(cut, 'f')) == nf and not by(cut, 'end'),
+           'обёртка Proteus с лимитом меньше ответа: meta и все %d значений фильтров на месте, end нет [%s]' % (nf, user))
+        whole, _ = ch.run('SELECT %s FROM (%s) AS virtual_table LIMIT 10000' % (cols, sql))
+        ok(len(whole) == len(rows) and whole[-1]['role'] == 'end', 'обёртка Proteus с лимитом больше ответа: ответ целиком [%s]' % user)
     # ---------------- 5. глубина «Команд» до 12-го уровня и большие зоны ----------------
     tech = U['Технологии']
     rks = {sid(u.rk): u.rk for u in W.UNITS}

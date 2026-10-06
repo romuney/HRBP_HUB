@@ -150,7 +150,9 @@ var CFG = {
     loading: 'Обновляю данные…',
     notApplied: 'Фильтр не применился: чарт должен фильтровать сам себя. В JSON-метаданных дашборда: cross_filters_enabled: true и у этого чарта crossFilters.scope.excluded: [] — инструкция поставки, п. 4.5.',
     noAccess: 'Для вашего логина нет зоны HRBP в отчёте.',
-    outOfZone: 'Запрошенный юнит вне вашей зоны — показана ваша зона.'
+    outOfZone: 'Запрошенный юнит вне вашей зоны — показана ваша зона.',
+    // Датасет кладёт последней строку end; её нет — Proteus обрезал ответ лимитом строк чарта.
+    truncated: 'Ответ датасета обрезан лимитом строк чарта: пришло {n} строк, часть «Команд» и «Трансформеров» не видна. В настройках чарта поставьте «Лимит строк» 50 000 — инструкция поставки, п. 4.2.'
   },
   // Токены: текст — как в Proteus Adoption, акцент #2b6cff — синий шапки отчёта.
   // Светофор подобран под акцент: у каждого сигнала фон пилюли, текст пилюли и
@@ -318,7 +320,7 @@ function buildModel() {
   var M = { ok: false, missing: [], meta: null, cal: { m: [], w: [] }, L: -1, dataDt: '',
             units: {}, kids: {}, hrbps: [], base: null, scope: null, c: [], g: {}, x: {}, facets: {},
             trBy: {}, trAll: false, rules: [], role: 'none', scopeIds: [], roots: [], single: false,
-            sel: {}, axis: '', reqUnit: [], scopeRk: '',
+            sel: {}, axis: '', reqUnit: [], scopeRk: '', complete: false, cut: false, rows: rawData.length,
             depth: '3', depthReq: '3', scopeN: 0, allMax: 0, hKids: {}, hTop: [], hBy: {} };
   if (!rawData.length) return M;
   var need = [F.role, F.id, F.pid, F.n, F.j];
@@ -355,6 +357,7 @@ function buildModel() {
     else if (role === 'x') { if (!M.x[pid]) M.x[pid] = []; M.x[pid].push({ id: id, pid: pid, ser: serOf(r) }); }
     else if (role === 'f') { if (!M.facets[pid]) M.facets[pid] = []; M.facets[pid].push({ v: id, n: num(r[F.n]) || 0 }); }
     else if (role === 'tr') { if (!M.trBy[pid]) M.trBy[pid] = []; M.trBy[pid].push({ v: id, n: num(r[F.n]) || 1, ser: serOf(r) }); }
+    else if (role === 'end') M.complete = true;
     else if (role === 'kpi') {
       var kf = String(r[F.j] || '').split('\t');
       M.rules.push({ id: id, unit: pid, metric: kf[0], target: num(kf[1]),
@@ -378,6 +381,8 @@ function buildModel() {
   M.scopeN = num(meta.scope_n) || 0;
   M.allMax = num(meta.all_max) || 0;
   M.scopeRk = meta.rk || '';
+  // Датасет шлёт строку end последней (meta.end = 1): её нет — хвост ответа отрезал лимит строк.
+  M.cut = num(meta.end) === 1 && !M.complete;
   for (var cc = 0; cc < CFG.cuts.length; cc++) M.sel[CFG.cuts[cc].key] = (meta['f_' + CFG.cuts[cc].key] || []).slice();
   var cal = meta.cal || [];
   for (var q = 0; q < cal.length; q++) {
@@ -2004,6 +2009,7 @@ function noticesHTML() {
   if (state.pend) s += '<div class="' + P + '-load"><span>' + esc(CFG.text.loading) + '</span><i></i></div>';
   if (state.warn) s += '<div class="' + P + '-note ' + P + '-warn">' + esc(state.warn) + '</div>';
   if (outOfZone()) s += '<div class="' + P + '-note ' + P + '-warn">' + esc(CFG.text.outOfZone) + '</div>';
+  if (M.cut) s += '<div class="' + P + '-note ' + P + '-warn">' + esc(CFG.text.truncated.replace('{n}', fmtInt(M.rows))) + '</div>';
   var v = state.view || 'onepager';
   if (M.meta && M.meta.ret_base === 'active' && (v === 'onepager' || v === 'teams')) {
     s += '<div class="' + P + '-note ' + P + '-ninfo">Тип численности «Активная»: закрепляемость новичков считается от даты перехода в активную численность (active_hire_dt), а не от даты найма в компанию.</div>';
