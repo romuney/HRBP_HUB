@@ -9,11 +9,15 @@
     светофор — считает чарт без запроса.
 
     Строки различаются колонкой role:
-      meta   1 строка — эхо применённых условий, доступ, календарь слотов (j = JSON)
+      meta   1 строка — эхо применённых условий, доступ, календарь слотов, словари значений
+             6 разрезов (fdv) (j = JSON)
       dict   1 строка — юниты пакетом: id, родитель, уровень, численность сейчас,
              текущий ли, (пусто — rk приезжает в meta для выбранного юнита), имя, число
-             детей (j: поля через \t, строки через \n). Вся зона логина на всю глубину и
-             предки её корней — всегда: выбор и поиск юнита в чарте идут без запроса
+             детей, распределение численности последнего закрытого месяца по 6 разрезам
+             среди людей прямо в юните («код:n» через пробел, код — по словарям meta.fdv)
+             (j: поля через \t, строки через \n). Вся зона логина на всю глубину и
+             предки её корней — всегда: выбор и поиск юнита в чарте идут без запроса, а
+             числа окна фильтров (фасеты, дерево, зоны HRBP) — по набранному выбору, тоже без запроса
       hrbps  1 строка — HRBP, чьи зоны внутри моей: логин, имя, корни, численность,
              пути корней (по ним чарт строит дерево «кто под кем»)
       base   вся компания под выбранными разрезами — база сравнения (hrbp_hub_base)
@@ -65,6 +69,10 @@
 {#- У атрибута — не больше TR_TOP значений по численности, остальные — одной строкой '…'
     (город, офис: сотни значений раздули бы ответ зоны в разы). -#}
 {% set TR_TOP = 30 %}
+{#- Скаляр распределения численности для окна фильтров (справочник и meta): одинаковый текст —
+    ClickHouse считает его один раз. Поля: 1 zlo, 2 zhi — диапазон ключа куба всей зоны, 3 zlm —
+    последний закрытый месяц, 4 zroots — корни зоны, 5…10 — словари значений 6 разрезов. -#}
+{% set FZ = '(SELECT (zlo, zhi, zlm, zroots, d_paint, d_it, d_stream, d_spec, d_staff, d_hct) FROM fz)' %}
 {#- Строковый литерал ClickHouse: обратный слэш и кавычка экранируются. -#}
 {% macro qs(v) -%}'{{ v|string|replace('\\', '\\\\')|replace("'", "\\'") }}'{%- endmacro %}
 {#- Список для IN по ключу таблицы (id): индекс ClickHouse берёт его сразу. -#}
@@ -168,6 +176,30 @@ WITH
       ) AS ue
       CROSS JOIN ctx
     )
+  ),
+  {#- Распределение численности для окна фильтров: диапазон ключа куба, в котором лежит вся зона
+      (zlo / zhi), последний закрытый месяц (zlm), корни зоны (zroots) и словари значений 6 разрезов —
+      вся компания, из крошечной hrbp_hub_base (в ней те же сочетания, что в кубе): по ним сочетание
+      разрезов пишется одним числом (смешанная система счисления), чарт читает словари из meta.fdv.
+      Всё — один короткий скаляр FZ (доступ → корни): цепочку ctx → ex он не трогает, считается один
+      раз, и плечу справочника не нужны соединения. -#}
+  fz AS (
+    SELECT zlo, zhi, zlm, zroots, {% for c in CUT_COLS %}d_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
+    FROM (
+      SELECT min(arrayStringConcat(p, '/')) AS zlo, max(concat(arrayStringConcat(p, '/'), '0')) AS zhi,
+             any(lm.last_m) AS zlm, any(acc.roots) AS zroots
+      FROM (
+        SELECT arrayMap(x -> ifNull(x, ''), path) AS p
+        FROM prod_proteus.hrbp_hub_unit
+        WHERE id IN (SELECT arrayJoin(roots) FROM acc)
+      ) AS zu
+      CROSS JOIN lm
+      CROSS JOIN acc
+    ) AS zz
+    CROSS JOIN (
+      SELECT {% for c in CUT_COLS %}arraySort(groupUniqArray(ifNull({{ c }}, '-'))) AS d_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
+      FROM prod_proteus.hrbp_hub_base
+    ) AS fdv
   )
 SELECT role, id, pid, n, j,
   {% for c in COMP %}m_{{ c }}, {% endfor %}{% for c in COMP %}w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
@@ -336,15 +368,42 @@ FROM (
   UNION ALL
   {#- ---------- справочник юнитов: вся зона логина на всю глубину и предки её корней ----------
       Не зависит от выбранного юнита и разрезов: выбор и поиск юнита в чарте — без запроса.
-      rk здесь пустой (на супер-HRBP это сотни КБ): выбранному юниту он приезжает в meta. #}
+      rk здесь пустой (на супер-HRBP это сотни КБ): выбранному юниту он приезжает в meta.
+      9-е поле — распределение численности последнего закрытого месяца по 6 разрезам среди людей
+      прямо в юните (не в поддереве): «код:n» через пробел, код — номера значений в словарях
+      meta.fdv смешанной системой счисления, hex. Пары есть у всех сочетаний, что встречаются в
+      кубе зоны (n бывает 0, как у фасетов). Из него чарт считает числа окна фильтров — фасеты,
+      дерево юнитов, зоны HRBP — по набранному выбору, без запроса (владелец 07.10). #}
   SELECT 'dict' AS role, '' AS id, '' AS pid, toInt64(count()) AS n,
     arrayStringConcat(groupArray(line), '\n') AS j, {{ empty_cols() }}
   FROM (
     SELECT concat(ifNull(u.id, ''), '\t', ifNull(u.pid, ''), '\t', toString(ifNull(u.lvl, 0)), '\t',
                   toString(ifNull(u.hc_now, 0)), '\t', toString(ifNull(u.is_current, 0)), '\t\t',
-                  replaceRegexpAll(ifNull(u.nm, ''), '[\\t\\n\\r]', ' '), '\t', toString(ifNull(u.kids_n, 0))) AS line
+                  replaceRegexpAll(ifNull(u.nm, ''), '[\\t\\n\\r]', ' '), '\t', toString(ifNull(u.kids_n, 0)), '\t',
+                  ifNull(fd.d, '')) AS line
     FROM prod_proteus.hrbp_hub_unit u
     CROSS JOIN ctx
+    LEFT JOIN (
+      SELECT fu, arrayStringConcat(groupArray(concat(hex(fcode), ':', toString(fn))), ' ') AS d
+      FROM (
+        SELECT fu, fcode, sum(hn) AS fn
+        FROM (
+          SELECT arrayElement(arrayMap(x -> ifNull(x, ''), cb.path), -1) AS fu,
+            [{% for c in CUT_COLS %}indexOf(tupleElement({{ FZ }}, {{ loop.index + 4 }}), ifNull(cb.{{ c }}, '-')){% if not loop.last %}, {% endif %}{% endfor %}] AS fi,
+            toUInt64((((((fi[1] - 1) * length(tupleElement({{ FZ }}, 6)) + fi[2] - 1) * length(tupleElement({{ FZ }}, 7)) + fi[3] - 1)
+              * length(tupleElement({{ FZ }}, 8)) + fi[4] - 1) * length(tupleElement({{ FZ }}, 9)) + fi[5] - 1)
+              * length(tupleElement({{ FZ }}, 10)) + fi[6] - 1) AS fcode,
+            toInt64(ifNull(arrayElement(cb.m_hc, tupleElement({{ FZ }}, 3) + 1), 0)) AS hn
+          FROM prod_proteus.hrbp_hub_cube AS cb
+          WHERE path_s >= tupleElement({{ FZ }}, 1) AND path_s < tupleElement({{ FZ }}, 2)
+            {#- у зоны из одного корня диапазон и есть её ветка: проверка корней — только у нескольких -#}
+            AND (length(tupleElement({{ FZ }}, 4)) = 1 OR hasAny(arrayMap(x -> ifNull(x, ''), cb.path), tupleElement({{ FZ }}, 4)))
+            AND NOT has(fi, 0)
+        )
+        GROUP BY fu, fcode
+      )
+      GROUP BY fu
+    ) AS fd ON fd.fu = ifNull(u.id, '')
     WHERE notEmpty(ctx.roots)
       AND (has(ctx.anc, ifNull(u.id, '')) OR hasAny(arrayMap(x -> ifNull(x, ''), u.path), ctx.roots))
   )
@@ -413,6 +472,7 @@ FROM (
       ',"rk":', toJSONString(if(length(ctx.scope) = 1, ex.rk1, '')),
       ',"ret_base":', toJSONString('{{ 'active' if RA else 'company' }}'),
       ',"last_m":', toString(ctx.last_m),
+      ',"fdv":', if(notEmpty(ctx.roots), concat('{'{% for c in CUT_COLS %}, '{{ '' if loop.first else ',' }}"{{ c }}":', toJSONString(tupleElement({{ FZ }}, {{ loop.index + 4 }})){% endfor %}, '}'), '{}'),
       ',"end":1',
       ',"cal":', (SELECT toJSONString(arrayMap(t -> t.3, arraySort(groupArray(tuple(
                         ifNull(grain, '') = 'w', ifNull(idx, 0),

@@ -334,6 +334,10 @@ function isoOf(p) { return p ? p.y + '-' + pad2(p.m + 1) + '-' + pad2(p.d) : '';
 // rawData → MODEL. SQL отдаёт числители и знаменатели по слотам; проценты, окна
 // в знаменателе, дельты, наследование целей и светофор считаются здесь.
 var COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire'];
+// Разрезы распределения численности в справочнике — в порядке CUT_COLS датасета (в нём записан код
+// сочетания); FDC — кэш чисел окна фильтров по набранному выбору (fdCalc). Объявлены до buildModel.
+var FD_KEYS = ['paint', 'it', 'stream', 'spec', 'staff', 'hct'];
+var FDC = { m: null, key: '', val: null };
 var METRIC = {};
 for (var mi0 = 0; mi0 < CFG.metrics.length; mi0++) METRIC[CFG.metrics[mi0].key] = CFG.metrics[mi0];
 var CUT = {};
@@ -371,8 +375,10 @@ function buildModel() {
       for (var k = 0; k < recs.length; k++) {
         var f = recs[k];
         // rk (6-е поле) датасет оставляет пустым: выбранному юниту он приезжает в meta.rk
+        // 9-е поле — распределение численности по разрезам (люди прямо в юните): разбор — fdParse
         var u = { id: f[0], pid: f[1] || '', lvl: num(f[2]) || 0, hc: num(f[3]) || 0, cur: f[4] === '1', rk: f[5] || '', nm: f[6] || '—',
-                  nk: f.length > 7 ? (num(f[7]) || 0) : -1 };
+                  nk: f.length > 7 ? (num(f[7]) || 0) : -1, fds: f.length > 8 ? f[8] : '' };
+        if (f.length > 8) M.fdLines = true;
         u.lc = u.nm.toLowerCase();
         M.units[u.id] = u;
       }
@@ -418,6 +424,10 @@ function buildModel() {
   // Датасет шлёт строку end последней (meta.end = 1): её нет — хвост ответа отрезал лимит строк.
   M.cut = num(meta.end) === 1 && !M.complete;
   for (var cc = 0; cc < CFG.cuts.length; cc++) M.sel[CFG.cuts[cc].key] = (meta['f_' + CFG.cuts[cc].key] || []).slice();
+  // Числа окна фильтров — без запроса (fdCalc): словари значений разрезов — meta.fdv, распределение —
+  // 9-е поле справочника. Нет их (датасет до 07.10) — числа из фасетов ответа (строки f), как раньше.
+  M.fdv = fdvOk(meta.fdv) ? meta.fdv : null;
+  M.fdOk = !!M.fdv && !!M.fdLines;
   var cal = meta.cal || [];
   for (var q = 0; q < cal.length; q++) {
     var p = String(cal[q]).split('|');
@@ -741,6 +751,118 @@ function stageEdit(fn) {
   if (!state.stage) { var a = reqNow(); state.stage = { unit: a.unit, cuts: a.cuts, hz: hzNow() }; }
   fn(state.stage);
   if (!stageDiff()) state.stage = null;
+}
+// ---- числа окна фильтров по набранному выбору, без запроса (владелец 07.10: «цифры должны
+// пересчитываться сразу, а не после „Применить“») ----
+// Датасет кладёт в справочник распределение численности последнего закрытого месяца по 6 разрезам
+// среди людей прямо в юните: пары «код:n», код — номера значений в словарях meta.fdv смешанной
+// системой счисления (порядок разрезов — FD_KEYS, как CUT_COLS датасета).
+function fdvOk(v) {
+  if (!v || typeof v !== 'object') return false;
+  for (var i = 0; i < FD_KEYS.length; i++) if (!v[FD_KEYS[i]] || !v[FD_KEYS[i]].length) return false;
+  return true;
+}
+// Разбор — при первом обращении (на супер-HRBP это десятки тысяч пар): у юнита fd — плоский массив
+// [номер значения × 6, численность]; fdIdx — значение → номер; fdZone / fdZoneN — какие значения
+// встречаются в зоне и сколько в них людей (порядок и состав пилюль не прыгают при наборе).
+function fdParse() {
+  var M = MODEL, k, i;
+  if (!M.fdOk) return false;
+  if (M.fdIdx) return true;
+  var sz = [], idx = [], W = FD_KEYS.length;
+  M.fdZone = []; M.fdZoneN = [];
+  for (k = 0; k < W; k++) {
+    var d = M.fdv[FD_KEYS[k]], mp = {};
+    for (i = 0; i < d.length; i++) mp[d[i]] = i;
+    idx.push(mp); sz.push(d.length); M.fdZone.push({}); M.fdZoneN.push({});
+  }
+  for (var id in M.units) {
+    if (!M.units.hasOwnProperty(id)) continue;
+    var u = M.units[id], out = [], prs = u.fds ? String(u.fds).split(' ') : [];
+    for (var p = 0; p < prs.length; p++) {
+      var at = prs[p].indexOf(':'), code = at > 0 ? parseInt(prs[p].slice(0, at), 16) : NaN, n = at > 0 ? (parseInt(prs[p].slice(at + 1), 10) || 0) : 0, dig = [];
+      if (isNaN(code)) continue;
+      for (k = W - 1; k >= 0; k--) { dig[k] = code % sz[k]; code = Math.floor(code / sz[k]); }
+      for (k = 0; k < W; k++) { out.push(dig[k]); M.fdZone[k][dig[k]] = 1; M.fdZoneN[k][dig[k]] = (M.fdZoneN[k][dig[k]] || 0) + n; }
+      out.push(n);
+    }
+    u.fd = out;
+  }
+  M.fdIdx = idx;
+  return true;
+}
+// Числа по набранному выбору (staged): фасет разреза K — люди области (набранный юнит, зона HRBP или
+// вся зона) при ОСТАЛЬНЫХ набранных разрезах, ровно как строки f датасета после «Применить» (стенд
+// сверяет число в число); marg — та же область без разрезов (порядок длинных списков); direct — люди
+// прямо в юните при ВСЕХ набранных разрезах (поддеревья — fdSub по запросу). Кэш — по набранному.
+function fdCalc() {
+  if (!fdParse()) return null;
+  var M = MODEL, st = staged(), scope = st.unit.length ? st.unit : M.roots, W = FD_KEYS.length, k, i;
+  var key = scope.join(',');
+  for (k = 0; k < W; k++) key += '|' + (st.cuts[FD_KEYS[k]] || []).join('\u0001');
+  if (FDC.m === M && FDC.key === key) return FDC.val;
+  var act = [], sets = [];
+  for (k = 0; k < W; k++) {
+    var sv = st.cuts[FD_KEYS[k]] || [];
+    if (!sv.length) continue;
+    var set = {};
+    for (i = 0; i < sv.length; i++) if (M.fdIdx[k].hasOwnProperty(sv[i])) set[M.fdIdx[k][sv[i]]] = 1;
+    act.push(k); sets[k] = set;
+  }
+  var direct = {}, fac = [], pres = [], marg = [];
+  for (var id in M.units) {
+    if (!M.units.hasOwnProperty(id)) continue;
+    var fd = M.units[id].fd, sum = 0;
+    if (!fd || !fd.length) continue;
+    for (var p = 0; p < fd.length; p += W + 1) {
+      var pass = true;
+      for (var a = 0; a < act.length; a++) if (!sets[act[a]][fd[p + act[a]]]) { pass = false; break; }
+      if (pass) sum += fd[p + W];
+    }
+    direct[id] = sum;
+  }
+  for (k = 0; k < W; k++) { fac.push({}); pres.push({}); marg.push({}); }
+  var seen = {}, stack = scope.slice();
+  while (stack.length) {
+    var x = stack.pop();
+    if (seen[x]) continue;
+    seen[x] = 1;
+    var ks = M.kids[x] || [], fx = M.units[x] ? M.units[x].fd : null;
+    for (i = 0; i < ks.length; i++) stack.push(ks[i]);
+    if (!fx) continue;
+    for (var q = 0; q < fx.length; q += W + 1) {
+      var nf = 0, fail = -1, n = fx[q + W];
+      for (var b = 0; b < act.length && nf < 2; b++) if (!sets[act[b]][fx[q + act[b]]]) { nf++; fail = act[b]; }
+      for (k = 0; k < W; k++) {
+        var vi = fx[q + k];
+        marg[k][vi] = (marg[k][vi] || 0) + n;
+        if (nf === 0 || (nf === 1 && fail === k)) { fac[k][vi] = (fac[k][vi] || 0) + n; pres[k][vi] = 1; }
+      }
+    }
+  }
+  FDC.m = M; FDC.key = key;
+  FDC.val = { direct: direct, tree: {}, fac: fac, pres: pres, marg: marg };
+  return FDC.val;
+}
+// Численность поддерева при набранных разрезах (последний закрытый месяц); без распределения —
+// численность из справочника (на дату данных, без разрезов).
+function fdSub(c, id, depth) {
+  if (c.tree.hasOwnProperty(id)) return c.tree[id];
+  c.tree[id] = 0;
+  var s = c.direct[id] || 0, ks = MODEL.kids[id] || [];
+  if (depth < 40) for (var i = 0; i < ks.length; i++) s += fdSub(c, ks[i], depth + 1);
+  c.tree[id] = s;
+  return s;
+}
+function unitN(id) {
+  var c = fdCalc(), u = MODEL.units[id];
+  return c ? fdSub(c, id, 0) : (u ? u.hc : 0);
+}
+function zoneN(ids) {
+  var c = fdCalc(), n = 0;
+  if (!c) return zoneHc(ids);
+  for (var i = 0; i < ids.length; i++) n += fdSub(c, ids[i], 0);
+  return n;
 }
 // Показ (метрики, «Только фокусные») в окне копится вместе с фильтрами и применяется той же
 // «Применить» (без запроса); stagedView() — что показать, viewDiff() — 1, если показ изменён.
@@ -1324,9 +1446,10 @@ function buildCSS() {
     P + '-cchip{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 11px;border:1px solid ' + C.line + ';border-radius:999px;background:' + C.card + ';font-size:' + F.control + 'px;font-weight:500;color:' + C.ink2 + ';cursor:pointer;white-space:nowrap;}',
     P + '-cchip:hover{border-color:#d3d8e0;}',
     P + '-cchip' + P + '-on{background:' + C.blueBg + ';border-color:#cfdcfb;color:#2b5fd0;}',
-    P + '-cchip svg{flex:0 0 auto;}',
     P + '-cchip ' + P + '-optn{margin-left:2px;}',
     P + '-cchip' + P + '-on ' + P + '-optn{color:#5b83dc;}',
+    // число окна, равное нулю (в области с набранным выбором таких людей нет) — бледнее
+    P + '-zero{color:' + C.muted2 + ';}',
     P + '-crn{align-self:center;font-size:' + F.note + 'px;color:' + C.muted + ';}',
     // разделы окна (HRBP, разрез с длинным списком): заголовок-кнопка во всю ширину и тело под ним
     P + '-acc>' + P + '-ddb{display:flex;width:100%;max-width:none;}',
@@ -2030,6 +2153,12 @@ function zoneHead(label, value, chg, right) {
     + (value ? '<span class="' + P + '-mdzv">' + esc(value) + '</span>' : '')
     + (chg ? '<span class="' + P + '-ddn">не применено</span>' : '') + '<span class="' + P + '-sp"></span>' + (right || '') + '</div>';
 }
+// Что за цифры в окне: с распределением — люди последнего закрытого месяца по набранному выбору
+// (пересчёт сразу), без него — численность справочника на дату данных.
+function fdNote() {
+  return MODEL.fdOk ? 'Цифры — численность за ' + monthLow(MODEL.L) + ' с набранными разрезами, пересчитываются сразу.'
+    : 'Цифра справа — численность сейчас.';
+}
 // Юнит — главный фильтр: дерево зоны с поиском открыто всегда (не раздел-аккордеон). Пока раскрыт
 // выбор HRBP, дерево свёрнуто в строку: списку HRBP — вся высота колонки (владелец 07.10: «по HRBP мало
 // места»); выбор HRBP сворачивает раздел и раскрывает дерево его зоны.
@@ -2048,7 +2177,7 @@ function unitBlockHTML() {
     + '<div class="' + P + '-popf"><span>' + (h
         ? (inHz ? 'Показана только зона HRBP. ' : 'Показана вся зона видимости. ')
           + '<button class="' + P + '-lnk" data-action="unitall">' + (inHz ? 'Вся зона видимости' : 'Только зона HRBP') + '</button>'
-        : 'Цифра справа — численность сейчас.') + '</span></div></div>';
+        : fdNote()) + '</span></div></div>';
 }
 function kidsOf(id) {
   var k = (MODEL.kids[id] || []).slice();
@@ -2085,7 +2214,7 @@ function treeRows(id, depth, cur, out) {
   out.s += '<div class="' + P + '-tr' + (id === cur ? ' ' + P + '-cur' : '') + (mark ? ' ' + P + '-hzr' : '') + '" data-action="pick" data-id="' + esc(id) + '" style="padding-left:' + (9 + depth * 16) + 'px">'
     + (kids.length ? '<button class="' + P + '-tw" data-action="tree" data-id="' + esc(id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button>' : '<span class="' + P + '-tsp"></span>')
     + '<span class="' + P + '-tn">' + esc(u.nm) + (u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>') + mark + path + '</span>'
-    + '<span class="' + P + '-tl">' + esc(levelShort(u.lvl)) + '</span><span class="' + P + '-th">' + fmtInt(u.hc) + '</span></div>';
+    + '<span class="' + P + '-tl">' + esc(levelShort(u.lvl)) + '</span>' + cntHTML('th', unitN(id)) + '</div>';
   if (!open) return;
   for (var i = 0; i < kids.length; i++) treeRows(kids[i], depth + 1, cur, out);
 }
@@ -2101,7 +2230,7 @@ function unitListHTML() {
     var s = '<div class="' + P + '-tr' + (all ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="">'
       + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + (inHz ? 'Вся зона HRBP' : (M.role === 'hrbp' ? 'Вся моя зона' : 'Вся зона видимости')) + '</span>'
       + '<span class="' + P + '-tl">' + top.length + ' ' + plural(top.length, 'корень', 'корня', 'корней') + '</span>'
-      + '<span class="' + P + '-th">' + fmtInt(zoneHc(top)) + '</span></div>';
+      + cntHTML('th', zoneN(top)) + '</div>';
     var out = { s: '', n: 0, withPath: inHz, hzRoots: h && !inHz ? h.roots : null };
     var roots = top.slice().sort(function (a, b) { return unitName(M, a) < unitName(M, b) ? -1 : 1; });
     for (var i = 0; i < roots.length; i++) treeRows(roots[i], 0, cur, out);
@@ -2124,7 +2253,7 @@ function unitListHTML() {
     r += '<div class="' + P + '-tr' + (h.id === cur ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="' + esc(h.id) + '">'
       + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + esc(h.u.nm) + (h.u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>')
       + '<span class="' + P + '-tpath">' + esc(names.join(' › ') || levelLabel(h.u.lvl)) + '</span></span>'
-      + '<span class="' + P + '-tl">' + esc(levelShort(h.u.lvl)) + '</span><span class="' + P + '-th">' + fmtInt(h.u.hc) + '</span></div>';
+      + '<span class="' + P + '-tl">' + esc(levelShort(h.u.lvl)) + '</span>' + cntHTML('th', unitN(h.id)) + '</div>';
   }
   if (hits.length > 80) r += '<div class="' + P + '-nores">Показаны 80 из ' + hits.length + ' — уточните запрос</div>';
   return r;
@@ -2152,7 +2281,7 @@ function hrbpRow(h, depth, cur, withPath) {
     + '<span class="' + P + '-tn">' + esc(h.nm) + (h.login === (M.meta && M.meta.me) ? ' · я' : '')
     + '<span class="' + P + '-tpath">' + esc(withPath && chain.length ? chain.join(' › ') : hrbpRootsText(h)) + '</span></span>'
     + (kids.length ? '<span class="' + P + '-tl">' + kids.length + ' ' + plural(kids.length, 'HRBP', 'HRBP', 'HRBP') + ' ниже</span>' : '')
-    + '<span class="' + P + '-th">' + fmtInt(h.hc) + '</span></div>';
+    + cntHTML('th', MODEL.fdOk ? zoneN(h.roots) : h.hc) + '</div>';
 }
 function hrbpTreeRows(login, depth, cur, out) {
   var h = MODEL.hBy[login];
@@ -2172,7 +2301,7 @@ function hrbpListHTML() {
     for (var i = 0; i < M.hTop.length; i++) hrbpTreeRows(M.hTop[i], 0, cur, out);
     return '<div class="' + P + '-tr' + (!cur ? ' ' + P + '-cur' : '') + '" data-action="hpick" data-id="">'
       + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">Все HRBP<span class="' + P + '-tpath">без выбора — ' + (M.role === 'hrbp' ? 'вся моя зона' : 'вся зона видимости') + '</span></span>'
-      + '<span class="' + P + '-th">' + fmtInt(zoneHc(M.roots)) + '</span></div>' + out.s;
+      + cntHTML('th', zoneN(M.roots)) + '</div>' + out.s;
   }
   var hits = [];
   for (var j = 0; j < M.hrbps.length; j++) {
@@ -2189,7 +2318,8 @@ function hrbpBodyHTML() {
   var P = CFG.ns;
   return hSearch('hrbp', 'Поиск HRBP: фамилия, логин или юнит')
     + '<div class="' + P + '-list" data-plist="hrbp">' + hrbpListHTML() + '</div>'
-    + '<div class="' + P + '-popf"><span>Ниже — HRBP, чьи зоны внутри зоны выше. Цифра справа — численность зоны.</span></div>';
+    + '<div class="' + P + '-popf"><span>Ниже — HRBP, чьи зоны внутри зоны выше. Цифра справа — численность зоны'
+    + (MODEL.fdOk ? ' с набранными разрезами' : '') + '.</span></div>';
 }
 function hrbpBlockHTML() {
   var owner = stagedHz(), chg = (owner ? owner.login : '') !== hzNow(), n = MODEL.hrbps.length;
@@ -2197,22 +2327,38 @@ function hrbpBlockHTML() {
 }
 
 // ---- разрезы, метрики, окно «Фильтры и настройки», строка применённого ----
-// Значения разреза: фасеты ответа (численность при ОСТАЛЬНЫХ разрезах) + выбранные.
-function cutValues(key) {
-  var f = MODEL.facets[key] || [], out = [], seen = {};
-  for (var i = 0; i < f.length; i++) { out.push({ v: f[i].v, n: f[i].n }); seen[f[i].v] = 1; }
-  var sel = MODEL.sel[key] || [];
-  for (var j = 0; j < sel.length; j++) if (!seen[sel[j]]) out.push({ v: sel[j], n: 0 });
+// Значения разреза: численность при ОСТАЛЬНЫХ разрезах в области — по НАБРАННОМУ выбору, сразу
+// (fdCalc: юнит, HRBP и другие разрезы окна пересчитывают числа без «Применить»), + набранные
+// значения, которых в области нет (n = 0: их видно и можно снять). zone = true — все значения
+// зоны (пилюли: состав и порядок не прыгают при наборе); иначе — те, что есть в области. Порядок —
+// смысловой (CFG.order), иначе по людям: пилюли — в зоне, список — в области без разрезов.
+// Без распределения (старый датасет) — фасеты ответа, т. е. по применённому выбору.
+function cutValues(key, zone) {
+  var c = fdCalc(), k = FD_KEYS.indexOf(key), out = [], seen = {}, i;
+  if (c && k > -1) {
+    var d = MODEL.fdv[key], from = zone ? MODEL.fdZone[k] : c.pres[k];
+    for (i in from) if (from.hasOwnProperty(i)) {
+      out.push({ v: d[i], n: c.fac[k][i] || 0, o: zone ? (MODEL.fdZoneN[k][i] || 0) : (c.marg[k][i] || 0) });
+      seen[d[i]] = 1;
+    }
+  } else {
+    var f = MODEL.facets[key] || [];
+    for (i = 0; i < f.length; i++) { out.push({ v: f[i].v, n: f[i].n, o: f[i].n }); seen[f[i].v] = 1; }
+  }
+  var sel = (c ? staged().cuts[key] : MODEL.sel[key]) || [];
+  for (var j = 0; j < sel.length; j++) if (!seen[sel[j]]) out.push({ v: sel[j], n: 0, o: -1 });
   var ord = CFG.order[key];
   out.sort(function (a, b) {
     if (ord) {
       var ia = ord.indexOf(a.v), ib = ord.indexOf(b.v);
       if (ia > -1 || ib > -1) return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
     }
-    return b.n - a.n || (a.v < b.v ? -1 : 1);
+    return b.o - a.o || (a.v < b.v ? -1 : 1);
   });
   return out;
 }
+// Число в окне: ноль — бледнее (в области с набранным выбором таких людей нет).
+function cntHTML(cls, n) { return '<span class="' + CFG.ns + '-' + cls + (n ? '' : ' ' + CFG.ns + '-zero') + '">' + fmtInt(n) + '</span>'; }
 // Разрез с длинным списком — раздел с поиском (поиск — от 8 значений).
 function cutBodyHTML(cut) {
   var P = CFG.ns, vals = cutValues(cut.key), d = staged().cuts[cut.key] || [], kind = 'cut:' + cut.key;
@@ -2230,17 +2376,17 @@ function cutListHTML(cut) {
     if (q && cutName(v).toLowerCase().indexOf(q) < 0) continue;
     n++;
     s += '<label class="' + P + '-opt"><input type="checkbox" data-cutkey="' + cut.key + '" data-cutval="' + esc(v) + '"' + (d.indexOf(v) > -1 ? ' checked' : '') + '>'
-      + '<span class="' + P + '-optt">' + esc(cutName(v)) + '</span><span class="' + P + '-optn">' + fmtInt(vals[i].n) + '</span></label>';
+      + '<span class="' + P + '-optt">' + esc(cutName(v)) + '</span>' + cntHTML('optn', vals[i].n) + '</label>';
   }
-  if (!vals.length) return '<div class="' + P + '-nores">В выбранном юните значений нет</div>';
+  if (!vals.length) return '<div class="' + P + '-nores">В выбранном юните при этих разрезах значений нет</div>';
   return n ? s : '<div class="' + P + '-nores">Ничего не найдено</div>';
 }
 // Пустое значение разреза («не указано»): в пилюлях — прочерком, смысл — в подсказке (владелец 07.10).
 function isNoVal(v) { return v === '' || v === '-' || v === '·' || v == null || String(v).replace(/^\s+|\s+$/g, '').toLowerCase() === 'не указано'; }
-var CHECK_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 // Разрез до CFG.modal.inline значений без «не указано» (покраска, IT / nonIT, штат / не штат…) —
 // пилюли в строку: «Все» — без фильтра, значения отмечаются по одному (можно несколько; отмеченное —
-// с галочкой), «не указано» — «—» в конце. Цифра — численность.
+// фоном, без галочки: она удлиняла пилюлю и переносила ряд, владелец 07.10), «не указано» — «—» в
+// конце. Цифра — численность по набранному выбору.
 function cutChipsHTML(cut, vals) {
   var P = CFG.ns, d = staged().cuts[cut.key] || [], chg = !sameSet(d, MODEL.sel[cut.key] || []), list = [], none = [];
   for (var k = 0; k < vals.length; k++) (isNoVal(vals[k].v) ? none : list).push(vals[k]);
@@ -2251,15 +2397,16 @@ function cutChipsHTML(cut, vals) {
     var v = list[i].v, on = d.indexOf(v) > -1, nv = isNoVal(v);
     s += '<button type="button" class="' + P + '-cchip' + (on ? ' ' + P + '-on' : '') + '" data-action="cutv" data-key="' + cut.key + '" data-val="' + esc(v) + '" aria-pressed="' + (on ? 'true' : 'false') + '"'
       + (nv ? ' aria-label="не указано"' + tip({ title: cut.label, text: 'Не указано: ' + fmtInt(list[i].n) + ' чел.' }) : '') + '>'
-      + (on ? CHECK_SVG : '') + esc(nv ? '—' : cutName(v)) + '<span class="' + P + '-optn">' + fmtInt(list[i].n) + '</span></button>';
+      + esc(nv ? '—' : cutName(v)) + cntHTML('optn', list[i].n) + '</button>';
   }
   if (!vals.length) s += '<span class="' + P + '-crn">в выбранном юните значений нет</span>';
   return rowHTML(cut.key, cut.label, chg, s + '</span>');
 }
 function cutRowHTML(cut) {
-  var vals = cutValues(cut.key), real = 0;
-  for (var i = 0; i < vals.length; i++) if (!isNoVal(vals[i].v)) real++;
-  if (real <= CFG.modal.inline) return cutChipsHTML(cut, vals);
+  var zv = cutValues(cut.key, true), real = 0;
+  for (var i = 0; i < zv.length; i++) if (!isNoVal(zv[i].v)) real++;
+  if (real <= CFG.modal.inline) return cutChipsHTML(cut, zv);
+  var vals = cutValues(cut.key);
   var sel = staged().cuts[cut.key] || [], chg = !sameSet(sel, MODEL.sel[cut.key] || []);
   var val = !sel.length ? 'Все' : (sel.length === 1 ? cutName(sel[0]) : cutName(sel[0]) + ' +' + (sel.length - 1));
   return rowAccHTML('cut:' + cut.key, cut.label, val, vals.length + ' ' + plural(vals.length, 'значение', 'значения', 'значений'), sel.length > 0, chg, function () { return cutBodyHTML(cut); });
@@ -3562,7 +3709,7 @@ function tourSteps(view) {
     add({ sel: P + '-mdl [data-tz="hrbp"]', drawer: true, lock: true, need: hrbpVisible(), title: 'HRBP',
       html: 'Выберите HRBP — отчёт сузится до его зоны, а дерево юнитов ниже покажет только её подразделения, свёрнутые на верхних уровнях зоны. Пока список HRBP раскрыт, дерево свёрнуто в строку.' });
     add({ sel: P + '-mdl [data-tz="cuts"]', drawer: true, lock: true, title: 'Разрезы',
-      html: 'Покраска, IT / nonIT, стрим, специализация, штат, тип численности. Где значений до трёх — пилюли в строку («—» — не указано), длиннее — выпадающий список с поиском. Можно отметить несколько значений: метрики пересчитаются только по этим сотрудникам.' });
+      html: 'Покраска, IT / nonIT, стрим, специализация, штат, тип численности. Где значений до трёх — пилюли в строку («—» — не указано), длиннее — выпадающий список с поиском. Можно отметить несколько значений: метрики пересчитаются только по этим сотрудникам. Цифры у значений, в дереве юнитов и у HRBP — сколько людей с уже набранным выбором: они меняются сразу, до «Применить».' });
     add({ sel: P + '-mdl [data-tz="view"]', drawer: true, lock: true, title: 'Что показывать',
       html: '<b>Метрики</b> — какие строки показывать, по группам: заголовок группы прописными с флажком снимает или возвращает её целиком, метрики группы — под ним с отступом. <b>Только фокусные</b> — метрики, у которых есть цель. Это вид: данные не перезапрашиваются.' });
     add({ sel: P + '-mdf', drawer: true, lock: true, title: 'Применить',

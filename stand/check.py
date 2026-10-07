@@ -16,6 +16,11 @@
    уровни (depth_f) число в число, Σ детей == узел на каждом уровне, «Напрямую в …»
    только рядом с подразделениями, порог «все уровни»; справочник — вся зона логина на
    всю глубину при любом выборе; свёртка атрибутов == листовой куб; пути корней HRBP.
+6. Окно фильтров без запроса: распределение численности в справочнике (9-е поле,
+   словари — meta.fdv) не зависит от выбора, и расчёт чарта по нему (fdCalc: поддеревья
+   по родителям справочника, пара — в фасет разреза, если проходит остальные разрезы)
+   даёт ровно строки f и численность области ответа с тем же выбором — в том числе на
+   реорганизованных и расформированных юнитах.
 """
 import hashlib
 import json
@@ -370,6 +375,78 @@ def main():
         good = good and len(paths_) == len(roots_) and all(p.split('/')[-1] == r_ and p.split('/') == UT[r_]['path']
                                                           for r_, p in zip(roots_, paths_))
     ok(good, 'HRBP: у каждого корня зоны — его путь от компании')
+
+    # ---------------- 6. окно фильтров: числа по набранному выбору без запроса ----------------
+    KEYS = list(CARRIER)
+
+    def fd_model(rows):
+        """Распределение из ответа: юнит → (родитель, [(значения 6 разрезов, n)])."""
+        fdv = meta(rows)['fdv']
+        sizes = [len(fdv[k]) for k in KEYS]
+        units = {}
+        for ln in by(rows, 'dict')[0]['j'].split('\n'):
+            f = ln.split('\t')
+            pairs = []
+            for pr in (f[8].split(' ') if len(f) > 8 and f[8] else []):
+                code, n = pr.split(':')
+                c, idx = int(code, 16), []
+                for sz in reversed(sizes):
+                    idx.append(c % sz)
+                    c //= sz
+                idx.reverse()
+                pairs.append((tuple(fdv[k][i] for k, i in zip(KEYS, idx)), int(n)))
+            units[f[0]] = (f[1], pairs)
+        return units
+
+    def fd_calc(units, scope, cuts):
+        """Как fdCalc чарта: область — поддеревья по родителям справочника; фасет разреза K — пары,
+        что проходят все выбранные разрезы, кроме K; численность — пары, что проходят все."""
+        kids = {}
+        for uid, (pid, _) in units.items():
+            kids.setdefault(pid, []).append(uid)
+        seen, stack = set(), list(scope)
+        while stack:
+            x = stack.pop()
+            if x not in seen:
+                seen.add(x)
+                stack.extend(kids.get(x, []))
+        fac, tot = {}, 0
+        for uid in seen:
+            for vals, n in units.get(uid, ('', []))[1]:
+                fails = [k for k, v in zip(KEYS, vals) if cuts.get(k) and v not in cuts[k]]
+                tot += n if not fails else 0
+                for k, v in zip(KEYS, vals):
+                    if not fails or fails == [k]:
+                        fac[(k, v)] = fac.get((k, v), 0) + n
+        return fac, tot
+
+    fd_cases = [('a.sergeeva', {}), ('a.sergeeva', {'paint_f': ['HQ']}),
+                ('a.sergeeva', {'spec_f': ['Разработка', 'Аналитика'], 'staff_f': ['Не штат']}),
+                ('a.sergeeva', {'unit_f': [sid(tech.rk)]}), ('a.sergeeva', {'unit_f': [yach], 'it_f': ['IT']}),
+                ('a.sergeeva', {'hct_f': ['Активная'], 'paint_f': ['HQ', 'Line']}), ('b.kotov', {'staff_f': ['Штат']}),
+                ('s.volkov', {}), ('s.volkov', {'unit_f': [sid(U['Департамент данных'].rk)]}),
+                ('s.volkov', {'unit_f': [sid(U['Отдел ручного тестирования'].rk)]}),
+                ('e.lapin', {'unit_f': [sid(U['Отдел бэкенда'].rk)], 'it_f': ['IT']}),
+                ('r.kazantsev', {'unit_f': [sid(U['Отдел поддержки 1'].rk)]})]
+    first = {}
+    for user, flt in fd_cases:
+        rows, _ = ask(flt, user)
+        m = meta(rows)
+        units = fd_model(rows)
+        cuts = {k: flt[CARRIER[k]] for k in KEYS if CARRIER[k] in flt}
+        fac, tot = fd_calc(units, m['scope'], cuts)
+        frows = {(r['pid'], r['id']): int(r['n']) for r in by(rows, 'f')}
+        sc = by(rows, 'scope')
+        hc = arrs(sc[0], 'm')['hc'][m['last_m']] if sc else 0
+        dj = by(rows, 'dict')[0]['j']
+        ok(fac == frows and tot == hc and first.setdefault(user, dj) == dj,
+           'окно фильтров без запроса %s %s: фасеты (%d) и численность области (%d) из справочника == ответ, справочник от выбора не зависит'
+           % (user, flt, len(frows), hc))
+    rows, _ = ask({}, 'b.kotov')
+    lines = by(rows, 'dict')[0]['j'].split('\n')
+    ok(all(len(ln.split('\t')) == 9 for ln in lines) and sum(1 for ln in lines if ln.split('\t')[8]) > 0,
+       'у каждой строки справочника 9 полей, у юнитов с людьми — распределение')
+    ok(meta(ask({}, 'nobody')[0]).get('fdv') == {}, 'без роли словарей значений нет')
 
     print('ClickHouse %s · %d проверок, провалено %d' % (ch.VERSION, cases, bad))
     return bad
