@@ -210,9 +210,11 @@ var CFG = {
   // «Команды»: доля таблицы в раскладке «таблица | динамика» (перетаскивается разделителем).
   // minH — нижний предел высоты двух колонок (таблица и «Динамика» прокручиваются внутри).
   split: { def: 0.6, min: 0.3, max: 0.8, minH: 420 },
-  // Окно «Фильтры и настройки»: ширина и высота не больше w × h (меньше — по видимой части ячейки),
-  // уже two — одна колонка; разрез до inline значений — флажки в строку; поиск метрик — от msearch.
-  modal: { w: 1020, h: 820, two: 720, inline: 3, msearch: 8 },
+  // Окно «Фильтры и настройки»: ширина и высота не больше w × h (меньше — по видимой части экрана);
+  // от three — три колонки во всю высоту окна без прокрутки (владелец 07.10: «настройки должны
+  // вмещаться в экран по высоте»), от two — две, уже — одна; разрез до inline значений — флажки
+  // в строку; поиск метрик — от msearch.
+  modal: { w: 1100, h: 820, two: 720, three: 900, inline: 3, msearch: 8 },
   // Видимая часть чарта на экране (iframe Proteus выше экрана): cover — сколько сверху закрывает
   // липкая шапка дашборда, когда верх ячейки уже уехал за край экрана.
   vis: { cover: 64 }
@@ -235,7 +237,7 @@ var STATE0 = {
   qk: {},                // поиск в списках окна: 'unit' | 'hrbp' | 'cut:<разрез>' | 'metric' → строка
   stage: null,           // набранные, но не применённые фильтры: {unit: [...], cuts: {разрез: [...]}}
   stageV: null,          // набранный, но не применённый показ: {off: {метрика: true}, focus: bool}
-  md1: false,            // окно уже CFG.modal.two — одна колонка (меряет placeDrawer)
+  mdm: 2,                // колонок в окне фильтров: 3 | 2 | 1 (по ширине окна — placeDrawer)
   treeOpen: {},          // раскрытые узлы дерева в выборе юнита
   hOpen: {},             // раскрытые узлы дерева HRBP
   openM: {},             // раскрытые строки сводки: ключ метрики → true (можно несколько)
@@ -1236,21 +1238,50 @@ function buildCSS() {
     // набрано в окне, но не применено: пунктир акцентом, как у изменённого раздела
     P + '-unap{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 4px 0 12px;border:1px dashed ' + C.act + ';border-radius:9px;font-size:' + F.note + 'px;color:' + C.ink2 + ';white-space:nowrap;}',
     P + '-unap ' + P + '-btn{height:26px;padding:0 10px;}',
-    // ---- окно «Фильтры и настройки» по центру (модалка Adoption, ДС §4.11): подложка, шапка, тело в две
-    // колонки — «Фильтры» и «Показ», каждая прокручивается сама (узкое окно — одна колонка, прокручивается
-    // тело), подвал с «Применить» не прокручивается никогда ----
+    // ---- окно «Фильтры и настройки» по центру (модалка Adoption, ДС §4.11): подложка, шапка в одну строку,
+    // тело — зоны «Фильтры» и «Показ». Широкое окно (-md3) — три колонки во всю высоту: «Чья зона и юнит» |
+    // «Разрезы» | «Показ», без прокрутки — дерево юнитов, список метрик и раскрытый разрез тянутся на остаток
+    // высоты и прокручиваются внутри (владелец 07.10: «настройки должны вмещаться в экран по высоте»).
+    // Среднее — две колонки, каждая прокручивается сама; узкое (-md1) — одна, прокручивается тело.
+    // Подвал с «Применить» не прокручивается никогда ----
     P + '-mdb{position:fixed;z-index:60;background:rgba(20,28,45,.42);}',
     P + '-mdl{position:fixed;z-index:61;display:flex;flex-direction:column;background:' + C.card + ';border-radius:16px;box-shadow:0 8px 28px rgba(20,28,45,.16);outline:none;overflow:hidden;color:' + C.ink + ';font-size:' + F.body + 'px;}',
-    P + '-mdh{flex:0 0 auto;display:flex;align-items:flex-start;gap:10px;padding:14px 14px 12px 20px;border-bottom:1px solid ' + C.line2 + ';}',
-    P + '-mdhx{flex:1;min-width:0;}',
-    P + '-mdt{display:block;font-size:' + F.title + 'px;font-weight:600;color:' + C.ink + ';}',
-    P + '-mdd{display:block;margin-top:3px;font-size:' + F.note + 'px;color:' + C.muted + ';line-height:1.4;}',
+    P + '-mdh{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:10px 12px 10px 20px;border-bottom:1px solid ' + C.line2 + ';}',
+    P + '-mdhx{flex:1;min-width:0;display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 12px;}',
+    P + '-mdt{display:block;font-size:' + F.title + 'px;font-weight:600;color:' + C.ink + ';white-space:nowrap;}',
+    P + '-mdd{display:block;font-size:' + F.note + 'px;color:' + C.muted + ';line-height:1.4;}',
     P + '-mdbd{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);}',
     P + '-mdc{min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:14px 20px 18px;}',
     P + '-mdc+' + P + '-mdc{border-left:1px solid ' + C.line2 + ';background:' + C.hover + ';}',
     P + '-md1 ' + P + '-mdbd{display:block;overflow-y:auto;overscroll-behavior:contain;}',
     P + '-md1 ' + P + '-mdc{overflow:visible;}',
     P + '-md1 ' + P + '-mdc+' + P + '-mdc{border-left:0;border-top:1px solid ' + C.line2 + ';}',
+    // три колонки: «Фильтры» — сетка из двух подколонок (зона и юнит | разрезы), каждая — колонка во всю
+    // высоту; тянутся дерево юнитов, раскрытый раздел (HRBP, длинный разрез) и список метрик
+    P + '-md3 ' + P + '-mdbd{grid-template-columns:minmax(0,2.25fr) minmax(0,1fr);}',
+    P + '-md3 ' + P + '-mdcf{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0;}',
+    P + '-md3 ' + P + '-mdff{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);}',
+    P + '-md3 ' + P + '-mdsc{min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;padding:0 20px 16px 0;}',
+    P + '-md3 ' + P + '-mdsc+' + P + '-mdsc{padding:0 0 16px 20px;border-left:1px solid ' + C.line2 + ';}',
+    P + '-md3 ' + P + '-mdsc>' + P + '-mdg:first-child{margin-top:10px;}',
+    // Тянущиеся блоки — flex 1 1 0 с явным минимумом (столько, сколько нужно шапке, поиску, списку от
+    // 60–80 px и подвалу): минимум по содержимому дал бы полную высоту списка, а без минимума блок
+    // налез бы на соседа. Ниже минимумов прокручивается подколонка.
+    P + '-md3 [data-tz="unit"],' + P + '-md3 [data-tz="view"],' + P + '-md3 ' + P + '-zopen{flex:1 1 0;display:flex;flex-direction:column;margin-bottom:0;}',
+    P + '-md3 [data-tz="unit"]{min-height:220px;}',
+    P + '-md3 [data-tz="view"],' + P + '-md3 ' + P + '-zopen{min-height:200px;}',
+    P + '-md3 [data-tz="cuts"]{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;margin-bottom:0;}',
+    P + '-md3 ' + P + '-ulist{flex:1 1 0;min-height:72px;max-height:none;}',
+    P + '-md3 ' + P + '-crow{flex-wrap:nowrap;}',
+    P + '-md3 ' + P + '-crl{flex-basis:96px;}',
+    P + '-md3 ' + P + '-crc,' + P + '-md3 ' + P + '-cra{flex:1 1 0;}',
+    P + '-md3 ' + P + '-crow' + P + '-open{flex:1 1 0;min-height:192px;align-items:stretch;}',
+    P + '-md3 ' + P + '-crow' + P + '-open>' + P + '-cra{display:flex;flex-direction:column;min-height:0;}',
+    P + '-md3 ' + P + '-crow' + P + '-open ' + P + '-accb{flex:1 1 0;min-height:0;display:flex;flex-direction:column;}',
+    P + '-md3 ' + P + '-crow' + P + '-open ' + P + '-accb>' + P + '-list{flex:1 1 0;min-height:60px;max-height:none;}',
+    P + '-md3 [data-mdcol="v"]{display:flex;flex-direction:column;}',
+    P + '-md3 ' + P + '-mlist{flex:1 1 0;min-height:80px;overflow-y:auto;}',
+    P + '-md3 [data-mdcol="v"]>' + P + '-drn{flex:0 0 auto;margin-top:10px;}',
     P + '-mdct{display:flex;align-items:baseline;gap:8px;font-size:' + F.body + 'px;font-weight:600;color:' + C.ink + ';}',
     P + '-mdct span{font-size:' + F.note + 'px;font-weight:400;color:' + C.muted + ';}',
     P + '-mdg{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.4px;color:' + C.muted + ';font-weight:500;margin:14px 0 8px;}',
@@ -1292,7 +1323,8 @@ function buildCSS() {
     P + '-accb{padding:8px 2px 4px;}',
     P + '-acch{display:flex;align-items:center;gap:8px;font-size:' + F.note + 'px;color:' + C.muted + ';margin:0 2px 8px;}',
     P + '-acch span:first-child{flex:1;}',
-    P + '-ft' + P + '-ftw{display:flex;width:100%;margin:0 0 12px;}',
+    P + '-ft' + P + '-ftw{display:flex;width:100%;margin:0 0 12px;height:auto;min-height:34px;padding-top:6px;padding-bottom:6px;white-space:normal;}',
+    P + '-ftw ' + P + '-ft-tx{flex:1;min-width:0;text-align:left;line-height:1.35;}',
     P + '-drn{margin-top:14px;font-size:' + F.note + 'px;color:' + C.muted + ';line-height:1.45;}',
 
     // ---- поповеры: разрезы, метрики, выбор юнита ----
@@ -1961,9 +1993,9 @@ function unitChanged() { return !sameSet(stagedUnit(), reqNow().unit); }
 // Строка окна «Фильтры и настройки»: подпись слева (и «не применено» под ней), выбор справа.
 // Раздел (HRBP, разрез с длинным списком) — кнопка с выбранным и, если раскрыт, тело под ней:
 // раскрыт один (state.open); поиск — свой у списка (qv), список пересобирается точечно.
-function rowHTML(id, label, chg, ctl) {
+function rowHTML(id, label, chg, ctl, open) {
   var P = CFG.ns;
-  return '<div class="' + P + '-crow" data-frow="' + esc(id) + '"><span class="' + P + '-crl">' + esc(label)
+  return '<div class="' + P + '-crow' + (open ? ' ' + P + '-open' : '') + '" data-frow="' + esc(id) + '"><span class="' + P + '-crl">' + esc(label)
     + (chg ? '<span class="' + P + '-ddn">не применено</span>' : '') + '</span>' + ctl + '</div>';
 }
 function rowAccHTML(key, label, value, extra, set, chg, body) {
@@ -1973,7 +2005,7 @@ function rowAccHTML(key, label, value, extra, set, chg, body) {
     + '" data-action="open" data-pop="' + esc(key) + '" aria-expanded="' + (open ? 'true' : 'false') + '" aria-label="' + esc(label) + ': ' + esc(value) + '">'
     + '<span class="' + P + '-ddv">' + esc(value) + '</span>' + (extra ? '<span class="' + P + '-ddl">' + esc(extra) + '</span>' : '')
     + '<span class="' + P + '-ddc" aria-hidden="true">' + (open ? '▴' : '▾') + '</span></button>'
-    + (open ? '<div class="' + P + '-accb">' + body() + '</div>' : '') + '</div>');
+    + (open ? '<div class="' + P + '-accb">' + body() + '</div>' : '') + '</div>', open);
 }
 // Заголовок блока окна: что это, что выбрано, «не применено», справа — свои кнопки.
 function zoneHead(label, value, chg, right) {
@@ -2137,7 +2169,7 @@ function hrbpBodyHTML() {
 }
 function hrbpBlockHTML() {
   var owner = stagedHz(), chg = (owner ? owner.login : '') !== hzNow(), n = MODEL.hrbps.length;
-  return '<div class="' + CFG.ns + '-mdz" data-tz="hrbp">' + rowAccHTML('hrbp', 'HRBP', owner ? owner.nm : 'Все HRBP', n + ' ' + plural(n, 'зона', 'зоны', 'зон'), !!owner, chg, hrbpBodyHTML) + '</div>';
+  return '<div class="' + CFG.ns + '-mdz' + (state.open === 'hrbp' ? ' ' + CFG.ns + '-zopen' : '') + '" data-tz="hrbp">' + rowAccHTML('hrbp', 'HRBP', owner ? owner.nm : 'Все HRBP', n + ' ' + plural(n, 'зона', 'зоны', 'зон'), !!owner, chg, hrbpBodyHTML) + '</div>';
 }
 
 // ---- разрезы, метрики, окно «Фильтры и настройки», строка применённого ----
@@ -2254,16 +2286,17 @@ var CLOSE_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" str
 function filtersModalHTML() {
   var P = CFG.ns, n = pendingN(), busy = !!state.pend, pl = pendingList(), s = '';
   s += '<div class="' + P + '-mdb" data-action="dclose"></div>'
-    + '<div class="' + P + '-mdl' + (state.md1 ? ' ' + P + '-md1' : '') + '" role="dialog" aria-modal="true" aria-label="Фильтры и настройки" tabindex="-1" data-drawer="1">'
+    + '<div class="' + P + '-mdl' + (state.mdm === 1 ? ' ' + P + '-md1' : (state.mdm === 3 ? ' ' + P + '-md3' : '')) + '" role="dialog" aria-modal="true" aria-label="Фильтры и настройки" tabindex="-1" data-drawer="1">'
     + '<div class="' + P + '-mdh"><div class="' + P + '-mdhx"><span class="' + P + '-mdt">Фильтры и настройки</span>'
     + '<span class="' + P + '-mdd">Выбор копится и применяется одной кнопкой «Применить» внизу окна.</span></div>'
     + '<button type="button" class="' + P + '-ib" data-action="dclose" aria-label="Закрыть окно">' + CLOSE_SVG + '</button></div>'
     + '<div class="' + P + '-mdbd" data-mdbody="1">'
-    + '<div class="' + P + '-mdc" data-mdcol="f"><div class="' + P + '-mdct">Фильтры<span>пересчитывают отчёт</span></div>'
-    + '<div class="' + P + '-mdg">1 · Чья зона и юнит</div>' + (hrbpVisible() ? hrbpBlockHTML() : '') + unitBlockHTML()
-    + '<div class="' + P + '-mdg">2 · Разрезы численности</div><div class="' + P + '-mdz" data-tz="cuts">';
+    + '<div class="' + P + '-mdc ' + P + '-mdcf" data-mdcol="f"><div class="' + P + '-mdct">Фильтры<span>пересчитывают отчёт</span></div>'
+    + '<div class="' + P + '-mdff"><div class="' + P + '-mdsc" data-mdsub="z">'
+    + '<div class="' + P + '-mdg">1 · Чья зона и юнит</div>' + (hrbpVisible() ? hrbpBlockHTML() : '') + unitBlockHTML() + '</div>'
+    + '<div class="' + P + '-mdsc" data-mdsub="c"><div class="' + P + '-mdg">2 · Разрезы численности</div><div class="' + P + '-mdz" data-tz="cuts">';
   for (var i = 0; i < CFG.cuts.length; i++) s += cutRowHTML(CFG.cuts[i]);
-  s += '</div></div>'
+  s += '</div></div></div></div>'
     + '<div class="' + P + '-mdc" data-mdcol="v"><div class="' + P + '-mdct">Показ<span>без пересчёта данных</span></div>'
     + '<div class="' + P + '-mdg">3 · Что показывать</div>' + viewZoneHTML()
     + '<div class="' + P + '-drn">База сравнения — вся компания под теми же разрезами (сейчас: ' + esc(benchLabel()) + '). Юнит на базу не влияет.</div>'
@@ -3835,7 +3868,7 @@ function buildHTML() {
       if (!els.length) return;
       // Цель в окне «Фильтры и настройки» — прокручиваем его колонку (тело), отчёт под окном не трогаем.
       var sc = els[0];
-      while (sc && sc !== overlay && !(sc.getAttribute && (sc.getAttribute('data-mdcol') !== null || sc.getAttribute('data-mdbody') !== null) && sc.scrollHeight > sc.clientHeight + 1)) sc = sc.parentNode;
+      while (sc && sc !== overlay && !(sc.getAttribute && (sc.getAttribute('data-mdsub') !== null || sc.getAttribute('data-mdcol') !== null || sc.getAttribute('data-mdbody') !== null) && sc.scrollHeight > sc.clientHeight + 1)) sc = sc.parentNode;
       if (sc && sc !== overlay) {
         var ur = tourRect(els), sr = sc.getBoundingClientRect();
         if (ur.top < sr.top + 8 || ur.bottom > sr.bottom - 8) sc.scrollTop += ur.top - sr.top - Math.max(8, (sr.height - ur.height) / 2);
@@ -4125,7 +4158,7 @@ function buildHTML() {
     // Любой addEventListener внутри render() ЗАПРЕЩЁН — он создаёт дубли.
     // overlay — скролл-контейнер: позицию (и прокрутку колонок и списков окна фильтров) храним.
     // Ключ прокрутки — атрибут и его значение: список «юнит», колонка «Показ», тело окна.
-    var SCROLL_KEYS = ['data-plist', 'data-mdcol', 'data-mdbody'];
+    var SCROLL_KEYS = ['data-plist', 'data-mdsub', 'data-mdcol', 'data-mdbody'];
     function scrollsOf() {
       var out = {};
       for (var a = 0; a < SCROLL_KEYS.length; a++) {
@@ -4421,7 +4454,8 @@ function buildHTML() {
     }
     // Окно «Фильтры и настройки» — position:fixed по центру ВИДИМОЙ НА ЭКРАНЕ части чарта (visV: в iframe
     // Proteus ячейка выше экрана, прокручивается страница борда — окно едет за видимой частью), не больше
-    // CFG.modal.w × h, с полями от краёв; уже CFG.modal.two — одна колонка (state.md1). Затемнение — на весь
+    // CFG.modal.w × h, с полями от краёв; колонок — 3 от CFG.modal.three, 2 от two, иначе 1 (state.mdm).
+    // Видимость ещё не измерена, а чарт в iframe — окно у верха ячейки и не выше экрана. Затемнение — на весь
     // чарт в окне. fixed считается от окна, но у предка с transform — от этого предка: ставим окно в 0,0,
     // меряем, где оно оказалось, и сдвигаем на разницу. Зовётся из render, relayout, ресайза, прокрутки
     // и колбэка видимости.
@@ -4431,16 +4465,20 @@ function buildHTML() {
       var r = overlay.getBoundingClientRect(), C = CFG.modal, vv = visV();
       var bt = Math.max(r.top, 0), bb = Math.min(r.bottom, window.innerHeight);
       var left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
-      var top = Math.max(bt, vv.t), bottom = Math.min(bb, vv.b);
+      var top = Math.max(bt, vv.t), bottom = Math.min(bb, vv.b), inFrame = true;
+      try { inFrame = window.self !== window.top; } catch (erf) { inFrame = true; }
+      if (inFrame && (!state.vis || state.vis.none)) bottom = Math.min(bb, top + Math.max(320, ((window.screen && window.screen.availHeight) || 900) - 260));
       if (bottom - top < 120) { top = bt; bottom = bb; }
       var vw = Math.max(0, right - left), vh = Math.max(0, bottom - top);
       var mx = vw < 640 ? 8 : 24, my = vh < 640 ? 8 : 24;
       var w = Math.min(C.w, Math.max(Math.min(vw, 300), vw - 2 * mx)), h = Math.min(C.h, Math.max(Math.min(bb - bt, 320), vh - 2 * my));
       var y = Math.max(bt, Math.min(top + Math.max(0, (vh - h) / 2), bb - h));
-      var one = w < C.two;
-      if (one !== !!state.md1) {
-        state.md1 = one;
-        if (one) d.classList.add(CFG.ns + '-md1'); else d.classList.remove(CFG.ns + '-md1');
+      var m = w >= C.three ? 3 : (w >= C.two ? 2 : 1);
+      if (m !== state.mdm) {
+        state.mdm = m;
+        d.classList.remove(CFG.ns + '-md1');
+        d.classList.remove(CFG.ns + '-md3');
+        if (m !== 2) d.classList.add(CFG.ns + '-md' + m);
       }
       d.style.top = '0px'; d.style.left = '0px';
       var o = d.getBoundingClientRect();
