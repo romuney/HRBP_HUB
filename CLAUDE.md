@@ -31,8 +31,8 @@ chdb 2.1.1 (= 24.8.4.1) ставится в отдельный venv, систе�
 python3 stand/gen_sources.py              # синтетический мир (stand/world.py) → источники в БД gp
 python3 stand/run_gp.py --seed-kpi        # ВСЕ gp-параграфы из YAML, в том числе стоп-проверки (current_date = день после даты мира)
 python3 stand/ch.py load [nullable|plain] # hrbp_hub_* → prod_proteus.* в chdb (Nullable, как gp_to_click)
-python3 stand/check.py                    # 484 проверки датасета против stand/expect.py (независимый расчёт), свёртка == куб атрибутов, окно фильтров из справочника == фасеты
-<venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 486 (+ старый анализатор); HH_CHDB=stand/.chdb24plain после `ch.py load plain` — без Nullable
+python3 stand/check.py                    # 487 проверок датасета против stand/expect.py (независимый расчёт), свёртка == куб атрибутов, окно фильтров из справочника == фасеты, логин в ключе кеша
+<venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 489 (+ старый анализатор); HH_CHDB=stand/.chdb24plain после `ch.py load plain` — без Nullable
 <venv chdb 2.1.1>/bin/python stand/scale.py <каталог>  # 100 тыс. сотрудников, 10 тыс. юнитов, куб атрибутов 0,86 млн + свёртка: время, строки, JSON, справочник, источник атрибутов (HH_SCALE_COMBOS=4 — тяжёлый куб)
 python3 stand/live.py                     # чарт в браузере поверх chdb: ?user=a.sergeeva|b.kotov|s.volkov|nobody, ?w=900, ?selfoff=1, ?long=1 (длинные имена, как в бою), ?limit=N (лимит строк, как режет Proteus)
                                           # /board?… — модель борда: iframe-sandbox высотой с ячейку (?ch=1300), холдер с полем и шапкой, липкая шапка дашборда, ?css=1 (файл 4), ?delay=мс (медленный ответ)
@@ -158,7 +158,10 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   attr, attr_top, base; параграф 15). Без флага массив GP приезжает строкой (так в бою упал `arrayMap`
   по `hrbp_hub_kpi.unit_path`); `stand/ch.py load` берёт флаги из параграфа 15 и повторяет это.
 - **Доступ** — только через `current_username()` и `hrbp_hub_access` внутри датасета;
-  юниты вне зоны не приезжают ни в каком виде.
+  юниты вне зоны не приезжают ни в каком виде. **Логин — в ключе кеша Proteus** (Superset 2):
+  `current_username()` обязан стоять внутри `{{ … }}` в коде шаблона (сейчас — в условии `acc`),
+  не только в `{% set %}` — иначе `ExtraCache.regex` его не видит и ответ кешируется общим на всех
+  (найдено 07.10 в соседнем отчёте; check.py сверяет регулярку).
 - **Чарт** — ES5 (без let/const, стрелок, шаблонных строк), БЛОКИ 1–7 шаблона скилла,
   состояние в `window.__pvtState.hh`, классы с префиксом `hh-`, графики — свой SVG
   по измеренной ширине (ResizeObserver правит только габариты через `relayout`).

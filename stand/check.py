@@ -16,6 +16,11 @@
    уровни (depth_f) число в число, Σ детей == узел на каждом уровне, «Напрямую в …»
    только рядом с подразделениями, порог «все уровни»; справочник — вся зона логина на
    всю глубину при любом выборе; свёртка атрибутов == листовой куб; пути корней HRBP.
+7. Кеш Proteus: логин в ключе кеша. Superset 2 кладёт current_username() в ключ кеша
+   результата, только если регулярка ExtraCache.regex находит вызов внутри {{ … }} в тексте
+   SQL датасета (в {% set %} — не находит, и ответ кешируется общим на всех): текст шаблона
+   совпадает с регуляркой Superset 2 не в комментарии, а при рендере вызов идёт с
+   add_to_cache_keys = True (значение по умолчанию).
 6. Окно фильтров без запроса: распределение численности в справочнике (9-е поле,
    словари — meta.fdv) не зависит от выбора, и расчёт чарта по нему (fdCalc: поддеревья
    по родителям справочника, пара — в фасет разреза, если проходит остальные разрезы)
@@ -456,6 +461,28 @@ def main():
     ok(all(len(ln.split('\t')) == 9 for ln in lines) and sum(1 for ln in lines if ln.split('\t')[8]) > 0,
        'у каждой строки справочника 9 полей, у юнитов с людьми — распределение')
     ok(meta(ask({}, 'nobody')[0]).get('fdv') == {}, 'без роли словарей значений нет')
+
+    # ---------------- 7. кеш Proteus: логин в ключе кеша ----------------
+    # Регулярка Superset 2.x (superset/jinja_context.py, ExtraCache.regex): ищет вызов внутри {{ … }}
+    # на одной строке. Нашла — Superset рендерит шаблон ради ключа кеша, и current_username()
+    # добавляет логин в extra_cache_keys; не нашла — ключ без логина, кеш общий для всех.
+    import re as _re
+    ExtraCache2 = _re.compile(r"\{\{.*(current_user_id\(.*\)|current_username\(.*\)|cache_key_wrapper\(.*\)|url_param\(.*\)).*\}\}")
+    tmpl = open(ch.DATASET, encoding='utf-8').read()
+    code = _re.sub(r"\{#.*?#\}", '', tmpl, flags=_re.S)
+    ok(ExtraCache2.search(code) is not None,
+       'кеш Proteus: current_username() внутри {{ }} в коде шаблона (не в комментарии) — Superset 2 кладёт логин в ключ кеша')
+    ok(ExtraCache2.search("{% set me = (current_username() or '')|string|trim|lower %}") is None,
+       'регулярка Superset 2 не видит вызов в {% set %} — поэтому он и стоит в {{ }}')
+    calls = []
+
+    def _cu(add_to_cache_keys=True):
+        calls.append(add_to_cache_keys)
+        return 'b.kotov'
+    import jinja2 as _j2
+    _env = _j2.Environment(extensions=['jinja2.ext.do'])
+    _env.from_string(tmpl).render(filter_values=lambda c, d=None, r=False: [], current_username=_cu)
+    ok(len(calls) > 0 and all(calls), 'при рендере логин берётся с add_to_cache_keys = True (%d вызовов)' % len(calls))
 
     print('ClickHouse %s · %d проверок, провалено %d' % (ch.VERSION, cases, bad))
     return bad
