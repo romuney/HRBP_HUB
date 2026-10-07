@@ -212,9 +212,9 @@ var CFG = {
   split: { def: 0.6, min: 0.3, max: 0.8, minH: 420 },
   // Окно «Фильтры и настройки»: ширина и высота не больше w × h (меньше — по видимой части экрана);
   // от three — три колонки во всю высоту окна без прокрутки (владелец 07.10: «настройки должны
-  // вмещаться в экран по высоте»), от two — две, уже — одна; разрез до inline значений — флажки
-  // в строку; поиск метрик — от msearch.
-  modal: { w: 1100, h: 820, two: 720, three: 900, inline: 3, msearch: 8 },
+  // вмещаться в экран по высоте»), от two — две, уже — одна; разрез до inline значений (без
+  // «не указано») — пилюли в строку; поиск метрик — от msearch.
+  modal: { w: 1320, h: 820, two: 720, three: 900, inline: 3, msearch: 8 },
   // Видимая часть чарта на экране (iframe Proteus выше экрана): cover — сколько сверху закрывает
   // липкая шапка дашборда, когда верх ячейки уже уехал за край экрана.
   vis: { cover: 64 }
@@ -1257,10 +1257,13 @@ function buildCSS() {
     P + '-md1 ' + P + '-mdc{overflow:visible;}',
     P + '-md1 ' + P + '-mdc+' + P + '-mdc{border-left:0;border-top:1px solid ' + C.line2 + ';}',
     // три колонки: «Фильтры» — сетка из двух подколонок (зона и юнит | разрезы), каждая — колонка во всю
-    // высоту; тянутся дерево юнитов, раскрытый раздел (HRBP, длинный разрез) и список метрик
-    P + '-md3 ' + P + '-mdbd{grid-template-columns:minmax(0,2.25fr) minmax(0,1fr);}',
+    // высоту; тянутся дерево юнитов, раскрытый список HRBP и список метрик (длинный разрез — выпадающим
+    // списком, ниже). Зона и юнит — самая широкая (длинные имена структуры и HRBP, владелец 07.10),
+    // «Показ» — по «Только фокусные» в строку, но не уже 320 px: имена метрик под отступом группы —
+    // целиком и в окне 900–1100 px
+    P + '-md3 ' + P + '-mdbd{grid-template-columns:minmax(0,2.5fr) minmax(320px,1fr);}',
     P + '-md3 ' + P + '-mdcf{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0;}',
-    P + '-md3 ' + P + '-mdff{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);}',
+    P + '-md3 ' + P + '-mdff{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);}',
     P + '-md3 ' + P + '-mdsc{min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;padding:0 20px 16px 0;}',
     P + '-md3 ' + P + '-mdsc+' + P + '-mdsc{padding:0 0 16px 20px;border-left:1px solid ' + C.line2 + ';}',
     P + '-md3 ' + P + '-mdsc>' + P + '-mdg:first-child{margin-top:10px;}',
@@ -1269,16 +1272,22 @@ function buildCSS() {
     // налез бы на соседа. Ниже минимумов прокручивается подколонка.
     P + '-md3 [data-tz="unit"],' + P + '-md3 [data-tz="view"],' + P + '-md3 ' + P + '-zopen{flex:1 1 0;display:flex;flex-direction:column;margin-bottom:0;}',
     P + '-md3 [data-tz="unit"]{min-height:220px;}',
-    P + '-md3 [data-tz="view"],' + P + '-md3 ' + P + '-zopen{min-height:200px;}',
+    P + '-md3 [data-tz="view"]{min-height:200px;}',
+    P + '-md3 ' + P + '-zopen{min-height:216px;}',
+    // дерево юнитов свёрнуто, пока раскрыт выбор HRBP: строка по содержимому, высота — списку HRBP
+    P + '-md3 ' + P + '-mdzc{flex:0 0 auto;min-height:0;}',
     P + '-md3 [data-tz="cuts"]{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;margin-bottom:0;}',
     P + '-md3 ' + P + '-ulist{flex:1 1 0;min-height:72px;max-height:none;}',
-    P + '-md3 ' + P + '-crow{flex-wrap:nowrap;}',
-    P + '-md3 ' + P + '-crl{flex-basis:96px;}',
-    P + '-md3 ' + P + '-crc,' + P + '-md3 ' + P + '-cra{flex:1 1 0;}',
-    P + '-md3 ' + P + '-crow' + P + '-open{flex:1 1 0;min-height:192px;align-items:stretch;}',
-    P + '-md3 ' + P + '-crow' + P + '-open>' + P + '-cra{display:flex;flex-direction:column;min-height:0;}',
-    P + '-md3 ' + P + '-crow' + P + '-open ' + P + '-accb{flex:1 1 0;min-height:0;display:flex;flex-direction:column;}',
-    P + '-md3 ' + P + '-crow' + P + '-open ' + P + '-accb>' + P + '-list{flex:1 1 0;min-height:60px;max-height:none;}',
+    P + '-md3 ' + P + '-zopen ' + P + '-crow' + P + '-open{flex:1 1 0;min-height:212px;}',
+    P + '-md3 ' + P + '-zopen ' + P + '-crow' + P + '-open>' + P + '-cra{flex:1 1 0;display:flex;flex-direction:column;min-height:0;}',
+    P + '-md3 ' + P + '-zopen ' + P + '-crow' + P + '-open ' + P + '-accb{flex:1 1 0;min-height:0;display:flex;flex-direction:column;}',
+    P + '-md3 ' + P + '-zopen ' + P + '-crow' + P + '-open ' + P + '-accb>' + P + '-list{flex:1 1 0;min-height:60px;max-height:none;}',
+    // длинный разрез в трёх колонках — выпадающий список поверх разрезов ниже (или выше, если снизу мало
+    // места): колонка не растёт и не прокручивается, у списка — вся свободная высота (placeCutPop, БЛОК 6)
+    P + '-md3 [data-tz="cuts"] ' + P + '-acc{position:relative;}',
+    P + '-md3 [data-tz="cuts"] ' + P + '-accb{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:6;display:flex;flex-direction:column;padding:8px 8px 6px;background:' + C.card + ';border:1px solid ' + C.line + ';border-radius:10px;box-shadow:0 10px 28px rgba(16,24,40,.16);}',
+    P + '-md3 [data-tz="cuts"] ' + P + '-accb' + P + '-up{top:auto;bottom:calc(100% + 4px);}',
+    P + '-md3 [data-tz="cuts"] ' + P + '-accb>' + P + '-list{flex:1 1 auto;min-height:0;max-height:none;}',
     P + '-md3 [data-mdcol="v"]{display:flex;flex-direction:column;}',
     P + '-md3 ' + P + '-mlist{flex:1 1 0;min-height:80px;overflow-y:auto;}',
     P + '-md3 [data-mdcol="v"]>' + P + '-drn{flex:0 0 auto;margin-top:10px;}',
@@ -1292,9 +1301,12 @@ function buildCSS() {
     P + '-mdl ' + P + '-accb ' + P + '-list{max-height:260px;}',
     P + '-ulist{max-height:300px;}',
     P + '-mlist{max-height:none;overflow:visible;}',
-    P + '-mgh{margin-top:6px;font-weight:500;color:' + C.ink + ';}',
-    P + '-mgh:first-child{margin-top:0;}',
-    P + '-mopt{padding-left:30px;}',
+    P + '-mg{margin:0 0 10px;}',
+    P + '-mg:last-child{margin-bottom:0;}',
+    P + '-mgh{font-size:' + F.cap + 'px;font-weight:600;text-transform:uppercase;letter-spacing:.4px;color:' + C.ink + ';}',
+    P + '-mgh ' + P + '-optn{text-transform:none;letter-spacing:0;font-weight:400;}',
+    P + '-mgl{margin:0 0 0 15px;padding-left:9px;border-left:1px solid ' + C.line + ';}',
+    P + '-mopt{padding-top:5px;padding-bottom:5px;}',
     P + '-mdf{flex:0 0 auto;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:12px 20px;border-top:1px solid ' + C.line2 + ';background:' + C.hover + ';}',
     P + '-mdfs{flex:1 1 120px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:' + F.note + 'px;color:' + C.muted + ';}',
     // узкое окно: что изменено — своей строкой сверху, кнопки — строкой ниже, «Применить» справа
@@ -1302,22 +1314,26 @@ function buildCSS() {
     P + '-md1 ' + P + '-mdf [data-action="reset"]{margin-right:auto;}',
     P + '-btn' + P + '-sm{height:28px;padding:0 10px;}',
     // разрез до трёх значений — флажки-чипы в строку: 30 в строке 34, как сегмент периода Adoption
-    // строка окна: подпись 116 | выбор; подпись — по первой строке выбора (чипы переносятся, раздел раскрывается)
-    P + '-crow{display:flex;align-items:flex-start;flex-wrap:wrap;gap:6px 10px;margin:0 0 8px;}',
-    P + '-crl{flex:0 0 116px;display:flex;flex-direction:column;gap:1px;padding-top:9px;font-size:' + F.control + 'px;font-weight:500;color:' + C.ink2 + ';}',
-    P + '-crc{flex:1 1 240px;min-width:0;display:flex;flex-wrap:wrap;gap:6px;padding:2px 0;}',
-    P + '-cra{flex:1 1 240px;min-width:0;}',
-    P + '-cchip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 11px;border:1px solid ' + C.line + ';border-radius:999px;background:' + C.card + ';font-size:' + F.control + 'px;font-weight:500;color:' + C.ink2 + ';cursor:pointer;white-space:nowrap;}',
+    // строка окна: подпись (и «не применено») — над выбором, выбор — во всю ширину колонки: пилюли
+    // влезают в одну строку, у HRBP и разделов — место под длинные имена (владелец 07.10)
+    P + '-crow{display:flex;flex-direction:column;align-items:stretch;gap:5px;margin:0 0 10px;}',
+    P + '-crl{display:flex;align-items:baseline;gap:8px;font-size:' + F.control + 'px;font-weight:500;color:' + C.ink2 + ';}',
+    P + '-crc{display:flex;flex-wrap:wrap;gap:6px;}',
+    P + '-cra{min-width:0;}',
+    // пилюля значения: 30 px; отмеченная — фон акцента и галочка; «—» — не указано
+    P + '-cchip{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 11px;border:1px solid ' + C.line + ';border-radius:999px;background:' + C.card + ';font-size:' + F.control + 'px;font-weight:500;color:' + C.ink2 + ';cursor:pointer;white-space:nowrap;}',
     P + '-cchip:hover{border-color:#d3d8e0;}',
     P + '-cchip' + P + '-on{background:' + C.blueBg + ';border-color:#cfdcfb;color:#2b5fd0;}',
-    P + '-cchip ' + P + '-optn{margin-left:0;}',
-    P + '-cck{position:relative;flex:0 0 auto;width:13px;height:13px;border:1.5px solid #c3c9d4;border-radius:4px;background:' + C.card + ';}',
-    P + '-cchip' + P + '-on ' + P + '-cck{background:' + C.blue + ';border-color:' + C.blue + ';}',
-    P + '-cchip' + P + '-on ' + P + '-cck:after{content:"";position:absolute;left:3px;top:0;width:3px;height:7px;border:solid #fff;border-width:0 1.5px 1.5px 0;transform:rotate(45deg);}',
+    P + '-cchip svg{flex:0 0 auto;}',
+    P + '-cchip ' + P + '-optn{margin-left:2px;}',
+    P + '-cchip' + P + '-on ' + P + '-optn{color:#5b83dc;}',
     P + '-crn{align-self:center;font-size:' + F.note + 'px;color:' + C.muted + ';}',
     // разделы окна (HRBP, разрез с длинным списком): заголовок-кнопка во всю ширину и тело под ним
     P + '-acc>' + P + '-ddb{display:flex;width:100%;max-width:none;}',
     P + '-acc ' + P + '-ddv{flex:1;text-align:left;}',
+    P + '-utb{display:flex;width:100%;max-width:none;}',
+    P + '-utb ' + P + '-ddv{flex:1;text-align:left;}',
+    P + '-utb ' + P + '-ddl{font-size:' + F.note + 'px;}',
     P + '-acc ' + P + '-ddl{font-size:' + F.note + 'px;}',
     P + '-ddn{font-size:' + F.cap + 'px;font-weight:500;color:' + C.act + ';white-space:nowrap;}',
     P + '-accb{padding:8px 2px 4px;}',
@@ -2014,9 +2030,17 @@ function zoneHead(label, value, chg, right) {
     + (value ? '<span class="' + P + '-mdzv">' + esc(value) + '</span>' : '')
     + (chg ? '<span class="' + P + '-ddn">не применено</span>' : '') + '<span class="' + P + '-sp"></span>' + (right || '') + '</div>';
 }
-// Юнит — главный фильтр: дерево зоны с поиском открыто всегда (не раздел-аккордеон).
+// Юнит — главный фильтр: дерево зоны с поиском открыто всегда (не раздел-аккордеон). Пока раскрыт
+// выбор HRBP, дерево свёрнуто в строку: списку HRBP — вся высота колонки (владелец 07.10: «по HRBP мало
+// места»); выбор HRBP сворачивает раздел и раскрывает дерево его зоны.
 function unitBlockHTML() {
   var P = CFG.ns, st = staged(), h = stagedHz(), inHz = h && !state.unitAll;
+  if (state.open === 'hrbp') {
+    return '<div class="' + P + '-mdz ' + P + '-mdzc" data-tz="unit">' + zoneHead('Юнит отчёта', unitsLabel(st.unit, st.hz), unitChanged())
+      + '<button type="button" class="' + P + '-ddb ' + P + '-utb" data-action="utree" aria-expanded="false">'
+      + '<span class="' + P + '-ddv">Дерево юнитов</span><span class="' + P + '-ddl">свёрнуто, пока открыт выбор HRBP</span>'
+      + '<span class="' + P + '-ddc" aria-hidden="true">▾</span></button></div>';
+  }
   return '<div class="' + P + '-mdz" data-tz="unit">' + zoneHead('Юнит отчёта', unitsLabel(st.unit, st.hz), unitChanged())
     + (h ? '<div class="' + P + '-acch"><span>' + (inHz ? 'Юниты в зоне HRBP' : 'Вся зона видимости, зона HRBP отмечена') + '</span><span class="' + P + '-hzc">' + esc(h.nm) + '</span></div>' : '')
     + hSearch('unit', inHz ? 'Поиск юнита в зоне ' + h.nm : 'Поиск юнита по названию')
@@ -2035,14 +2059,14 @@ function kidsOf(id) {
   });
   return k;
 }
-// По умолчанию раскрыты корни и путь до юнита отчёта и до набранного в окне (выбран из поиска —
-// после выбора дерево показывает его на месте).
-function onScopePath(id) {
-  var ids = MODEL.scopeIds.concat(state.stage ? state.stage.unit : []);
-  for (var i = 0; i < ids.length; i++) if (pathTo(ids[i]).indexOf(id) > -1 && ids[i] !== id) return true;
-  return false;
+// По умолчанию дерево раскрыто только до 3-го уровня: компания раскрыта, юниты 3-го уровня и ниже —
+// свёрнуты; корни зоны HRBP — тоже свёрнуты, на своих верхних уровнях (владелец 07.10: «дерево по
+// умолчанию только 3 уровень, ниже не раскрываем»). Раскрытое руками — state.treeOpen.
+function treeOpen(id, depth) {
+  if (state.treeOpen.hasOwnProperty(id)) return !!state.treeOpen[id];
+  var u = MODEL.units[id];
+  return !!u && u.lvl < 3;
 }
-function treeOpen(id, depth) { return state.treeOpen.hasOwnProperty(id) ? !!state.treeOpen[id] : (depth === 0 || onScopePath(id)); }
 function treeRows(id, depth, cur, out) {
   var P = CFG.ns, u = MODEL.units[id];
   if (!u || out.n > 600) return;
@@ -2211,29 +2235,39 @@ function cutListHTML(cut) {
   if (!vals.length) return '<div class="' + P + '-nores">В выбранном юните значений нет</div>';
   return n ? s : '<div class="' + P + '-nores">Ничего не найдено</div>';
 }
-// Разрез до CFG.modal.inline значений (IT / nonIT, штат / не штат…) — флажки-чипы в строку:
-// «Все» — без фильтра, значения отмечаются по одному (можно несколько). Цифра — численность.
+// Пустое значение разреза («не указано»): в пилюлях — прочерком, смысл — в подсказке (владелец 07.10).
+function isNoVal(v) { return v === '' || v === '-' || v === '·' || v == null || String(v).replace(/^\s+|\s+$/g, '').toLowerCase() === 'не указано'; }
+var CHECK_SVG = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+// Разрез до CFG.modal.inline значений без «не указано» (покраска, IT / nonIT, штат / не штат…) —
+// пилюли в строку: «Все» — без фильтра, значения отмечаются по одному (можно несколько; отмеченное —
+// с галочкой), «не указано» — «—» в конце. Цифра — численность.
 function cutChipsHTML(cut, vals) {
-  var P = CFG.ns, d = staged().cuts[cut.key] || [], chg = !sameSet(d, MODEL.sel[cut.key] || []);
+  var P = CFG.ns, d = staged().cuts[cut.key] || [], chg = !sameSet(d, MODEL.sel[cut.key] || []), list = [], none = [];
+  for (var k = 0; k < vals.length; k++) (isNoVal(vals[k].v) ? none : list).push(vals[k]);
+  list = list.concat(none);
   var s = '<span class="' + P + '-crc" role="group" aria-label="' + esc(cut.label) + '">'
     + '<button type="button" class="' + P + '-cchip' + (d.length ? '' : ' ' + P + '-on') + '" data-action="cutnone" data-key="' + cut.key + '" aria-pressed="' + (d.length ? 'false' : 'true') + '">Все</button>';
-  for (var i = 0; i < vals.length; i++) {
-    var v = vals[i].v, on = d.indexOf(v) > -1;
-    s += '<button type="button" class="' + P + '-cchip' + (on ? ' ' + P + '-on' : '') + '" data-action="cutv" data-key="' + cut.key + '" data-val="' + esc(v) + '" aria-pressed="' + (on ? 'true' : 'false') + '">'
-      + '<span class="' + P + '-cck" aria-hidden="true"></span>' + esc(cutName(v)) + '<span class="' + P + '-optn">' + fmtInt(vals[i].n) + '</span></button>';
+  for (var i = 0; i < list.length; i++) {
+    var v = list[i].v, on = d.indexOf(v) > -1, nv = isNoVal(v);
+    s += '<button type="button" class="' + P + '-cchip' + (on ? ' ' + P + '-on' : '') + '" data-action="cutv" data-key="' + cut.key + '" data-val="' + esc(v) + '" aria-pressed="' + (on ? 'true' : 'false') + '"'
+      + (nv ? ' aria-label="не указано"' + tip({ title: cut.label, text: 'Не указано: ' + fmtInt(list[i].n) + ' чел.' }) : '') + '>'
+      + (on ? CHECK_SVG : '') + esc(nv ? '—' : cutName(v)) + '<span class="' + P + '-optn">' + fmtInt(list[i].n) + '</span></button>';
   }
   if (!vals.length) s += '<span class="' + P + '-crn">в выбранном юните значений нет</span>';
   return rowHTML(cut.key, cut.label, chg, s + '</span>');
 }
 function cutRowHTML(cut) {
-  var vals = cutValues(cut.key);
-  if (vals.length <= CFG.modal.inline) return cutChipsHTML(cut, vals);
+  var vals = cutValues(cut.key), real = 0;
+  for (var i = 0; i < vals.length; i++) if (!isNoVal(vals[i].v)) real++;
+  if (real <= CFG.modal.inline) return cutChipsHTML(cut, vals);
   var sel = staged().cuts[cut.key] || [], chg = !sameSet(sel, MODEL.sel[cut.key] || []);
   var val = !sel.length ? 'Все' : (sel.length === 1 ? cutName(sel[0]) : cutName(sel[0]) + ' +' + (sel.length - 1));
   return rowAccHTML('cut:' + cut.key, cut.label, val, vals.length + ' ' + plural(vals.length, 'значение', 'значения', 'значений'), sel.length > 0, chg, function () { return cutBodyHTML(cut); });
 }
-// Метрики — по группам «Сводки» с флажком группы (снять / вернуть всю группу); поиск — когда
-// метрик больше CFG.modal.msearch. Флажки — набранный показ (stagedView), не применённый.
+// Метрики — по группам «Сводки»: категория — заголовок прописными с флажком группы (снять / вернуть
+// всю группу) и счётчиком, метрики — под ней с отступом и линией (владелец 07.10: «не понятно, где
+// категория, а где метрика»); поиск — когда метрик больше CFG.modal.msearch. Флажки — набранный
+// показ (stagedView), не применённый.
 function metricListHTML() {
   var P = CFG.ns, sv = stagedView(), q = qv('metric').replace(/^\s+|\s+$/g, '').toLowerCase(), s = '';
   for (var b = 0; b < CFG.blocks.length; b++) {
@@ -2248,8 +2282,9 @@ function metricListHTML() {
         + '<span class="' + P + '-optt">' + esc(m.name) + '</span></label>';
     }
     if (!rows) continue;
-    s += '<label class="' + P + '-opt ' + P + '-mgh"><input type="checkbox" data-mgroup="' + bl.key + '"' + (on === all ? ' checked' : '') + (on > 0 && on < all ? ' data-ind="1"' : '') + '>'
-      + '<span class="' + P + '-optt">' + esc(bl.name) + '</span><span class="' + P + '-optn">' + on + ' из ' + all + '</span></label>' + rows;
+    s += '<div class="' + P + '-mg"><label class="' + P + '-opt ' + P + '-mgh"><input type="checkbox" data-mgroup="' + bl.key + '"' + (on === all ? ' checked' : '') + (on > 0 && on < all ? ' data-ind="1"' : '') + '>'
+      + '<span class="' + P + '-optt">' + esc(bl.name) + '</span><span class="' + P + '-optn">' + on + ' из ' + all + '</span></label>'
+      + '<div class="' + P + '-mgl">' + rows + '</div></div>';
   }
   return s || '<div class="' + P + '-nores">Ничего не найдено</div>';
 }
@@ -3523,13 +3558,13 @@ function tourSteps(view) {
       html: 'Юнит, HRBP, разрезы численности и что показывать — в одном окне. Нажмите — окно откроется.',
       hint: 'Нажмите на подсвеченную кнопку или «Показать».' });
     add({ sel: P + '-mdl [data-tz="unit"]', drawer: true, lock: true, title: 'Юнит отчёта',
-      html: 'Дерево вашей зоны на всю глубину и поиск по нему — сразу, без загрузки. Выберите подразделение: отчёт перестроится под него после «Применить».' });
+      html: 'Дерево вашей зоны на всю глубину и поиск по нему — сразу, без загрузки. Раскрыто до 3-го уровня, глубже — по стрелке ▸. Выберите подразделение: отчёт перестроится под него после «Применить».' });
     add({ sel: P + '-mdl [data-tz="hrbp"]', drawer: true, lock: true, need: hrbpVisible(), title: 'HRBP',
-      html: 'Выберите HRBP — отчёт сузится до его зоны, а дерево юнитов ниже покажет только её подразделения.' });
+      html: 'Выберите HRBP — отчёт сузится до его зоны, а дерево юнитов ниже покажет только её подразделения, свёрнутые на верхних уровнях зоны. Пока список HRBP раскрыт, дерево свёрнуто в строку.' });
     add({ sel: P + '-mdl [data-tz="cuts"]', drawer: true, lock: true, title: 'Разрезы',
-      html: 'Покраска, IT / nonIT, стрим, специализация, штат, тип численности. Где значений до трёх — флажки в строку, длиннее — список с поиском. Можно отметить несколько значений: метрики пересчитаются только по этим сотрудникам.' });
+      html: 'Покраска, IT / nonIT, стрим, специализация, штат, тип численности. Где значений до трёх — пилюли в строку («—» — не указано), длиннее — выпадающий список с поиском. Можно отметить несколько значений: метрики пересчитаются только по этим сотрудникам.' });
     add({ sel: P + '-mdl [data-tz="view"]', drawer: true, lock: true, title: 'Что показывать',
-      html: '<b>Метрики</b> — какие строки показывать, по группам: флажок группы снимает или возвращает её целиком. <b>Только фокусные</b> — метрики, у которых есть цель. Это вид: данные не перезапрашиваются.' });
+      html: '<b>Метрики</b> — какие строки показывать, по группам: заголовок группы прописными с флажком снимает или возвращает её целиком, метрики группы — под ним с отступом. <b>Только фокусные</b> — метрики, у которых есть цель. Это вид: данные не перезапрашиваются.' });
     add({ sel: P + '-mdf', drawer: true, lock: true, title: 'Применить',
       html: 'Внизу окна всегда видно, что изменено. «Применить» пересчитывает отчёт одним запросом и закрывает окно, «Отменить» возвращает как было. Закрыли окно, не применив, — над отчётом останется напоминание.' });
     add({ sel: P + '-fbar', lock: true, title: 'Применённые фильтры',
@@ -4486,6 +4521,28 @@ function buildHTML() {
       d.style.left = Math.round(left + (vw - w) / 2 - o.left) + 'px';
       d.style.top = Math.round(y - o.top) + 'px';
       if (b) { b.style.top = (bt - o.top) + 'px'; b.style.left = (left - o.left) + 'px'; b.style.width = vw + 'px'; b.style.height = Math.max(0, bb - bt) + 'px'; }
+      placeCutPop(d);
+    }
+    // Выпадающий список длинного разреза (три колонки): вниз от кнопки, если список там помещается или
+    // снизу места больше, иначе — вверх; высота — до края колонки разрезов (не ниже 140 px).
+    function placeCutPop(d) {
+      var P = CFG.ns, pop = d.querySelector('[data-tz="cuts"] .' + P + '-accb');
+      if (!pop) return;
+      pop.classList.remove(P + '-up');
+      pop.style.maxHeight = '';
+      if (state.mdm !== 3) return;
+      var col = d.querySelector('[data-mdsub="c"]'), btn = pop.parentNode ? pop.parentNode.querySelector('.' + P + '-ddb') : null;
+      if (!col || !btn) return;
+      var cr = col.getBoundingClientRect(), br = btn.getBoundingClientRect(), need = pop.offsetHeight;
+      var below = cr.bottom - br.bottom - 12, above = br.top - cr.top - 12, up = need > below && above > below;
+      if (up) pop.classList.add(P + '-up');
+      pop.style.maxHeight = Math.round(Math.max(140, up ? above : below)) + 'px';
+    }
+    // Открыт выпадающий список разреза (не раздел в потоке): закрывается кликом мимо и Esc, как выпадашка.
+    function cutPopOpen() { return !!state.drawer && state.mdm === 3 && String(state.open || '').indexOf('cut:') === 0; }
+    function inScope(el, key) {
+      for (var n = el; n && n !== overlay; n = n.parentNode) if (n.getAttribute && n.getAttribute('data-scope') === key) return true;
+      return false;
     }
     // Окно закрылось — фокус обратно на «Фильтры» (клавиатура продолжает с того же места).
     function focusOpener() {
@@ -4602,8 +4659,13 @@ function buildHTML() {
       // Тур «Как работать»: кнопка в шапке.
       var ta = trigger(e.target, 'data-tact');
       if (ta) { tourAct(ta.getAttribute('data-tact')); return; }
-      // Разделы окна фильтров сворачивает только их заголовок (клик по пустому месту окна ничего
-      // не закрывает); окно закрывают ×, Esc, подложка, «Отменить» и «Применить».
+      // Разделы окна фильтров в потоке (HRBP, разрез в узком окне) сворачивает только их заголовок (клик по
+      // пустому месту окна ничего не закрывает); выпадающий список разреза — ещё и клик мимо него. Окно
+      // закрывают ×, Esc, подложка, «Отменить» и «Применить».
+      if (cutPopOpen() && !inScope(e.target, state.open)) {
+        state.open = '';
+        if (!trigger(e.target, 'data-action')) { setTimeout(function () { if (!state.open) render(); }, 0); return; }
+      }
       // Переключалка вкладок: кнопка помечена data-view и role=tab.
       var tab = trigger(e.target, 'data-view');
       if (tab) {
@@ -4705,14 +4767,14 @@ function buildHTML() {
           if (h && (!st.unit.length || sameSet(st.unit, h.roots))) st.unit = [];
           st.hz = '';
         });
-        // HRBP выбран — раздел сворачивается, дерево юнитов ниже уже его зона; юнит выбран из
-        // поиска — поиск очищается, дерево показывает юнит на месте.
-        if (act === 'hpick') { state.unitAll = false; state.open = ''; state.qk.hrbp = ''; }
-        state.qk.unit = '';
+        // HRBP выбран — раздел сворачивается, дерево юнитов ниже — его зона, свёрнутая на корнях
+        // (раскрытое руками сбрасывается); юнит выбран из поиска — находки остаются, выбранный подсвечен.
+        if (act === 'hpick') { state.unitAll = false; state.open = ''; state.qk.hrbp = ''; state.qk.unit = ''; state.treeOpen = {}; }
         render();
         return;
       }
       if (act === 'unitall') { state.unitAll = !state.unitAll; state.qk.unit = ''; render(); focusPop('unit'); return; }
+      if (act === 'utree') { state.open = ''; render(); focusPop('unit'); return; }
       if (act === 'htree') { state.hOpen[id] = !hrbpOpen(id, MODEL.hTop.indexOf(id) > -1 ? 0 : 1); render(); return; }
       if (act === 'clearcut' || act === 'cutnone') {
         stageEdit(function (st) { st.cuts[key] = []; });
@@ -4917,6 +4979,14 @@ function buildHTML() {
         e.target.value = '';
         state.tq = '';
         refreshTeams();
+        return;
+      }
+      if (k === 27 && cutPopOpen()) {
+        var ck = state.open, cb;
+        state.open = '';
+        render();
+        cb = overlay.querySelector('[data-pop="' + cssq(ck) + '"]');
+        if (cb) focusQuiet(cb);
         return;
       }
       if (k === 27 && state.drawer) { closeDrawer(); return; }
