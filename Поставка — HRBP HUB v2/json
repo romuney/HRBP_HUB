@@ -1,0 +1,21 @@
+{
+  "is_css_scoped": true,
+  "show_native_filters": false,
+  "color_scheme": "",
+  "refresh_frequency": 0,
+  "expanded_slices": {},
+  "label_colors": {},
+  "timed_refresh_immune_slices": [],
+  "cross_filters_enabled": true,
+  "default_filters": "{}",
+  "filter_scopes": {},
+  "chart_configuration": {
+    "800919": {
+      "id": 800919,
+      "crossFilters": {
+        "scope": {"rootPath": ["ROOT_ID"], "excluded": []},
+        "chartsInScope": [800919]
+      }
+    }
+  }
+}
