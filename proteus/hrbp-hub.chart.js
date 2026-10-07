@@ -312,11 +312,22 @@ function toDate(raw) {
 
 // Массив слотов приходит строкой «1,2,3»: так он переживает любую сериализацию
 // Proteus (массивы строк у него приезжают в Python-виде). Пусто — ряда нет.
+// Массив слотов: датасет не везёт нули по краям — «0» — все нули, «12@5,0,7» — слоты 0…11 нули,
+// дальше 5, 0, 7; хвост — нули до 24 слотов (месяцы и недели календаря). Полный массив без «@»
+// (датасет до 07.10) читается так же. Пустая строка — массива нет (null).
+var SLOTS = 24;
 function parseArr(s) {
   if (s === null || s === undefined || s === '') return null;
   if (Object.prototype.toString.call(s) === '[object Array]') return s;
-  var parts = String(s).split(','), out = [];
+  var str = String(s), out = [], at = str.indexOf('@');
+  if (at > 0) {
+    var off = parseInt(str.slice(0, at), 10) || 0;
+    for (var z = 0; z < off; z++) out.push(0);
+    str = str.slice(at + 1);
+  }
+  var parts = str.split(',');
   for (var i = 0; i < parts.length; i++) { var v = num(parts[i]); out.push(v === null ? 0 : v); }
+  while (out.length < SLOTS) out.push(0);
   return out;
 }
 // Пакет строк: записи через \n, поля через \t.

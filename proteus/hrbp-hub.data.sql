@@ -31,12 +31,13 @@
              прохода фасетов; 11 атрибутов — из свёртки hrbp_hub_attr_top, когда разрезы не
              выбраны и у открытых юнитов она есть (корни зон, компания, блоки, большие ветки),
              иначе — из листового куба ветки. У атрибута — до TR_TOP значений, хвост —
-             строкой '…' (n — сколько в ней значений). Массивы — 12 последних закрытых
-             месяцев, прочие слоты — нули
+             строкой '…' (n — сколько в ней значений). Массивы — только 12 последних закрытых
+             месяцев («N@…»: N первых слотов пропущено, чарт заполняет их нулями)
       kpi    правила целей: id = rule_id, pid = юнит, j = поля через \t
       end    1 строка-маркер «ответ целиком»: всегда последняя
     Массивы m_* — 24 месяца, w_* — 24 недели (позиция = idx календаря), строкой
-    через запятую. Проценты не храним: чарт делит числитель на знаменатель.
+    через запятую без хвостовых нулей («0» — все нули; у трансформеров «N@…» — первые N слотов
+    пропущены; чарт дополняет до 24). Проценты не храним: чарт делит числитель на знаменатель.
 
     Порядок строк задан (ORDER BY по роли): meta, f, scope, base, kpi, hrbps, dict, c, g,
     tr, x, end. Proteus оборачивает датасет в SELECT … LIMIT «лимит строк чарта» и молча
@@ -107,7 +108,19 @@
 {%- endmacro %}
 {% macro src(c) -%}{%- if c in ['r3n', 'r3d', 'r6n', 'r6d'] -%}{{ c[:2] ~ RA ~ c[2:] }}{%- else -%}{{ c }}{%- endif -%}{%- endmacro %}
 {% macro arr(a) -%}arrayMap(x -> toInt64(ifNull(x, 0)), {{ a }}){%- endmacro %}
-{% macro out(a) -%}arrayStringConcat(arrayMap(x -> toString(x), {{ a }}), ','){%- endmacro %}
+{#- Массив строкой без хвостовых нулей — на зоне HRBP это четверть ответа: хвост после последнего
+    ненулевого не везём, из одних нулей — «0»; у трансформеров — только 12 последних закрытых месяцев,
+    слева — число пропущенных слотов: «8@5,0,7» (out12). Чарт дополняет до 24 слотов (parseArr), пустая
+    строка — «массива нет». Обрезка — одним регулярным выражением по строке, без лямбд: arrayMap с
+    лямбдой (было) медленнее простого arrayStringConcat, а поиск первых нулей ещё одним выражением
+    замедлял весь запрос в полтора раза (замер на масштабе). -#}
+{% macro out(a) -%}replaceRegexpOne(arrayStringConcat({{ a }}, ','), '(,0)+$', ''){%- endmacro %}
+{#- 12 последних закрытых месяцев (трансформеры): плечо режет массивы окном W12 ещё до свёртки (вдвое
+    меньше данных в arrayJoin и sumForEach), здесь — слева число пропущенных слотов, хвост без нулей. -#}
+{% macro w12(a, lm) -%}arraySlice({{ a }}, greatest({{ lm }} - 10, 1), least({{ lm }} + 1, 12)){%- endmacro %}
+{% macro out12(a, lm) -%}
+concat(toString(greatest({{ lm }} - 11, 0)), '@', replaceRegexpOne(arrayStringConcat({{ a }}, ','), '(,0)+$', ''))
+{%- endmacro %}
 {% macro empty_cols() -%}{% for c in COMP %}'' AS m_{{ c }}, {% endfor %}{% for c in COMP %}'' AS w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}{%- endmacro %}
 {#- Контекст запроса — цепочкой CTE, а не WITH-выражениями: новый анализатор CH 24
     не пускает вычисляемые алиасы WITH в подзапросы («only supported for constants
@@ -267,13 +280,13 @@ FROM (
   {#- ---------- фасеты фильтров и трансформер по разрезам — один проход по кубу ветки ----------
       Пара «разрез, значение» идёт в фасет, если строка куба проходит ОСТАЛЬНЫЕ разрезы (cond(c)),
       и в трансформер — если проходит ВСЕ (cond('')). Фасет (f): n — численность последнего месяца,
-      без массивов. Трансформер (tr): pid — разрез, id — значение, массивы 12 последних закрытых
-      месяцев (прочие слоты — нули: сводная их не смотрит), строка — только если в неё попала хоть одна
+      без массивов. Трансформер (tr): pid — разрез, id — значение, массивы — только 12 последних закрытых
+      месяцев (окно W12 режется до arrayJoin, в ответе «N@…»: сводная прочих не смотрит), строка — только если в неё попала хоть одна
       строка куба. Отдельный проход ради трансформера стоил бы ещё одной подстановки контекста.
       Диапазон куба — общий скаляр (lo, hi, alo, ahi, tops) на все ветки: одинаковый скаляр
       ClickHouse считает один раз, разные — каждый заново вместе с цепочкой CTE. #}
   SELECT if(kk = 1, 'f', 'tr') AS role, fk.2 AS id, fk.1 AS pid, if(kk = 1, n_f, toInt64(1)) AS n, '' AS j,
-    {% for c in COMP %}if(kk = 1, '', {{ out('arrayMap((x, i) -> if(i > lmv - 11 AND i <= lmv + 1, x, 0), a_m_' ~ c ~ ', arrayEnumerate(a_m_' ~ c ~ '))') }}) AS m_{{ c }}, {% endfor %}
+    {% for c in COMP %}if(kk = 1, '', {{ out12('a_m_' ~ c, 'lmv') }}) AS m_{{ c }}, {% endfor %}
     {% for c in COMP %}'' AS w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
   FROM (
     SELECT (fv.1, fv.2) AS fk, sum(hn) AS n_f, countIf(fv.3 = 1) AS n_tr, any(lm0) AS lmv,
@@ -285,7 +298,7 @@ FROM (
           {% for c in CUT_COLS %}if({{ cond(c) }}, [('{{ c }}', ifNull(cb.{{ c }}, '-'), toUInt8({{ cond('') }}))], []){% if not loop.last %},
           {% endif %}{% endfor %}
         )) AS fv,
-        {% for c in COMP %}{{ arr('cb.m_' ~ src(c)) }} AS mv_{{ c }}{% if not loop.last %},{% endif %}
+        {% for c in COMP %}{{ w12(arr('cb.m_' ~ src(c)), 'ctx.last_m') }} AS mv_{{ c }}{% if not loop.last %},{% endif %}
         {% endfor %}
       FROM (
         SELECT *
@@ -309,20 +322,21 @@ FROM (
       Источники сходятся в один проход с одной подстановкой
       контекста. pid — атрибут, id — значение; у атрибута — не больше TR_TOP значений по
       численности последнего месяца, остальные — одной строкой '…' (n — сколько в ней
-      значений). Массивы — 12 последних закрытых месяцев, прочие слоты — нули. #}
+      значений). Массивы — только 12 последних закрытых месяцев: окно W12 режется до свёртки, в ответе
+      «N@…». #}
   SELECT 'tr' AS role, tv AS id, tk AS pid, nv AS n, '' AS j,
-    {% for c in COMP %}{{ out('arrayMap((x, i) -> if(i > lmv - 11 AND i <= lmv + 1, x, 0), t_m_' ~ c ~ ', arrayEnumerate(t_m_' ~ c ~ '))') }} AS m_{{ c }}, {% endfor %}
+    {% for c in COMP %}{{ out12('t_m_' ~ c, 'lmv') }} AS m_{{ c }}, {% endfor %}
     {% for c in COMP %}'' AS w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
   FROM (
     SELECT tk, if(rn <= {{ TR_TOP }}, tv0, '…') AS tv, toInt64(count()) AS nv, any(lm1) AS lmv,
       {% for c in COMP %}sumForEach(a_m_{{ c }}) AS t_m_{{ c }}{% if not loop.last %},{% endif %}
       {% endfor %}
     FROM (
-      SELECT tk, tv0, lm1, row_number() OVER (PARTITION BY tk ORDER BY arrayElement(a_m_hc, lm1 + 1) DESC, tv0) AS rn,
+      SELECT tk, tv0, lm1, row_number() OVER (PARTITION BY tk ORDER BY arrayElement(a_m_hc, -1) DESC, tv0) AS rn,
         {% for c in COMP %}a_m_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
       FROM (
         SELECT ifNull(ab.attr_k, '') AS tk, ifNull(ab.attr_v, '-') AS tv0, any(ctx.last_m) AS lm1,
-          {% for c in COMP %}sumForEach({{ arr('ab.m_' ~ src(c)) }}) AS a_m_{{ c }}{% if not loop.last %},{% endif %}
+          {% for c in COMP %}sumForEach({{ w12(arr('ab.m_' ~ src(c)), 'ctx.last_m') }}) AS a_m_{{ c }}{% if not loop.last %},{% endif %}
           {% endfor %}
         FROM (
           {%- if not ANYCUT %}

@@ -51,8 +51,17 @@ def ok(cond, msg):
     return cond
 
 
+def unarr(v):
+    """Массив из ответа: «0» — все нули, «N@…» — первые N слотов нули, хвост — нули до 24 (как parseArr чарта)."""
+    if not v:
+        return []
+    off, _, body = v.rpartition('@') if '@' in v else ('0', '', v)
+    a = [0] * int(off) + [int(x) for x in body.split(',')]
+    return a + [0] * (24 - len(a))
+
+
 def arrs(row, grain):
-    return {c: [int(x) for x in row[grain + '_' + c].split(',')] if row[grain + '_' + c] else [] for c in COMP}
+    return {c: unarr(row[grain + '_' + c]) for c in COMP}
 
 
 def ask(flt=None, user='a.sergeeva', settings=''):
