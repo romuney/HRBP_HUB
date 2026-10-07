@@ -15,7 +15,8 @@ module.exports = [{
     globals: {
       window: 'readonly', document: 'readonly', navigator: 'readonly', console: 'readonly',
       getComputedStyle: 'readonly', setTimeout: 'readonly', clearTimeout: 'readonly', innerWidth: 'readonly',
-      ResizeObserver: 'readonly', Element: 'readonly',
+      setInterval: 'readonly', clearInterval: 'readonly',
+      ResizeObserver: 'readonly', IntersectionObserver: 'readonly', Element: 'readonly',
       data: 'readonly', applyCrossFilter: 'readonly', option: 'writable'
     }
   },

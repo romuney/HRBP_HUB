@@ -1,36 +1,44 @@
 /* ==========================================================================
-   HRBP HUB — один чарт на весь лист: iframe во всю ячейку, без полей и шапки.
-   НЕОБЯЗАТЕЛЬНО: виджет работает в ячейке любого размера и сам прокручивается.
-   Вставка убирает поля платформы вокруг чарта и его заголовок (у виджета своя шапка).
+   HRBP HUB — один чарт на весь лист: iframe во всю ячейку, без белого поля и шапки чарта.
+   НУЖНА (07.10): без вставки вокруг отчёта белая рамка 16 px, а над ним — строка
+   шапки чарта Proteus («HRBP HUB ⋯»): отчёт выглядит серым прямоугольником в рамке.
 
-   ЗАМЕНИТЕ 000000 на id чарта «HRBP HUB» — во ВСЕХ местах (Ctrl+H «000000» → id).
+   800919 — id чарта «HRBP HUB» дашборда 61206 (из его JSON-метаданных). Если чарт
+   пересоздали и id другой — замените 800919 во ВСЕХ местах (Ctrl+H «800919» → id).
    Правила 2–5 — проверенная вставка борда Proteus Adoption (раунды 11–12): поле
    16 px держит сам .dashboard-component-chart-holder, iframe по умолчанию inline.
    ========================================================================== */
 
-/* 1. заголовок чарта не нужен: в виджете своя шапка с юнитом, периодом и вкладками */
-.dashboard-chart-id-000000 .header-title {
+/* 1. шапка чарта Proteus (название и меню «⋯») не нужна: у виджета своя шапка с вкладками.
+      Прячем и строку целиком — иначе от неё остаётся полоса над отчётом.
+      Чарт открыть для правки: «Графики» → «HRBP HUB» (или «Редактировать» дашборд). */
+.dashboard-chart-id-800919 .header-title,
+.dashboard-chart-id-800919 .header-controls,
+.dashboard-chart-id-800919 [data-test="slice-header"] {
   display: none !important;
 }
 
-/* 2. без поля 16 px вокруг чарта (emotion-паддинг холдера в форке) */
-.dashboard-grid .dashboard-chart-id-000000 .dashboard-component-chart-holder,
-.dashboard-grid .dashboard-component-chart-holder.dashboard-chart-id-000000 {
+/* 2. без белого поля 16 px вокруг чарта (emotion-паддинг холдера в форке) и без белого фона:
+      фон отчёта = фон борда (#f6f6f6), остаток ячейки под iframe не виден */
+.dashboard-grid .dashboard-chart-id-800919 .dashboard-component-chart-holder,
+.dashboard-grid .dashboard-component-chart-holder.dashboard-chart-id-800919 {
   padding: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 /* 3. область чарта — колонка на всю высоту ячейки */
-.dashboard-chart-id-000000 .chart-slice {
+.dashboard-chart-id-800919 .chart-slice {
   display: flex;
   flex-direction: column;
 }
 
 /* 4. без паддинга платформы вокруг iframe */
-.dashboard-chart-id-000000 .chart-container {
+.dashboard-chart-id-800919 .chart-container {
   padding: 0 !important;
 }
 
 /* 5. iframe без строчной щели снизу */
-.dashboard-chart-id-000000 iframe {
+.dashboard-chart-id-800919 iframe {
   display: block;
 }

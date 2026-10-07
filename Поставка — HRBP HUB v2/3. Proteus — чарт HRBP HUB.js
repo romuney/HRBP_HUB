@@ -146,7 +146,10 @@ var CFG = {
   // trend — месяцев ухудшения подряд; всплеск уходов — последние spikeWeeks недель против обычного
   // темпа (не меньше spikeMin человек и в spikeX раза больше); hc — изменение численности за год; max — фактов.
   obs: { dev: 0.10, minPeople: 0.5, teamMin: 1, conc: 0.5, trend: 3, spikeWeeks: 4, spikeMin: 3, spikeX: 2, hc: 0.10, max: 8 },
-  pendingWarnMs: 9000,
+  // Ответ на кросс-фильтр не пришёл за столько мс — жёлтая плашка «самовлияние?». В бою ответ на всю
+  // компанию идёт дольше 9 с (07.10: плашка висела ~5 с при верных JSON-метаданных) — до плашки ждём
+  // 45 с, а строка загрузки считает секунды и показывает прошлое время ответа.
+  pendingWarnMs: 45000,
   // Уровни — номера mapped-структуры, как в ультраширокой: 1 — компания, дальше 3…12
   // (lvl2 отчёт пропускает). Подпись — по номеру, у юнитов одного уровня разные слова
   // в названиях («Департамент …», «Отдел …»), поэтому слово не выдумываем.
@@ -160,20 +163,21 @@ var CFG = {
     noData: 'Нет данных',
     title: 'HRBP HUB',
     loading: 'Обновляю данные…',
-    notApplied: 'Фильтр не применился: чарт должен фильтровать сам себя. В JSON-метаданных дашборда: cross_filters_enabled: true и у этого чарта crossFilters.scope.excluded: [] — инструкция поставки, п. 4.5.',
+    notApplied: 'Ответа на фильтр нет уже {s} с. Если так при каждом «Применить» — чарт не фильтрует сам себя: в JSON-метаданных дашборда нужны cross_filters_enabled: true и у этого чарта crossFilters.scope.excluded: [] (инструкция поставки, п. 4.5). Если отчёт просто долго считает — ответ ещё придёт, плашка уйдёт сама.',
     noAccess: 'Для вашего логина нет зоны HRBP в отчёте.',
     outOfZone: 'Запрошенный юнит вне вашей зоны — показана ваша зона.',
     // Датасет кладёт последней строку end; её нет — Proteus обрезал ответ лимитом строк чарта.
     truncated: 'Ответ датасета обрезан лимитом строк чарта: пришло {n} строк, часть «Команд» и «Трансформеров» не видна. В настройках чарта поставьте «Лимит строк» 50 000 — инструкция поставки, п. 4.2.'
   },
-  // Токены: текст — как в Proteus Adoption, акцент #2b6cff — синий шапки отчёта.
+  // Токены: текст — как в Proteus Adoption, акцент #2b6cff — синий шапки отчёта. Холст bg = фон борда
+  // Proteus (#f6f6f6, ДС §16.8): иначе чарт на борде — серый прямоугольник-заплатка.
   // Светофор подобран под акцент: у каждого сигнала фон пилюли, текст пилюли и
   // марка графика (столбик спарклайна, точка легенды) — один тон. Марка (green / red /
   // neutral) — посередине между фоном пилюли и насыщенным сигналом: насыщенные столбики
   // были самым ярким пятном «Сводки», тон фона пилюли — слишком бледным. Не ярче синей
   // линии. Жёлтого в светофоре нет.
   colors: {
-    bg: '#f4f5f7', card: '#ffffff', line: '#e7e9ee', line2: '#eef0f3',
+    bg: '#f6f6f6', card: '#ffffff', line: '#e7e9ee', line2: '#eef0f3',
     ink: '#23272e', ink2: '#454b55', muted: '#8a909c', muted2: '#aab0bb',
     green: '#7fd2a5', greenBg: '#dbf5e6', greenTx: '#11804a',
     red: '#f59e9e', redBg: '#fde2e2', redTx: '#cb2e2e',
@@ -208,7 +212,10 @@ var CFG = {
   split: { def: 0.6, min: 0.3, max: 0.8, minH: 420 },
   // Окно «Фильтры и настройки»: ширина и высота не больше w × h (меньше — по видимой части ячейки),
   // уже two — одна колонка; разрез до inline значений — флажки в строку; поиск метрик — от msearch.
-  modal: { w: 1020, h: 820, two: 720, inline: 3, msearch: 8 }
+  modal: { w: 1020, h: 820, two: 720, inline: 3, msearch: 8 },
+  // Видимая часть чарта на экране (iframe Proteus выше экрана): cover — сколько сверху закрывает
+  // липкая шапка дашборда, когда верх ячейки уже уехал за край экрана.
+  vis: { cover: 64 }
 };
 
 // ---------- БЛОК 2: ВХОД + СОСТОЯНИЕ + ХЕЛПЕРЫ ----------
@@ -258,6 +265,9 @@ var STATE0 = {
   narrow: false,         // ячейка уже 1100 px
   pend: null,            // {sig, at} — эмит ушёл, ждём ответ с тем же эхом
   pendT: null, lastSig: '',
+  lastResp: 0,           // сколько мс шёл последний ответ на кросс-фильтр (строка загрузки)
+  vis: null,             // видимая на экране часть окна iframe {t, b} (линейка IntersectionObserver, БЛОК 6)
+  vpH: 0,                // сколько экрана досталось чарту — наибольшая видимая высота (высота «Команд»)
   warn: '',              // предупреждение (не применился фильтр и т. п.)
   tour: null             // идущий тур «Как работать»: {view, i, dir, shown, key, was, busy}
 };
@@ -1175,19 +1185,18 @@ function buildCSS() {
     P + '-tip ' + P + '-t-r+' + P + '-t-n{margin-top:6px;padding-top:5px;border-top:1px solid ' + C.line2 + ';}',
 
     // ---- шапка: имя, выбор юнита, свежесть, вкладки ----
-    P + '-head{background:' + C.card + ';border-bottom:1px solid ' + C.line + ';}',
-    P + '-htop{display:flex;align-items:center;gap:10px;padding:10px 16px;flex-wrap:wrap;}',
-    P + '-logo{font-weight:600;font-size:' + F.title + 'px;white-space:nowrap;color:' + C.ink + ';}',
+    // шапка — карточка на холсте (как шапка листа Adoption): радиус 12, без тени и без полосы во всю ширину
+    P + '-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 16px 0;padding:8px 12px 8px 8px;background:' + C.card + ';border-radius:12px;}',
+    P + '-logo{font-weight:600;font-size:' + F.title + 'px;white-space:nowrap;color:' + C.ink + ';padding-left:8px;}',
     P + '-logo small{color:' + C.muted + ';font-weight:400;font-size:' + F.note + 'px;margin-left:6px;}',
     P + '-sp{flex:1;}',
     // Свежесть и роль — строкой, как «данные за вчера» в шапке Adoption: не контрол.
     P + '-badge{display:inline-flex;align-items:center;gap:6px;color:' + C.muted + ';font-weight:400;font-size:' + F.note + 'px;white-space:nowrap;cursor:help;}',
     P + '-badge b{color:' + C.ink2 + ';font-weight:500;}',
     P + '-badge+' + P + '-badge{padding-left:10px;border-left:1px solid ' + C.line + ';}',
-    P + '-tabbar{display:flex;gap:4px;padding:0 16px;overflow-x:auto;}',
-    P + '-tab{display:inline-flex;align-items:center;height:36px;border:0;background:transparent;padding:0 12px;font-weight:500;font-size:' + F.control + 'px;color:' + C.muted + ';cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}',
-    P + '-tab:hover{color:' + C.ink2 + ';}',
-    P + '-tab' + P + '-on{color:' + C.blue + ';border-bottom-color:' + C.blue + ';}',
+    // вкладки отчёта — пилюли групп «Команд» (-subs ниже), кегль контрола
+    P + '-tabbar ' + P + '-sub{font-size:' + F.control + 'px;}',
+    P + '-sub ' + P + '-cnt{margin-left:0;}',
     P + '-cnt{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 4px;margin-left:5px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;font-size:9px;font-weight:500;}',
 
     // ---- строка фильтров: контролы 34 px ----
@@ -1894,11 +1903,27 @@ function outOfZone() {
 }
 function roleName(r) { return r === 'super' ? 'супер-HRBP' : (r === 'admin' ? 'админ отчёта' : (r === 'hrbp' ? 'HRBP' : 'нет роли')); }
 
-// ---- шапка: имя, юнит, свежесть, роль, вкладки ----
+// ---- шапка: вкладки, «Как работать», свежесть, роль ----
+// Одна строка-карточка на холсте, как шапка листа Proteus Adoption (ДС §16.5): вкладки — пилюли
+// (28 в подложке 34, как группы «Команд»), справа — тур, период и роль. Названия отчёта в шапке
+// нет: его показывает заголовок дашборда Proteus над чартом (владелец 07.10: «шапка отличается
+// по стилю от общего»); без доступа вкладок нет — тогда в шапке название.
 function headHTML() {
   var P = CFG.ns, M = MODEL, ok = M.ok && M.role !== 'none';
-  var s = '<div class="' + P + '-head"><div class="' + P + '-htop">';
-  s += '<span class="' + P + '-logo">' + esc(CFG.text.title) + '<small>метрики команд</small></span>';
+  var s = '<div class="' + P + '-head">';
+  if (ok) {
+    s += '<div class="' + P + '-tabbar ' + P + '-subs" role="tablist" aria-label="Разделы отчёта">';
+    var cur = state.view || 'onepager';
+    for (var i = 0; i < CFG.tabs.length; i++) {
+      var t = CFG.tabs[i], on = t.key === cur;
+      var badge = t.key === 'goals' && M.rules.length ? '<span class="' + P + '-cnt">' + M.rules.length + '</span>' : '';
+      s += '<button type="button" class="' + P + '-sub' + (on ? ' ' + P + '-on' : '') + '" role="tab" aria-selected="' + (on ? 'true' : 'false') + '" data-view="' + t.key + '">'
+        + esc(t.label) + badge + '</button>';
+    }
+    s += '</div>';
+  } else {
+    s += '<span class="' + P + '-logo">' + esc(CFG.text.title) + '<small>метрики команд</small></span>';
+  }
   s += '<span class="' + P + '-sp"></span>';
   // Тур «Как работать» — по той вкладке, на которой нажали (ДС §10: справка доступна кнопкой).
   if (ok && M.L >= 12) {
@@ -1918,18 +1943,6 @@ function headHTML() {
     s += '<span class="' + P + '-badge"' + tip({ title: 'Доступ', rows: [{ label: 'логин', value: M.meta.me || '—' }, { label: 'роль', value: roleName(M.role) },
       { label: 'корней зоны', value: String(M.roots.length) }], note: 'Зона видимости задаётся реестром доступа отчёта (hrbp_hub_access). Юниты вне зоны не приезжают в данные вовсе.' })
       + '>' + esc(roleName(M.role)) + '</span>';
-  }
-  s += '</div>';
-  if (ok) {
-    s += '<div class="' + P + '-tabbar" role="tablist">';
-    var cur = state.view || 'onepager';
-    for (var i = 0; i < CFG.tabs.length; i++) {
-      var t = CFG.tabs[i], on = t.key === cur;
-      var badge = t.key === 'goals' && M.rules.length ? '<span class="' + P + '-cnt">' + M.rules.length + '</span>' : '';
-      s += '<button class="' + P + '-tab' + (on ? ' ' + P + '-on' : '') + '" role="tab" aria-selected="' + (on ? 'true' : 'false') + '" data-view="' + t.key + '">'
-        + esc(t.label) + badge + '</button>';
-    }
-    s += '</div>';
   }
   return s + '</div>';
 }
@@ -2291,8 +2304,11 @@ function filterBarHTML() {
       + (c.label ? '<span class="' + P + '-ddl">' + esc(c.label) + ':</span>' : '') + '<span class="' + P + '-ddv">' + esc(c.value) + '</span>'
       + '<span class="' + P + '-x" role="button" tabindex="0" aria-label="Снять фильтр «' + esc(c.label || c.value) + '»" data-action="chipx" data-key="' + esc(c.key) + '">×</span></span>';
   }
-  // Набрано в окне, но не применено (окно закрыли) — напоминание с той же «Применить».
-  if (n && !on) {
+  // Набрано в окне, но не применено (окно закрыли) — напоминание с той же «Применить». Набранное уже
+  // ушло запросом и ждёт ответа — не «не применено»: идёт строка «Обновляю данные…» (бой отвечает
+  // долго, и плашка с серой «Применить» выглядела как непринятый фильтр).
+  var inflight = !!(state.pend && state.stage && !viewDiff() && sigOf(staged()) === state.pend.sig);
+  if (n && !on && !inflight) {
     s += '<span class="' + P + '-unap">Выбрано, не применено: ' + n
       + '<button class="' + P + '-btn ' + P + '-pri" data-action="apply"' + (state.pend ? ' disabled' : '') + '>Применить</button>'
       + '<button class="' + P + '-btn ' + P + '-ghost" data-action="unstage">Отменить</button></span>';
@@ -2304,10 +2320,16 @@ function filterBarHTML() {
     note: 'С базой сравниваются метрики без утверждённой цели.' }) + '>База: <b>' + esc(benchLabel()) + '</b></span>';
   return s + '</div>';
 }
+// Сколько ждём ответ и сколько шёл прошлый: «12 с · прошлый ответ — 14 с» (секундомер — БЛОК 6, раз в секунду).
+function pendText() {
+  if (!state.pend) return '';
+  var sec = Math.floor((Date.now() - state.pend.at) / 1000);
+  return (sec >= 2 ? sec + ' с' : '') + (state.lastResp > 1500 ? (sec >= 2 ? ' · ' : '') + 'прошлый ответ — ' + Math.round(state.lastResp / 1000) + ' с' : '');
+}
 function noticesHTML() {
   var P = CFG.ns, M = MODEL, s = '';
-  if (state.pend) s += '<div class="' + P + '-load"><span>' + esc(CFG.text.loading) + '</span><i></i></div>';
-  if (state.warn) s += '<div class="' + P + '-note ' + P + '-warn">' + esc(state.warn) + '</div>';
+  if (state.pend) s += '<div class="' + P + '-load"><span>' + esc(CFG.text.loading) + ' <span data-pendt="1">' + esc(pendText()) + '</span></span><i></i></div>';
+  if (state.warn) s += '<div class="' + P + '-note ' + P + '-warn">' + esc(state.warn.replace('{s}', String(Math.round(CFG.pendingWarnMs / 1000)))) + '</div>';
   if (outOfZone()) s += '<div class="' + P + '-note ' + P + '-warn">' + esc(CFG.text.outOfZone) + '</div>';
   if (M.cut) s += '<div class="' + P + '-note ' + P + '-warn">' + esc(CFG.text.truncated.replace('{n}', fmtInt(M.rows))) + '</div>';
   var v = state.view || 'onepager';
@@ -3616,7 +3638,7 @@ function buildHTML() {
     var overlay = document.createElement('div');
     overlay.className = CFG.ns + '-overlay';
     overlay.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;'
-      + 'z-index:10;overflow:auto;box-sizing:border-box;background:' + CFG.colors.bg + ';';
+      + 'z-index:10;overflow:auto;scrollbar-gutter:stable;box-sizing:border-box;background:' + CFG.colors.bg + ';';
     if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
     host.appendChild(overlay);
 
@@ -3637,6 +3659,69 @@ function buildHTML() {
     }
     getTip();
 
+    // ── ВИДИМАЯ НА ЭКРАНЕ ЧАСТЬ ЧАРТА ──
+    // В Proteus чарт живёт в iframe-sandbox высотой с ячейку борда (1 100–1 400 px), а прокручивается
+    // страница борда снаружи: window.innerHeight — высота ячейки, не экрана, и до родителя не достучаться.
+    // Окно фильтров, поставленное по центру iframe, уезжало низом с «Применить» за край экрана (07.10).
+    // IntersectionObserver без root меряет пересечение с окном браузера ВЕРХНЕГО уровня и из такого
+    // iframe, видимый прямоугольник отдаёт в координатах iframe. Одна высокая цель не годится: пока
+    // ячейка выше экрана, её видимая доля при прокрутке не меняется и колбэк молчит. Поэтому линейка:
+    // прозрачные полосы по VIS_STEP px во всю высоту окна iframe, у каждой свои пороги. Итог —
+    // state.vis {t, b} (видно сейчас) и state.vpH (сколько экрана досталось чарту — наибольшее видимое).
+    // Без iframe полосы видны всегда целиком: vis = всё окно, как раньше.
+    var VIS_STEP = 24, visParts = [], visH = 0;
+    function visBuild() {
+      if (state.visIO && state.visIO.disconnect) state.visIO.disconnect();
+      state.visIO = null;
+      var old = document.querySelector('body > .' + CFG.ns + '-vis');
+      if (old) old.parentNode.removeChild(old);
+      visParts = [];
+      if (typeof IntersectionObserver === 'undefined') return;
+      var H = window.innerHeight || 0, n = Math.max(1, Math.ceil(H / VIS_STEP)), box = document.createElement('div');
+      visH = H;
+      box.className = CFG.ns + '-vis';
+      box.setAttribute('aria-hidden', 'true');
+      box.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:' + H + 'px;pointer-events:none;opacity:0;z-index:-1;';
+      for (var i = 0; i < n; i++) {
+        var el = document.createElement('div');
+        el.style.cssText = 'position:absolute;left:0;width:1px;top:' + (i * VIS_STEP) + 'px;height:' + Math.min(VIS_STEP, H - i * VIS_STEP) + 'px;';
+        el.setAttribute('data-vi', String(i));
+        box.appendChild(el);
+        visParts.push(null);
+      }
+      document.body.appendChild(box);
+      var io = new IntersectionObserver(visTick, { threshold: [0, 0.25, 0.5, 0.75, 1] });
+      for (var k = 0; k < box.children.length; k++) io.observe(box.children[k]);
+      state.visIO = io;
+    }
+    function visTick(entries) {
+      for (var i = 0; i < entries.length; i++) {
+        var en = entries[i], k = +en.target.getAttribute('data-vi'), r = en.intersectionRect;
+        visParts[k] = en.isIntersecting && r && r.height > 0 ? { t: r.top, b: r.bottom } : null;
+      }
+      var t = Infinity, b = -Infinity;
+      for (var j = 0; j < visParts.length; j++) if (visParts[j]) { t = Math.min(t, visParts[j].t); b = Math.max(b, visParts[j].b); }
+      var v = b > t ? { t: Math.round(t), b: Math.round(b) } : { t: 0, b: 0, none: true }, o = state.vis;
+      if (o && o.t === v.t && o.b === v.b && !!o.none === !!v.none) return;
+      state.vis = v;
+      var e = visV(), hv = v.none || v.b - v.t < 120 ? 0 : e.b - e.t, grew = hv > (state.vpH || 0) + 8;
+      if (hv > (state.vpH || 0)) state.vpH = hv;
+      if (grew) fitSplit();
+      if (state.drawer) placeDrawer();
+      if (state.tour) tourPos();
+    }
+    // Видимая полоса окна iframe по вертикали; нет данных или видно меньше 120 px — всё окно. Верх ячейки
+    // уехал за край экрана — сверху минус CFG.vis.cover: там липкая шапка дашборда Proteus.
+    function visV() {
+      var H = window.innerHeight || 0, v = state.vis;
+      if (!v || v.none || v.b - v.t < 120) return { t: 0, b: H };
+      var t = v.t > 1 ? Math.min(v.t + CFG.vis.cover, v.b - 120) : v.t;
+      return { t: Math.max(0, t), b: Math.min(H, v.b) };
+    }
+    // state.vis / state.vpH переживают перезапуск скрипта (новые данные — тот же iframe): линейка
+    // заново, прошлые значения действуют до её первого колбэка — высота «Команд» не прыгает.
+    visBuild();
+
     // showTip/hideTip — СЛУЖЕБНЫЕ. Не переписывать, не переименовывать, не
     // копировать их логику в свой код. Здесь заперты два правила, на которых
     // ломались все предыдущие версии:
@@ -3655,19 +3740,21 @@ function buildHTML() {
       tip.style.left = '0px';
       tip.style.top = '0px';
       var t = tip.getBoundingClientRect();
-      var pad = 6, gap = 8, left, top;
+      // Низ и верх — видимой на экране части окна (visV): в iframe Proteus окно = ячейка борда,
+      // которая выше экрана, и подсказка у нижнего края экрана уходила бы под него.
+      var pad = 6, gap = 8, left, top, vv = visV(), vt = vv.t, vb = vv.b;
       if (rect.pt) {
         // Якорь — курсор (как в Proteus Adoption): справа-снизу, у края окна — зеркально.
         left = rect.left + 14; top = rect.top + 18;
         if (left + t.width > window.innerWidth - pad) left = rect.left - t.width - 14;
-        if (top + t.height > window.innerHeight - pad) top = rect.top - t.height - 14;
+        if (top + t.height > vb - pad) top = rect.top - t.height - 14;
       } else {
         left = rect.left + rect.width / 2 - t.width / 2;
         top = rect.top + rect.height + gap;
-        if (top + t.height > window.innerHeight - pad) top = rect.top - t.height - gap;
+        if (top + t.height > vb - pad) top = rect.top - t.height - gap;
       }
       left = Math.max(pad, Math.min(left, window.innerWidth - t.width - pad));
-      top = Math.max(pad, Math.min(top, window.innerHeight - t.height - pad));
+      top = Math.max(vt + pad, Math.min(top, vb - t.height - pad));
       tip.style.left = Math.round(left) + 'px';
       tip.style.top = Math.round(top) + 'px';
       tip.style.opacity = '1';
@@ -3713,8 +3800,13 @@ function buildHTML() {
         while (n && n !== tourNode && !(n.getAttribute && n.getAttribute('data-tact'))) n = n.parentNode;
         if (n && n !== tourNode) tourAct(n.getAttribute('data-tact'));
       });
-      // Колесо над затемнением листает отчёт: подсветка едет вместе с целью.
-      tourNode.addEventListener('wheel', function (e) { overlay.scrollTop += e.deltaY; tourPos(); });
+      // Колесо над затемнением листает отчёт (подсветка едет вместе с целью); отчёт уже у края —
+      // колесо уходит странице борда, видимая часть меняется, карточка — за ней (visTick).
+      tourNode.addEventListener('wheel', function (e) {
+        var was = overlay.scrollTop;
+        overlay.scrollTop += e.deltaY;
+        if (overlay.scrollTop !== was) { e.preventDefault(); tourPos(); }
+      }, { passive: false });
       return tourNode;
     }
     function tourQ(cls) { return tourNode ? tourNode.querySelector('.' + CFG.ns + '-' + cls) : null; }
@@ -3750,8 +3842,8 @@ function buildHTML() {
         return;
       }
       if (trigger(els[0], 'data-drawer')) return;
-      var u = tourRect(els), o = overlay.getBoundingClientRect(), top = Math.max(o.top, 0);
-      var vh = Math.min(o.bottom, window.innerHeight) - top;
+      var u = tourRect(els), o = overlay.getBoundingClientRect(), vv = visV(), top = Math.max(o.top, vv.t);
+      var vh = Math.min(o.bottom, vv.b) - top;
       if (u.top >= top + 8 && u.bottom <= top + vh - 8) return;
       overlay.scrollTop += (u.top - top) - (u.height > vh - 160 ? 72 : (vh - u.height) / 2);
     }
@@ -3760,16 +3852,17 @@ function buildHTML() {
       el.style.width = Math.max(0, Math.round(w)) + 'px'; el.style.height = Math.max(0, Math.round(h)) + 'px';
     }
     // Карточка — со стороны, где помещается (снизу, сверху, справа, слева); цель во весь экран —
-    // карточка в нижнем углу поверх неё. Стрелка смотрит в центр цели.
+    // карточка в нижнем углу поверх неё. Стрелка смотрит в центр цели. По вертикали — в видимой
+    // на экране части окна (visV): в iframe Proteus окно выше экрана.
     function tourPlace(r) {
       var card = tourQ('tcard'), arr = card ? card.querySelector('.' + CFG.ns + '-tarr') : null;
       if (!card || !arr) return;
-      var W = window.innerWidth, H = window.innerHeight, m = 12, g = 14, side = '', left, top;
+      var vv = visV(), W = window.innerWidth, vt = vv.t, H = vv.b, m = 12, g = 14, side = '', left, top;
       var cw = card.offsetWidth, ch = card.offsetHeight;
-      if (!r) { left = (W - cw) / 2; top = Math.max(m, Math.min(96, (H - ch) / 2)); }
+      if (!r) { left = (W - cw) / 2; top = vt + Math.max(m, Math.min(96, (H - vt - ch) / 2)); }
       else {
         var cx = (r.l + r.r) / 2, cy = (r.t + r.b) / 2;
-        var fits = { bottom: r.b + g + ch <= H - m, top: r.t - g - ch >= m, right: r.r + g + cw <= W - m, left: r.l - g - cw >= m };
+        var fits = { bottom: r.b + g + ch <= H - m, top: r.t - g - ch >= vt + m, right: r.r + g + cw <= W - m, left: r.l - g - cw >= m };
         var order = ['bottom', 'top', 'right', 'left'];
         for (var i = 0; i < order.length && !side; i++) if (fits[order[i]]) side = order[i];
         if (side === 'bottom') { top = r.b + g; left = cx - cw / 2; }
@@ -3779,7 +3872,7 @@ function buildHTML() {
         else { left = W - cw - m; top = H - ch - m; }
       }
       left = Math.max(m, Math.min(left, W - cw - m));
-      top = Math.max(m, Math.min(top, H - ch - m));
+      top = Math.max(vt + m, Math.min(top, H - ch - m));
       card.style.left = Math.round(left) + 'px';
       card.style.top = Math.round(top) + 'px';
       arr.className = CFG.ns + '-tarr' + (side ? ' ' + CFG.ns + '-ta-' + side : '');
@@ -3996,14 +4089,17 @@ function buildHTML() {
       el.style.setProperty('--' + CFG.ns + '-ncol', th.offsetWidth + 'px');
       t.classList.add(CFG.ns + '-wrapok');
     }
-    // «Команды» в две колонки: таблица и «Динамика» одной высоты — по видимой части ячейки (не выше
-    // окна), каждая прокручивается внутри. Узкая ячейка — одна колонка, высота по содержимому.
+    // «Команды» в две колонки: таблица и «Динамика» одной высоты — не выше экрана, доставшегося чарту
+    // (state.vpH: в iframe Proteus ячейка выше экрана, а прокручивается страница борда), каждая
+    // прокручивается внутри. Узкая ячейка — одна колонка, высота по содержимому.
     function fitSplit() {
       var sp = overlay.querySelector('.' + CFG.ns + '-split');
       if (!sp) return;
       if (state.narrow) { sp.classList.remove(CFG.ns + '-fit'); sp.style.height = ''; return; }
-      var or = overlay.getBoundingClientRect(), r = sp.getBoundingClientRect();
-      var top = r.top - or.top + overlay.scrollTop, vis = Math.min(overlay.clientHeight, window.innerHeight || overlay.clientHeight);
+      // Видимое ещё не измерено (первый кадр) — оценка по экрану монитора, а не по высоте ячейки.
+      var scrH = window.screen && window.screen.availHeight ? window.screen.availHeight - 140 : 99999;
+      var or = overlay.getBoundingClientRect(), r = sp.getBoundingClientRect(), scr = state.vpH > 0 ? state.vpH : Math.min(window.innerHeight || overlay.clientHeight, scrH);
+      var top = r.top - or.top + overlay.scrollTop, vis = Math.min(overlay.clientHeight, scr);
       var h = Math.max(CFG.split.minH, Math.min(overlay.clientHeight - top - CFG.spacing.gutter, vis - 2 * CFG.spacing.gap));
       sp.classList.add(CFG.ns + '-fit');
       sp.style.height = Math.round(h) + 'px';
@@ -4074,6 +4170,9 @@ function buildHTML() {
       // перестаёт доходить до чарта: возвращаем его тому же контролу или окну.
       var ae = document.activeElement, fin = !!(state.drawer && ae && ae !== overlay && overlay.contains(ae)), fsel = fin ? focusSel(ae) : '';
       overlay.innerHTML = buildHTML();
+      // Открыто окно фильтров — отчёт под ним не прокручивается: колесо над затемнением уходит странице
+      // борда (окно едет за видимой частью, visTick), колонки окна листаются сами.
+      overlay.style.overflow = state.drawer ? 'hidden' : 'auto';
       relayout();
       animateCharts();
       markInd();
@@ -4320,20 +4419,24 @@ function buildHTML() {
       var pop = overlay.querySelector('.' + CFG.ns + '-mdl');
       if (pop) focusQuiet(pop);
     }
-    // Окно «Фильтры и настройки» — position:fixed по центру видимой части контейнера чарта (в Proteus —
-    // ячейка борда; на стенде с ?w= — уже окна): не больше CFG.modal.w × h, с полями от краёв; уже
-    // CFG.modal.two — одна колонка (state.md1). fixed считается от окна, но у предка с transform — от
-    // этого предка: ставим окно в 0,0, меряем, где оно оказалось, и сдвигаем на разницу. Подложка —
-    // на всю видимую часть. Зовётся из render, relayout, ресайза и прокрутки страницы.
+    // Окно «Фильтры и настройки» — position:fixed по центру ВИДИМОЙ НА ЭКРАНЕ части чарта (visV: в iframe
+    // Proteus ячейка выше экрана, прокручивается страница борда — окно едет за видимой частью), не больше
+    // CFG.modal.w × h, с полями от краёв; уже CFG.modal.two — одна колонка (state.md1). Затемнение — на весь
+    // чарт в окне. fixed считается от окна, но у предка с transform — от этого предка: ставим окно в 0,0,
+    // меряем, где оно оказалось, и сдвигаем на разницу. Зовётся из render, relayout, ресайза, прокрутки
+    // и колбэка видимости.
     function placeDrawer() {
       var d = overlay.querySelector('.' + CFG.ns + '-mdl'), b = overlay.querySelector('.' + CFG.ns + '-mdb');
       if (!d) return;
-      var r = overlay.getBoundingClientRect(), C = CFG.modal;
-      var top = Math.max(r.top, 0), bottom = Math.min(r.bottom, window.innerHeight);
+      var r = overlay.getBoundingClientRect(), C = CFG.modal, vv = visV();
+      var bt = Math.max(r.top, 0), bb = Math.min(r.bottom, window.innerHeight);
       var left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
+      var top = Math.max(bt, vv.t), bottom = Math.min(bb, vv.b);
+      if (bottom - top < 120) { top = bt; bottom = bb; }
       var vw = Math.max(0, right - left), vh = Math.max(0, bottom - top);
       var mx = vw < 640 ? 8 : 24, my = vh < 640 ? 8 : 24;
-      var w = Math.min(C.w, Math.max(Math.min(vw, 300), vw - 2 * mx)), h = Math.min(C.h, Math.max(Math.min(vh, 320), vh - 2 * my));
+      var w = Math.min(C.w, Math.max(Math.min(vw, 300), vw - 2 * mx)), h = Math.min(C.h, Math.max(Math.min(bb - bt, 320), vh - 2 * my));
+      var y = Math.max(bt, Math.min(top + Math.max(0, (vh - h) / 2), bb - h));
       var one = w < C.two;
       if (one !== !!state.md1) {
         state.md1 = one;
@@ -4343,8 +4446,8 @@ function buildHTML() {
       var o = d.getBoundingClientRect();
       d.style.width = Math.round(w) + 'px'; d.style.height = Math.round(h) + 'px';
       d.style.left = Math.round(left + (vw - w) / 2 - o.left) + 'px';
-      d.style.top = Math.round(top + Math.max(0, (vh - h) / 2) - o.top) + 'px';
-      if (b) { b.style.top = (top - o.top) + 'px'; b.style.left = (left - o.left) + 'px'; b.style.width = vw + 'px'; b.style.height = vh + 'px'; }
+      d.style.top = Math.round(y - o.top) + 'px';
+      if (b) { b.style.top = (bt - o.top) + 'px'; b.style.left = (left - o.left) + 'px'; b.style.width = vw + 'px'; b.style.height = Math.max(0, bb - bt) + 'px'; }
     }
     // Окно закрылось — фокус обратно на «Фильтры» (клавиатура продолжает с того же места).
     function focusOpener() {
@@ -4801,7 +4904,11 @@ function buildHTML() {
     // Старый снимаем ЯВНО, ссылку держим в state. Escape вешай здесь же,
     // тем же способом, и никогда не внутри render().
     if (state.onWinResize) window.removeEventListener('resize', state.onWinResize);
-    state.onWinResize = function () { if (state.tip) renderTip(); if (state.tour) tourPos(); if (state.drawer) placeDrawer(); };
+    state.onWinResize = function () {
+      // Окно iframe поменяло высоту — линейка видимости заново (state.vis придёт колбэком).
+      if (Math.abs((window.innerHeight || 0) - visH) > 1) { state.vpH = 0; visBuild(); }
+      if (state.tip) renderTip(); if (state.tour) tourPos(); if (state.drawer) placeDrawer();
+    };
     window.addEventListener('resize', state.onWinResize);
     // Прокрутка страницы борда (любого контейнера — поэтому capture) при открытом окне фильтров:
     // ячейка уезжает, окно — за ней. Прокрутка внутри отчёта и самого окна его не двигает.
@@ -4812,17 +4919,6 @@ function buildHTML() {
     };
     document.addEventListener('scroll', state.onAnyScroll, true);
     if (state.onDocDown) { document.removeEventListener('mousedown', state.onDocDown, true); state.onDocDown = null; }
-    // Колесо над подложкой, шапкой и подвалом окна не листает отчёт под ним; колонки окна листаются
-    // сами (overscroll-behavior: contain — до края, дальше не передают).
-    overlay.addEventListener('wheel', function (e) {
-      if (!state.drawer || state.tour) return;
-      var n = e.target;
-      while (n && n !== overlay) {
-        if (n.getAttribute && (n.getAttribute('data-mdcol') !== null || n.getAttribute('data-mdbody') !== null || n.getAttribute('data-plist') !== null) && n.scrollHeight > n.clientHeight + 1) return;
-        n = n.parentNode;
-      }
-      e.preventDefault();
-    }, { passive: false });
     // Клавиши тура — на документе (фокус в карточке тура, она вне overlay): Esc закрывает,
     // стрелки листают. Старый слушатель снимаем — он держит прошлый запуск скрипта.
     if (state.onTourKey) document.removeEventListener('keydown', state.onTourKey, true);
@@ -4839,10 +4935,17 @@ function buildHTML() {
     // Ответ пришёл: эхо совпало с ожиданием — снимаем его; предупреждение
     // «самовлияние не настроено» гасит первый же ответ с тем же эхом.
     var echo = sigOf(reqEcho());
-    if (state.pend && state.pend.sig === echo) state.pend = null;
+    if (state.pend && state.pend.sig === echo) { state.lastResp = Date.now() - state.pend.at; state.pend = null; }
     if (state.pend && Date.now() - state.pend.at > CFG.pendingWarnMs) { state.pend = null; state.warn = CFG.text.notApplied; }
     if (state.lastSig && state.lastSig === echo && state.warn === CFG.text.notApplied) state.warn = '';
     armPend();
+    // Секундомер строки загрузки: правит только текст [data-pendt], без render().
+    if (state.pendTick) clearInterval(state.pendTick);
+    state.pendTick = setInterval(function () {
+      if (!state.pend || !overlay.parentNode) return;
+      var pt = overlay.querySelector('[data-pendt]');
+      if (pt) pt.textContent = pendText();
+    }, 1000);
     // HRBP держится, пока область внутри его зоны (переход в чужую зону его снимает).
     state.hz = hzNow();
     // Набранное применилось (ответ совпал с набором) — строка фильтров снова «чистая».
