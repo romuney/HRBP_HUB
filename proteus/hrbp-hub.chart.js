@@ -267,7 +267,6 @@ var STATE0 = {
   narrow: false,         // ячейка уже 1100 px
   pend: null,            // {sig, at} — эмит ушёл, ждём ответ с тем же эхом
   pendT: null, lastSig: '',
-  lastResp: 0,           // сколько мс шёл последний ответ на кросс-фильтр (строка загрузки)
   vis: null,             // видимая на экране часть окна iframe {t, b} (линейка IntersectionObserver, БЛОК 6)
   vpH: 0,                // сколько экрана досталось чарту — наибольшая видимая высота (высота «Команд»)
   warn: '',              // предупреждение (не применился фильтр и т. п.)
@@ -2546,11 +2545,11 @@ function filterBarHTML() {
     note: 'С базой сравниваются метрики без утверждённой цели.' }) + '>База: <b>' + esc(benchLabel()) + '</b></span>';
   return s + '</div>';
 }
-// Сколько ждём ответ и сколько шёл прошлый: «12 с · прошлый ответ — 14 с» (секундомер — БЛОК 6, раз в секунду).
+// Сколько ждём ответ: «12 с» (секундомер — БЛОК 6, раз в секунду), только про текущий запрос.
 function pendText() {
   if (!state.pend) return '';
   var sec = Math.floor((Date.now() - state.pend.at) / 1000);
-  return (sec >= 2 ? sec + ' с' : '') + (state.lastResp > 1500 ? (sec >= 2 ? ' · ' : '') + 'прошлый ответ — ' + Math.round(state.lastResp / 1000) + ' с' : '');
+  return sec >= 2 ? sec + ' с' : '';
 }
 function noticesHTML() {
   var P = CFG.ns, M = MODEL, s = '';
@@ -5201,7 +5200,7 @@ function buildHTML() {
     // Ответ пришёл: эхо совпало с ожиданием — снимаем его; предупреждение
     // «самовлияние не настроено» гасит первый же ответ с тем же эхом.
     var echo = sigOf(reqEcho());
-    if (state.pend && state.pend.sig === echo) { state.lastResp = Date.now() - state.pend.at; state.pend = null; }
+    if (state.pend && state.pend.sig === echo) state.pend = null;
     if (state.pend && Date.now() - state.pend.at > CFG.pendingWarnMs) { state.pend = null; state.warn = CFG.text.notApplied; }
     if (state.lastSig && state.lastSig === echo && state.warn === CFG.text.notApplied) state.warn = '';
     armPend();

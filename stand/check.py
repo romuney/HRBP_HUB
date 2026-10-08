@@ -484,6 +484,32 @@ def main():
     _env.from_string(tmpl).render(filter_values=lambda c, d=None, r=False: [], current_username=_cu)
     ok(len(calls) > 0 and all(calls), 'при рендере логин берётся с add_to_cache_keys = True (%d вызовов)' % len(calls))
 
+    # ---------------- 8. текст SQL для Superset 2: короткий ----------------
+    # Superset разбирает отрендеренный SQL sqlparse'ом на каждый расчёт ключа кеша и делает reindent
+    # обёртки до ClickHouse; время растёт как скобки × токены (08.10: 34 КБ — «Применить» 20 с в бою).
+    # Бюджет ловит возврат к выражениям по 24 колонкам в плечах (было 1 200–1 400 скобок).
+    heavy = {'unit_f': ['x1', 'x2'], 'depth_f': ['all'], 'tr_f': ['city'], 'paint_f': ['a', 'b'], 'it_f': ['IT'],
+             'stream_f': ['s'], 'spec_f': ['p'], 'staff_f': ['Штат'], 'hct_f': ['Активная']}
+    for label, flt, kb, par in (('первое открытие', {}, 16, 600), ('все разрезы, ось, все уровни', heavy, 20, 800)):
+        sql = ch.render(flt, 'a.sergeeva')
+        ok(len(sql) <= kb * 1024 and sql.count('(') <= par,
+           'SQL для Superset короткий (%s): %.1f КБ ≤ %d, скобок %d ≤ %d' % (label, len(sql) / 1024, kb, sql.count('('), par))
+    try:
+        import sqlparse
+        import superset as _ss
+    except ImportError:
+        print('  (нет sqlparse — шаги Superset не проверены: pip install sqlparse==0.4.4)')
+    else:
+        for user, flt in (('b.kotov', {}), ('a.sergeeva', {'staff_f': ['Штат'], 'depth_f': ['all']})):
+            sql = ch.render(flt, user)
+            direct, _ = ch.run(sql)
+            final, st = _ss.superset_steps(sql, list(direct[0].keys()))
+            via, _ = ch.run(final)
+            dump = lambda rs: sorted(json.dumps(r, sort_keys=True, ensure_ascii=False) for r in rs)
+            ok(dump(via) == dump(direct),
+               'Superset 2 (sqlparse %s) %s %s: один SELECT, reindent обёртки %.1f с — ClickHouse отвечает тем же (%d строк)'
+               % (sqlparse.__version__, user, flt, st['format(reindent) обёртки'], len(direct)))
+
     print('ClickHouse %s · %d проверок, провалено %d' % (ch.VERSION, cases, bad))
     return bad
 

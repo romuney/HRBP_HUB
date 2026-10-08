@@ -16,7 +16,7 @@
 | Задача | Куда |
 |---|---|
 | Поменять расчёт / источник / окно метрики | `helicopter/paragraphs/NN …sql` → `python3 helicopter/build.py` → стенд |
-| Поменять датасет | `proteus/hrbp-hub.data.sql` → `python3 stand/check.py` (оба движка) → `stand/scale.py` на 24.8 |
+| Поменять датасет | `proteus/hrbp-hub.data.sql` → `python3 stand/check.py` (оба движка) → `stand/scale.py` на 24.8 → `stand/superset.py` (разбор SQL в Superset: не дороже, чем был); ответ не должен меняться — `stand/same.py` против прошлой версии |
 | Поменять чарт | `proteus/hrbp-hub.chart.js` по скиллу proteus-echarts-builder → `node --check` → ESLint `no-undef` (`stand/eslint.chart.cjs`, 0 ошибок) → `check.py` скилла → живой стенд (каждая вкладка и режим руками: smoke скилла кликает не всё) |
 | Отдать владельцу | `python3 stand/pack.py` → папка `Поставка — HRBP HUB v2/` («замени из файла N»), правка `0. Инструкция.md` (после первой установки у владельца — раздел «Что нового»: какие файлы заменить) |
 | Цели KPI | параграф `12 KPI · реестр целей.sql` (правится руками), в отчёте — вкладка «Цели» |
@@ -31,14 +31,16 @@ chdb 2.1.1 (= 24.8.4.1) ставится в отдельный venv, систе�
 python3 stand/gen_sources.py              # синтетический мир (stand/world.py) → источники в БД gp
 python3 stand/run_gp.py --seed-kpi        # ВСЕ gp-параграфы из YAML, в том числе стоп-проверки (current_date = день после даты мира)
 python3 stand/ch.py load [nullable|plain] # hrbp_hub_* → prod_proteus.* в chdb (Nullable, как gp_to_click)
-python3 stand/check.py                    # 487 проверок датасета против stand/expect.py (независимый расчёт), свёртка == куб атрибутов, окно фильтров из справочника == фасеты, логин в ключе кеша
-<venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 489 (+ старый анализатор); HH_CHDB=stand/.chdb24plain после `ch.py load plain` — без Nullable
+python3 stand/check.py                    # 491 проверка датасета против stand/expect.py (независимый расчёт), свёртка == куб атрибутов, окно фильтров из справочника == фасеты, логин в ключе кеша, бюджет длины SQL и шаги Superset над ним (нужен sqlparse==0.4.4)
+<venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 493 (+ старый анализатор); HH_CHDB=stand/.chdb24plain после `ch.py load plain` — без Nullable
 <venv chdb 2.1.1>/bin/python stand/scale.py <каталог>  # 100 тыс. сотрудников, 10 тыс. юнитов, куб атрибутов 0,86 млн + свёртка: время, строки, JSON, справочник, источник атрибутов (HH_SCALE_COMBOS=4 — тяжёлый куб)
 python3 stand/live.py                     # чарт в браузере поверх chdb: ?user=a.sergeeva|b.kotov|s.volkov|nobody, ?w=900, ?selfoff=1, ?long=1 (длинные имена, как в бою), ?limit=N (лимит строк, как режет Proteus)
                                           # /board?… — модель борда: iframe-sandbox высотой с ячейку (?ch=1300), холдер с полем и шапкой, липкая шапка дашборда, ?css=1 (файл 4), ?delay=мс (медленный ответ)
 HH_CHDB=stand/.chdb_scale <venv chdb 2.1.1>/bin/python stand/live.py 8766  # тот же чарт на масштабе (?user=super): справочник 10 тыс. юнитов, поиск
 HH_TR_ALL_MAX=10 python3 stand/live.py    # запасной режим: ветка больше порога с разрезами — атрибут по запросу (HH_TR_TOP — хвост «…», HH_ATTR_TOP=0 — без свёртки)
 node $(npm root -g)/eslint/bin/eslint.js -c stand/eslint.chart.cjs --no-config-lookup proteus/hrbp-hub.chart.js  # no-undef: 0 ошибок
+<venv chdb 2.1.1>/bin/python stand/superset.py b.kotov '{"staff_f": ["Штат"]}'  # что Superset 2 делает с SQL (sqlparse==0.4.4 в venv): шаги, итог на «Применить», ответ после reindent == прямой
+python3 stand/same.py <старый.sql> ['настройки']  # переписал датасет без смены ответа: старая и новая версии — ответ в ответ (логины × юниты × разрезы × оси × режимы)
 NODE_PATH=$(npm root -g) node stand/tour.cjs 'http://127.0.0.1:8765/?user=b.kotov' <каталог>  # тур «Как работать»: все шаги, 0 ошибок
 python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для smoke (live.py остановить: chdb держит каталог)
 ```
@@ -58,9 +60,19 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
 - **Время — позиция в массиве** (`hrbp_hub_calendar`): месяцы 0–11 прошлый год, 12–23 текущий;
   недели 0–23, 23 — последняя закрытая. Окна (12/52, 3/13) считаются в параграфе 10. В ответе массив —
   строка без хвостовых нулей («0» — все нули; у трансформеров только 12 месяцев: «N@…» — первые N
-  слотов пропущены), чарт дополняет до 24 (`parseArr`). Обрезка в датасете — регуляркой по строке
-  (`out`, `out12`), не лямбдами: `arrayFirstIndex`/`arrayLastIndex` в `out` замедляли запрос в 2,5 раза.
-  Окно 12 месяцев — `arraySlice` до `arrayJoin`/свёртки (`w12`). Новый датасет — только с новым чартом.
+  слотов пропущены), чарт дополняет до 24 (`parseArr`). В датасете 12 компонентов × 2 сетки едут по
+  плечам ОДНИМ плоским массивом `a` (24 массива по 24 слота подряд; у трансформеров — 12 месячных окном
+  W12, `win()` до `arrayJoin`/свёртки, `lw` — последний месяц окна) и режутся на 24 колонки один раз
+  наверху (`o[k]`). NULL из Nullable-выгрузки — после свёртки (`sum` их пропускает, затем `ifNull`).
+  Обрезка нулей — регуляркой по строке, не лямбдами поиска: `arrayFirstIndex`/`arrayLastIndex`
+  замедляли запрос в 2,5 раза. Новый датасет — только с новым чартом.
+- **Текст SQL датасета — короткий** (владелец 08.10: «Применить» — 20 с). Superset 2 разбирает
+  отрендеренный SQL sqlparse'ом на каждый расчёт ключа кеша (логин в ключе: POST `/chart/data`, воркер,
+  каждый забор `qc-…`) и делает `reindent` обёртки `SELECT … FROM (датасет) LIMIT N` перед ClickHouse;
+  время растёт как скобки × токены: 34 КБ давали ≈10 с reindent и 2 с на каждый разбор. Не повторять
+  выражения по 24 колонкам в плечах (только плоский массив), каждый пробел — токен: отступы снимает
+  `{% filter replace %}` вокруг SQL. Бюджет — `check.py` (размер и скобки), замер и сверка ответа после
+  reindent — `stand/superset.py`.
 - **Датасет — один на отчёт**, строки ролей meta/dict/hrbps/base/scope/c/g/x/f/tr/kpi/end,
   29 колонок. Новая колонка = правка «Измерений» в Proteus владельцем (FIELDS.md).
 - **Порядок строк ответа — `ORDER BY` по роли** (meta, f, scope, base, kpi, hrbps, dict, c, g,
