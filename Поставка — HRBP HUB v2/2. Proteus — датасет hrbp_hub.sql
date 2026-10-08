@@ -85,7 +85,7 @@
     атрибутов, 5 tops — юниты со свёрткой атрибутов. FZ — распределение для окна фильтров: 1 zlo,
     2 zhi — ветка всей зоны, 3 zlm — последний закрытый месяц, 4 zroots — корни зоны, 5…10 — словари
     значений 6 разрезов, 11 — множители смешанной системы счисления, 12 — словари JSON для meta. -#}
-{% set EX = '(SELECT ext FROM ex)' %}
+{% set EX = '(SELECT ext FROM ex0)' %}
 {% set FZ = '(SELECT fzt FROM fz)' %}
 {#- Строковый литерал ClickHouse: обратный слэш и кавычка экранируются. -#}
 {% macro qs(v) -%}'{{ v|string|replace('\\', '\\\\')|replace("'", "\\'") }}'{%- endmacro %}
@@ -171,25 +171,37 @@ WITH
     FROM prod_proteus.hrbp_hub_calendar
     WHERE ifNull(grain, '') = 'm' AND ifNull(is_closed, 0) = 1
   ),
+  {#- Контекст — ОДИН раз на запрос: цепочка доступ → юниты → месяц сворачивается в скаляр ctxt
+      (одинаковый текст ClickHouse считает один раз), а ctx — его проекция. Плечи и ex берут ctx,
+      и новому анализатору не нужно заново разбирать и подставлять цепочку в каждое из них: в бою
+      ClickHouse 24.8.15.1 с новым анализатором (08.10), на масштабе это −1 с на планировании.
+      Старый анализатор так медленнее (скаляр в каждой копии CTE) — в бою его нет. -#}
+  ctx0 AS (
+    SELECT (roots, my_role, scope, single, anc, zone_n, last_m) AS ctxt
+    FROM (
+      SELECT acc.roots AS roots, acc.my_role AS my_role,
+             if(empty(un.req_ok), acc.roots, arraySort(un.req_ok)) AS scope,
+             length(scope) = 1 AS single,
+             un.anc AS anc, un.zone_n AS zone_n, lm.last_m AS last_m
+      FROM acc CROSS JOIN un CROSS JOIN lm
+    )
+  ),
   ctx AS (
-    SELECT acc.roots AS roots, acc.my_role AS my_role,
-           if(empty(un.req_ok), acc.roots, arraySort(un.req_ok)) AS scope,
-           length(scope) = 1 AS single,
-           un.anc AS anc, un.zone_n AS zone_n, lm.last_m AS last_m
-    FROM acc CROSS JOIN un CROSS JOIN lm
+    SELECT c.1 AS roots, c.2 AS my_role, c.3 AS scope, c.4 AS single, c.5 AS anc, c.6 AS zone_n, c.7 AS last_m
+    FROM (SELECT (SELECT ctxt FROM ctx0) AS c)
   ),
   {#- Область: lo / hi — диапазон ключа куба (path_s), в котором лежит её ветка (куб читается
       только в нём); scope_n — юнитов в ветке; depth — сколько уровней «Команд» отдаём (3 или
       DEEP). smin — юниты области без предка в ней же; если у всех есть свёртка атрибутов
       (attr_top) и разрезы не выбраны, tops = smin: атрибуты читаются из свёртки, а диапазон
       листового куба атрибутов (alo / ahi) пустой. rk1 — rk выбранного юнита (строка реестра целей).
-      ext — скаляр EX для плеч. -#}
-  ex AS (
+      ext — скаляр EX для плеч, ex — его проекция (как ctx). -#}
+  ex0 AS (
     SELECT lo, hi, scope_n, depth, rk1,
            if({{ '0' if ANYCUT else '1' }} = 1 AND top_all = 1, smin, CAST([], 'Array(String)')) AS tops,
            if(notEmpty(tops) OR scope_n > {{ TR_ALL_MAX }}, '', lo) AS alo,
            if(notEmpty(tops) OR scope_n > {{ TR_ALL_MAX }}, '', hi) AS ahi,
-           (lo, hi, alo, ahi, tops) AS ext
+           (lo, hi, alo, ahi, tops, scope_n, depth, rk1) AS ext
     FROM (
       SELECT minIf(arrayStringConcat(p, '/'), has(ctx.scope, uid)) AS lo,
              maxIf(concat(arrayStringConcat(p, '/'), '0'), has(ctx.scope, uid)) AS hi,
@@ -206,25 +218,28 @@ WITH
       CROSS JOIN ctx
     )
   ),
+  ex AS (
+    SELECT e.1 AS lo, e.2 AS hi, e.3 AS alo, e.4 AS ahi, e.5 AS tops, e.6 AS scope_n, e.7 AS depth, e.8 AS rk1
+    FROM (SELECT (SELECT ext FROM ex0) AS e)
+  ),
   {#- Распределение численности для окна фильтров: диапазон ключа куба, в котором лежит вся зона
       (zlo / zhi), последний закрытый месяц (zlm), корни зоны (zroots) и словари значений 6 разрезов —
       вся компания, из крошечной hrbp_hub_base (в ней те же сочетания, что в кубе): по ним сочетание
       разрезов пишется одним числом (смешанная система счисления: mul — вес каждого разряда), чарт
-      читает словари из meta.fdv. Всё — один короткий скаляр FZ (доступ → корни): цепочку ctx → ex он
+      читает словари из meta.fdv. Всё — один короткий скаляр FZ (от ctx: корни и месяц): цепочку ex он
       не трогает, считается один раз, и плечу справочника не нужны соединения. -#}
   fz AS (
     SELECT (zlo, zhi, zlm, zroots, {% for c in CUT_COLS %}d_{{ c }}, {% endfor %}mul,
             if(empty(zroots), '{}', concat('{'{% for c in CUT_COLS %}, '{{ '' if loop.first else ',' }}"{{ c }}":', toJSONString(d_{{ c }}){% endfor %}, '}'))) AS fzt
     FROM (
       SELECT min(arrayStringConcat(p, '/')) AS zlo, max(concat(arrayStringConcat(p, '/'), '0')) AS zhi,
-             any(lm.last_m) AS zlm, any(acc.roots) AS zroots
+             any(ctx.last_m) AS zlm, any(ctx.roots) AS zroots
       FROM (
         SELECT arrayMap(x -> ifNull(x, ''), path) AS p
         FROM prod_proteus.hrbp_hub_unit
-        WHERE id IN (SELECT arrayJoin(roots) FROM acc)
+        WHERE id IN (SELECT arrayJoin(roots) FROM ctx)
       ) AS zu
-      CROSS JOIN lm
-      CROSS JOIN acc
+      CROSS JOIN ctx
     ) AS zz
     CROSS JOIN (
       SELECT {% for c in CUT_COLS %}arraySort(groupUniqArray(ifNull({{ c }}, '-'))) AS d_{{ c }}, {% endfor %}
