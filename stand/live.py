@@ -11,7 +11,9 @@ applyCrossFilter(mask). Маска превращается в фильтры д
 предупреждения «фильтр не применился»).
 ?long=1 — длинные имена юнитов, как в бою (у каждого второго юнита имя на
 3–4 строки): проверка имён «одной строкой с …» в «Командах» и шапке «Динамики».
-?limit=N — лимит строк чарта, как его применяет Proteus: SELECT … FROM (датасет) LIMIT N
+?limit=N — лимит строк чарта, как его применяет Proteus 2.1 (09.10): SELECT … FROM (датасет) AS virtual_table
+           GROUP BY <все колонки> LIMIT N — порядок не держится, режутся случайные строки
+           HH_DIST=1 — чарт из файла 3 поставки (сжатая сборка), датасет из файла 2
 (хвост ответа молча отрезается — проверка плашки «ответ обрезан» и того, что фильтры целы).
 
 /board — тот же чарт так, как его кладёт Proteus: <iframe sandbox="allow-scripts"> высотой с ячейку
@@ -31,6 +33,8 @@ import ch  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CHART = os.path.join(HERE, '..', 'proteus', 'hrbp-hub.chart.js')
+if os.environ.get('HH_DIST') == '1':
+    CHART = os.path.join(HERE, '..', 'Поставка — HRBP HUB v2', '3. Proteus — чарт HRBP HUB.js')
 COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire']
 COLS = ', '.join(['role', 'id', 'pid', 'n', 'j'] + ['m_' + c for c in COMP] + ['w_' + c for c in COMP])
 
@@ -168,7 +172,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 flt = json.loads(q.get('flt', ['{}'])[0])
                 sql = ch.render(flt, q.get('user', ['a.sergeeva'])[0])
                 if q.get('limit'):
-                    sql = 'SELECT %s FROM (%s) AS virtual_table LIMIT %d' % (COLS, sql, int(q['limit'][0]))
+                    sql = 'SELECT %s FROM (%s) AS virtual_table GROUP BY %s LIMIT %d' % (COLS, sql, COLS, int(q['limit'][0]))
                 rows, _ = ch.run(sql)
                 if q.get('long') == ['1']:
                     rows = lengthen(rows)

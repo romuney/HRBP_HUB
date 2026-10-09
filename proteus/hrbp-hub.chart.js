@@ -150,6 +150,9 @@ var CFG = {
   // компанию идёт дольше 9 с (07.10: плашка висела ~5 с при верных JSON-метаданных) — до плашки ждём
   // 45 с, а строка загрузки считает секунды и показывает прошлое время ответа.
   pendingWarnMs: 45000,
+  // Лимит строк чарта в Proteus (инструкция, п. 4.2). Обёртка Superset 2.1 — GROUP BY … LIMIT N: обрезка режет
+  // случайные строки (не хвост), поэтому data.length ≥ лимита — признак обрезки, даже если end на месте (09.10).
+  rowLimit: 50000,
   // Уровни — номера mapped-структуры, как в ультраширокой: 1 — компания, дальше 3…12
   // (lvl2 отчёт пропускает). Подпись — по номеру, у юнитов одного уровня разные слова
   // в названиях («Департамент …», «Отдел …»), поэтому слово не выдумываем.
@@ -166,8 +169,8 @@ var CFG = {
     notApplied: 'Ответа на фильтр нет уже {s} с. Если так при каждом «Применить» — чарт не фильтрует сам себя: в JSON-метаданных дашборда нужны cross_filters_enabled: true и у этого чарта crossFilters.scope.excluded: [] (инструкция поставки, п. 4.5). Если отчёт просто долго считает — ответ ещё придёт, плашка уйдёт сама.',
     noAccess: 'Для вашего логина нет зоны HRBP в отчёте.',
     outOfZone: 'Запрошенный юнит вне вашей зоны — показана ваша зона.',
-    // Датасет кладёт последней строку end; её нет — Proteus обрезал ответ лимитом строк чарта.
-    truncated: 'Ответ датасета обрезан лимитом строк чарта: пришло {n} строк, часть «Команд» и «Трансформеров» не видна. В настройках чарта поставьте «Лимит строк» 50 000 — инструкция поставки, п. 4.2.'
+    // Обрезка (09.10): строк не меньше лимита чарта (rowLimit) или нет строки end — Proteus обрезал ответ.
+    truncated: 'Ответ датасета обрезан лимитом строк чарта: пришло {n} строк, часть отчёта может быть не видна. В настройках чарта поставьте «Лимит строк» 50 000 — инструкция поставки, п. 4.2.'
   },
   // Токены: текст — как в Proteus Adoption, акцент #2b6cff — синий шапки отчёта. Холст bg = фон борда
   // Proteus (#f6f6f6, ДС §16.8): иначе чарт на борде — серый прямоугольник-заплатка.
@@ -415,6 +418,9 @@ function buildModel() {
         from: kf[8] || '2000-01-01', to: kf[9] || '2099-12-31', author: kf[10] || '', note: kf[11] || '', rk: kf[12] || '' });
     }
   }
+  // Обрезка: строк не меньше лимита чарта или (датасет с маркером end) строки end нет. Под GROUP BY обёртки
+  // порядок не держится — пропасть может любая строка, в том числе meta (09.10).
+  M.cut = rawData.length >= CFG.rowLimit || (!!M.meta && num(M.meta.end) === 1 && !M.complete);
   if (!M.meta) return M;
   var meta = M.meta;
   M.role = meta.role || 'none';
@@ -431,8 +437,6 @@ function buildModel() {
   M.scopeN = num(meta.scope_n) || 0;
   M.allMax = num(meta.all_max) || 0;
   M.scopeRk = meta.rk || '';
-  // Датасет шлёт строку end последней (meta.end = 1): её нет — хвост ответа отрезал лимит строк.
-  M.cut = num(meta.end) === 1 && !M.complete;
   for (var cc = 0; cc < CFG.cuts.length; cc++) M.sel[CFG.cuts[cc].key] = (meta['f_' + CFG.cuts[cc].key] || []).slice();
   // Числа окна фильтров — без запроса (fdCalc): словари значений разрезов — meta.fdv, распределение —
   // 9-е поле справочника. Нет их (датасет до 07.10) — числа из фасетов ответа (строки f), как раньше.
@@ -920,6 +924,7 @@ function maskOf(o) {
   function add(col, vals) {
     var v = [];
     for (var i = 0; i < (vals || []).length; i++) if (vals[i] !== null && vals[i] !== undefined) v.push(String(vals[i]));
+    v.sort(); // один набор — одна маска и один ключ кэша, в каком бы порядке ни кликали (09.10)
     if (v.length) out.push({ column: col, operator: 'IN', value: v });
   }
   add(CFG.carriers.unit, (o.unit || []).slice(0, 50));
@@ -3815,7 +3820,8 @@ function accessHTML() {
     return hEmpty('В данных чарта нет колонок: ' + M.missing.join(', '),
       'Добавьте их в «Измерения» чарта Proteus (список — FIELDS.md): без них отчёт не соберётся.');
   }
-  if (!M.meta) return hEmpty('Нет служебной строки meta', 'Проверьте лимит строк и сортировку чарта: строка role = meta должна приезжать всегда (FIELDS.md).');
+  if (!M.meta) return hEmpty('Нет служебной строки meta', M.cut ? CFG.text.truncated.replace('{n}', fmtInt(M.rows))
+    : 'Проверьте лимит строк чарта: строка role = meta должна приезжать всегда (FIELDS.md).');
   if (M.role !== 'none' && M.L < 12) return hEmpty('Календарь отчёта пуст', 'В hrbp_hub_calendar нет закрытого месяца текущего года — перезапустите ноут HRBP HUB.');
   return hEmpty(CFG.text.noAccess, 'Логин: ' + (M.meta.me || '—') + '. Зону выдаёт владелец отчёта: строка в реестре доступа (параграф «HH · зоны HRBP и доступ» ноута).');
 }
@@ -3855,6 +3861,22 @@ function buildHTML() {
     var hosts = document.querySelectorAll('[_echarts_instance_]');
     if (!hosts || hosts.length === 0) return;
     var host = hosts[hosts.length - 1];
+    // Песочница Proteus гасит чарт на ЛЮБУЮ ошибку окна (window.onerror → clear + dispose), в том числе на
+    // безвредное «ResizeObserver loop…»: его даёт корневой div echarts, на миг шире окна при сужении iframe,
+    // когда у документа появляется полоса прокрутки (Windows). Поэтому документ и хост — overflow:hidden (своя
+    // прокрутка — в overlay), а обёртка onerror пропускает мимо песочницы только это событие (09.10, как в DL).
+    host.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    if (document.body) document.body.style.overflow = 'hidden';
+    var onErr0 = window.onerror;
+    if (!(onErr0 && onErr0.__roSkip)) {
+      var onErr = function (msg) {
+        if (/ResizeObserver loop/i.test(String(msg))) return true;
+        return typeof onErr0 === 'function' ? onErr0.apply(this, arguments) : false;
+      };
+      onErr.__roSkip = true;
+      window.onerror = onErr;
+    }
     var cvs = host.querySelectorAll('canvas');
     for (var i = 0; i < cvs.length; i++) cvs[i].style.display = 'none';
     var prev = host.querySelector('.' + CFG.ns + '-overlay');

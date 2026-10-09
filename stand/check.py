@@ -10,7 +10,8 @@
    Σ разбивки трансформера == область (по разрезу и по атрибуту); фасеты == численность.
 3. Доступ: чужой юнит не открывается (откат на свою зону), справочник и цели —
    только зона и её предки, без роли — только meta.
-4. Устойчивость: AlwaysTrue при сохранении датасета, враждебный ввод, старый
+4. Устойчивость: AlwaysTrue при сохранении датасета, враждебный ввод (и через путь Superset с патчем
+   лексера: апостроф, «]», комментарии — ответ тот же, 09.10), обёртка с GROUP BY, старый
    анализатор, prefer_column_name_to_alias = 1, join_use_nulls = 1, типы без Nullable.
 5. Глубина и масштаб: путь отчёта lvl1 + lvl3…lvl12; «Команды» на 3 уровня и все
    уровни (depth_f) число в число, Σ детей == узел на каждом уровне, «Напрямую в …»
@@ -300,8 +301,10 @@ def main():
     rows, _ = ch.run(ch.render({}, 'a.sergeeva', always_true=True))
     ok(meta(rows)['scope'] == [sid(root)], 'AlwaysTrue (сохранение датасета) → дефолт: зона пользователя')
     ok(len(json.loads(by(base_rows, 'meta')[0]['j'])['cal']) == 48, 'календарь: 48 слотов в meta')
-    # Порядок строк и маркер end: Proteus оборачивает датасет в SELECT … LIMIT «лимит строк» и
-    # режет хвост — служебное и значения фильтров обязаны идти первыми, end — последним.
+    # Порядок строк и маркер end. В бою (09.10, Superset 2.1.0) обёртка чарта — SELECT … FROM (датасет) AS
+    # virtual_table GROUP BY <все Измерения> LIMIT N: порядок строк не держится, обрезка режет случайные строки,
+    # одинаковые строки склеиваются. Поэтому строки ответа уникальны, а обрезку чарт видит по числу строк
+    # (data.length ≥ лимита строк чарта) или по отсутствию end; ORDER BY по роли — для прямого запуска.
     RANK = ['meta', 'f', 'scope', 'base', 'kpi', 'hrbps', 'dict', 'c', 'g', 'tr', 'x', 'end']
     cols = ', '.join(['role', 'id', 'pid', 'n', 'j'] + ['m_' + c for c in COMP] + ['w_' + c for c in COMP])
     for user, flt in [('a.sergeeva', {}), ('b.kotov', {'staff_f': ['Штат']}), ('s.volkov', {'tr_f': ['grade']})]:
@@ -310,12 +313,14 @@ def main():
         seq = [RANK.index(r['role']) for r in rows]
         ok(seq == sorted(seq) and rows[0]['role'] == 'meta' and rows[-1]['role'] == 'end' and meta(rows).get('end') == 1,
            'порядок строк по роли, meta первой, end последней [%s %s]' % (user, flt))
-        nf = len(by(rows, 'f'))
-        cut, _ = ch.run('SELECT %s FROM (%s) AS virtual_table LIMIT %d' % (cols, sql, len(rows) - 5))
-        ok(cut[0]['role'] == 'meta' and len(by(cut, 'f')) == nf and not by(cut, 'end'),
-           'обёртка Proteus с лимитом меньше ответа: meta и все %d значений фильтров на месте, end нет [%s]' % (nf, user))
-        whole, _ = ch.run('SELECT %s FROM (%s) AS virtual_table LIMIT 10000' % (cols, sql))
-        ok(len(whole) == len(rows) and whole[-1]['role'] == 'end', 'обёртка Proteus с лимитом больше ответа: ответ целиком [%s]' % user)
+        dump = lambda rs: sorted(json.dumps(r, sort_keys=True, ensure_ascii=False) for r in rs)  # noqa: E731
+        whole, _ = ch.run('SELECT %s FROM (%s) AS virtual_table GROUP BY %s LIMIT 50000' % (cols, sql, cols))
+        ok(dump(whole) == dump(rows), 'обёртка Proteus с GROUP BY: строки уникальны, ответ целиком (%d строк) [%s]'
+           % (len(rows), user))
+        lim = len(rows) - 5
+        cut, _ = ch.run('SELECT %s FROM (%s) AS virtual_table GROUP BY %s LIMIT %d' % (cols, sql, cols, lim))
+        ok(len(cut) == lim, 'обёртка с GROUP BY и лимитом меньше ответа: строк ровно лимит — чарт видит обрезку '
+           'по data.length ≥ лимита [%s]' % user)
     # ---------------- 5. глубина «Команд» до 12-го уровня и большие зоны ----------------
     tech = U['Технологии']
     rks = {sid(u.rk): u.rk for u in W.UNITS}
@@ -509,6 +514,10 @@ def main():
             ok(dump(via) == dump(direct),
                'Superset 2 (sqlparse %s) %s %s: один SELECT, reindent обёртки %.1f с — ClickHouse отвечает тем же (%d строк)'
                % (sqlparse.__version__, user, flt, st['format(reindent) обёртки'], len(direct)))
+        # Враждебные значения во всех носителях (09.10): апостроф, «]», комментарии, «;», слэш в конце, 3000 знаков —
+        # через путь Superset с патчем лексера. На шаблоне с прежним \' и […] — 8 провалов (контроль).
+        for label, err in _ss.hostile_run('b.kotov', {'staff_f': ['Штат']}):
+            ok(err is None, 'враждебный ввод через путь Superset: %s%s' % (label, '' if err is None else ' — ' + err))
 
     print('ClickHouse %s · %d проверок, провалено %d' % (ch.VERSION, cases, bad))
     return bad

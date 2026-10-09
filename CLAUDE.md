@@ -11,21 +11,29 @@
 `docs/filter-fields.md`. `docs/dataset-spec.md`, `docs/data-dictionary.md` и `sql/` —
 первый проект, в реализации не используется.
 
+Общий гайд по бордам Proteus — romuney/TeamPulse, ветка claude/proteus-playbook, папка proteus-playbook/:
+SKILL.md — вход (kit/ — инструменты: superset201.py — модель боя, min.cjs, eslint.chart.cjs).
+
+**Бой (09.10, подтверждено):** Proteus = Superset 2.1.0, путь SQL как в 2.0.1, sqlparse 0.4.3 + патч лексера
+Superset; ClickHouse 24.8.15.1, новый анализатор, `prefer_column_name_to_alias = 1`. Обёртка чарта —
+`SELECT … FROM (датасет) AS virtual_table GROUP BY <все Измерения> LIMIT 50000`.
+
 ## Куда идти
 
 | Задача | Куда |
 |---|---|
 | Поменять расчёт / источник / окно метрики | `helicopter/paragraphs/NN …sql` → `python3 helicopter/build.py` → стенд |
 | Поменять датасет | `proteus/hrbp-hub.data.sql` → `python3 stand/check.py` (оба движка) → `stand/scale.py` на 24.8 → `stand/superset.py` (разбор SQL в Superset: не дороже, чем был); ответ не должен меняться — `stand/same.py` против прошлой версии |
-| Поменять чарт | `proteus/hrbp-hub.chart.js` по скиллу proteus-echarts-builder → `node --check` → ESLint `no-undef` (`stand/eslint.chart.cjs`, 0 ошибок) → `check.py` скилла → живой стенд (каждая вкладка и режим руками: smoke скилла кликает не всё) |
-| Отдать владельцу | `python3 stand/pack.py` → папка `Поставка — HRBP HUB v2/` («замени из файла N»), правка `0. Инструкция.md` (после первой установки у владельца — раздел «Что нового»: какие файлы заменить) |
+| Поменять чарт | `proteus/hrbp-hub.chart.js` по скиллу proteus-echarts-builder → `node --check` → ESLint `no-undef` (`stand/eslint.chart.cjs`, 0 ошибок) → `check.py` скилла (на исходнике, не на сборке) → живой стенд (каждая вкладка и режим руками: smoke скилла кликает не всё; перед поставкой — `HH_DIST=1 live.py` + `tour.cjs` на сборке) |
+| Отдать владельцу | `python3 stand/pack.py` → папка `Поставка — HRBP HUB v2/` («замени из файла N»; файл 3 — сжатая сборка `stand/min.cjs`, нужен `npm i -g terser@5.51.2`; `DELIVERY` — номер и дата в шапке сборки), правка `0. Инструкция.md` (после первой установки у владельца — раздел «Что нового»: какие файлы заменить) |
 | Цели KPI | параграф `12 KPI · реестр целей.sql` (правится руками), в отчёте — вкладка «Цели» |
 
 ## Стенд (без доступа к бою)
 
 PostgreSQL 16 играет Greenplum (SQL держится в подмножестве GP6 ≈ PG 9.4: без
 FILTER, GROUPING SETS, LATERAL), chdb — ClickHouse. Боевой ClickHouse — 24.8:
-chdb 2.1.1 (= 24.8.4.1) ставится в отдельный venv, системный chdb 4.x — 26.9.
+chdb 2.1.1 (= 24.8.4.1) ставится в отдельный venv, системный chdb 4.x — 26.9. Регресс — в venv с chdb 2.1.1,
+sqlparse 0.4.4 и sqlglot (`/home/user/.venvs/sp044`: 516 проверок с 09.10 — 493 + враждебный ввод через путь Superset).
 
 ```
 python3 stand/gen_sources.py              # синтетический мир (stand/world.py) → источники в БД gp
@@ -39,7 +47,10 @@ python3 stand/live.py                     # чарт в браузере пов�
 HH_CHDB=stand/.chdb_scale <venv chdb 2.1.1>/bin/python stand/live.py 8766  # тот же чарт на масштабе (?user=super): справочник 10 тыс. юнитов, поиск
 HH_TR_ALL_MAX=10 python3 stand/live.py    # запасной режим: ветка больше порога с разрезами — атрибут по запросу (HH_TR_TOP — хвост «…», HH_ATTR_TOP=0 — без свёртки)
 node $(npm root -g)/eslint/bin/eslint.js -c stand/eslint.chart.cjs --no-config-lookup proteus/hrbp-hub.chart.js  # no-undef: 0 ошибок
-<venv chdb 2.1.1>/bin/python stand/superset.py b.kotov '{"staff_f": ["Штат"]}'  # что Superset 2 делает с SQL (sqlparse==0.4.4 в venv): шаги, итог на «Применить», ответ после reindent == прямой
+<venv chdb 2.1.1>/bin/python stand/superset.py b.kotov '{"staff_f": ["Штат"]}'  # что Superset 2 делает с SQL (sqlparse 0.4.x в venv, патч лексера Superset ставит сам): шаги, итог на «Применить», ответ после reindent == прямой
+<venv chdb 2.1.1>/bin/python stand/superset.py --hostile  # враждебные значения (апостроф, «]», комментарии, «;», 3000 знаков) в каждом носителе через путь Superset: 23 случая, 0 провалов (HH_DATASET=<старый .sql> — контроль: шаблон с \' падает)
+python3 stand/pack.py [--check]           # файлы 1–3 и 1а поставки; файл 3 — сжатая сборка stand/min.cjs (= kit/min.cjs гайда) с проверкой
+HH_DIST=1 … live.py / check.py            # стенд на файлах поставки: чарт — файл 3 (сборка), датасет — файл 2
 python3 stand/same.py <старый.sql> ['настройки']  # переписал датасет без смены ответа: старая и новая версии — ответ в ответ (логины × юниты × разрезы × оси × режимы)
 NODE_PATH=$(npm root -g) node stand/tour.cjs 'http://127.0.0.1:8765/?user=b.kotov' <каталог>  # тур «Как работать»: все шаги, 0 ошибок
 python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для smoke (live.py остановить: chdb держит каталог)
@@ -75,11 +86,13 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   reindent — `stand/superset.py`.
 - **Датасет — один на отчёт**, строки ролей meta/dict/hrbps/base/scope/c/g/x/f/tr/kpi/end,
   29 колонок. Новая колонка = правка «Измерений» в Proteus владельцем (FIELDS.md).
-- **Порядок строк ответа — `ORDER BY` по роли** (meta, f, scope, base, kpi, hrbps, dict, c, g,
-  tr, x, end): Proteus режет ответ лимитом строк чарта снаружи (`SELECT … LIMIT N`) молча, с
-  хвоста. Служебное и фильтры — в начале, третий уровень «Команд» — в конце, строка `end` —
-  последней (нет её — чарт пишет «ответ обрезан»). 06.10 без порядка пропали значения
-  фильтров. Новая роль — в этот порядок; лимит строк чарта — 50 000.
+- **Строки ответа уникальны; обрезку видит чарт по числу строк** (09.10). Обёртка Proteus 2.1 —
+  `SELECT … FROM (датасет) AS virtual_table GROUP BY <все Измерения> LIMIT N`: порядок строк НЕ держится,
+  обрезка режет случайные строки (не хвост, может пропасть и meta), одинаковые строки склеиваются.
+  `ORDER BY` по роли (meta, f, scope, base, kpi, hrbps, dict, c, g, tr, x, end) в датасете остался — для
+  прямого запуска и SQL Lab, целостность на нём больше не держится. Чарт считает ответ обрезанным, если
+  `data.length ≥ CFG.rowLimit` (50 000 — лимит строк чарта) или нет строки `end` (`M.cut`). check.py:
+  обёртка с GROUP BY отдаёт ответ целиком (строки уникальны). Новая роль — в порядок, строки — различимы.
 - **Уровни** — как в ультраширокой: путь = `lvl1` + `lvl3…lvl12` (до 11 id), `lvl` в
   справочнике — номер уровня источника; `lvl2` и глубже 12-го в путь не берутся.
 - **Масштаб ≈100 тыс.**: куб читается только диапазоном `path_s` области, база — из
@@ -140,6 +153,12 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   `state.unitBack` для «← Назад»). Клик по строке «Команд» только выбирает её: перехода по
   случайному клику нет. Выбранный HRBP (`state.hz`, в датасет
   не уходит) сужает выбор юнита до своей зоны; держится, пока область внутри его зоны.
+- **Песочница гасит чарт на любую ошибку окна** (09.10, SB-03): в начале `mount()` — `overflow:hidden` у
+  html, body и хоста (прокрутка — только в overlay) и обёртка `window.onerror` (`__roSkip`), пропускающая
+  мимо песочницы только «ResizeObserver loop». Значения маски кросс-фильтра отсортированы (`maskOf`).
+- **Файл 3 — сжатая сборка** (09.10): `stand/pack.py` → `stand/min.cjs` (terser 5.51.2, проверка ES5,
+  `option`, имён верхнего уровня, бюджет 260 КиБ): код чарта едет в каждом POST `chart/data` (≈50 КБ/с у
+  владельца), 398 → 232 КиБ. Править — только `proteus/hrbp-hub.chart.js`.
 - **Чарт в iframe Proteus** (07.10): кастомный чарт — в `iframe sandbox="allow-scripts"` высотой с
   ячейку борда (выше экрана), страница борда прокручивается снаружи, до родителя не достучаться:
   `window.innerHeight` — ячейка, не экран. Всё, что ставится «по экрану» (окно фильтров, карточка тура,
@@ -175,6 +194,11 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
 - **Массивы в ClickHouse** — только у таблиц, выгружаемых с `array_type_cast=True` (unit, cube,
   attr, attr_top, base; параграф 15). Без флага массив GP приезжает строкой (так в бою упал `arrayMap`
   по `hrbp_hub_kpi.unit_path`); `stand/ch.py load` берёт флаги из параграфа 15 и повторяет это.
+- **Литералы датасета** (09.10): `qs` — сначала слэш удвоением, потом кавычка удвоением `''` (не `\'`: с ним
+  лексер sqlparse Superset видел «multiple statements» или тихо менял ответ); `qa` со «]» в любом значении —
+  `array(…)`, иначе `[…]` (лексер читает `[…]` одним именем до первой «]»); кортежи фасетов — `array((…))`.
+  Пределы: юнит ≤ 64 знаков, значение разреза ≤ 500. Регресс — `stand/superset.py --hostile` (и в check.py):
+  15 хвостов набора SP-11 в каждом носителе, ответ после пути Superset = прямому.
 - **Доступ** — только через `current_username()` и `hrbp_hub_access` внутри датасета;
   юниты вне зоны не приезжают ни в каком виде. **Логин — в ключе кеша Proteus** (Superset 2):
   `current_username()` обязан стоять внутри `{{ … }}` в коде шаблона (сейчас — в условии `acc`),
