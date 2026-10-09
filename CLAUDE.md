@@ -11,7 +11,7 @@
 `docs/filter-fields.md`. `docs/dataset-spec.md`, `docs/data-dictionary.md` и `sql/` —
 первый проект, в реализации не используется.
 
-Общий гайд по бордам Proteus — romuney/TeamPulse, ветка claude/proteus-playbook, папка proteus-playbook/:
+Общий гайд по бордам Proteus — romuney/TeamPulse (main), папка proteus-playbook/:
 SKILL.md — вход (kit/ — инструменты: superset201.py — модель боя, min.cjs, eslint.chart.cjs).
 
 **Бой (09.10, подтверждено):** Proteus = Superset 2.1.0, путь SQL как в 2.0.1, sqlparse 0.4.3 + патч лексера
