@@ -71,9 +71,9 @@ fetch('/chart.js').then(function (r) { return r.text(); }).then(function (t) { S
 
 BOARD = r'''<!doctype html><html><head><meta charset="utf-8"><title>HRBP HUB · борд</title>
 <style>html,body{margin:0;background:#f6f6f6;font:14px Arial;color:#333}
-.pnav{height:48px;background:#fff;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;padding:0 16px;font-weight:600;gap:24px}
-.dashboard-header{position:sticky;top:0;z-index:20;height:56px;background:#fff;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;padding:0 24px;font-size:20px;font-weight:600}
-.dashboard-grid{padding:16px 24px 480px}
+.pnav{height:47px;background:#fff;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;padding:0 16px;font-weight:600;gap:24px}
+.dashboard-header{position:sticky;top:0;z-index:20;height:64px;background:#fff;border-bottom:1px solid #e8e8e8;display:flex;align-items:center;padding:0 24px;font-size:20px;font-weight:600}
+.grid-container{margin:24px 32px}
 .dashboard-component-chart-holder{background:#fff;padding:16px;border-radius:4px}
 .chart-slice{display:block}
 .slice-header{display:flex;align-items:center;margin-bottom:4px;font-size:16px;font-weight:600}
@@ -82,11 +82,11 @@ BOARD = r'''<!doctype html><html><head><meta charset="utf-8"><title>HRBP HUB · 
 /*BOARDCSS*/</style></head>
 <body><div class="pnav">Proteus <span>Коллекции</span><span>Дашборды</span><span>Графики</span></div>
 <div class="dashboard-header">HRBP HUB</div>
-<div class="dashboard-grid"><div class="grid-content"><div class="dragdroppable-row"><div class="resizable-container" id="cellbox">
+<div class="dashboard-content"><div class="grid-container"><div class="dashboard-grid"><div class="grid-content"><div class="dragdroppable-row"><div class="resizable-container" id="cellbox">
 <div class="dashboard-component dashboard-component-chart-holder dashboard-chart-id-800919">
 <div class="chart-slice"><div class="slice-header" data-test="slice-header"><div class="header-title">HRBP HUB</div><div class="header-controls">⋯</div></div>
 <div class="dashboard-chart" id="chart-id-800919"><div class="chart-container"><img class="loading floating" aria-label="Loading" alt="" style="position:absolute;left:50%;top:50%;width:50px;height:50px;margin:-25px 0 0 -25px;border-radius:50%;border:4px solid #c9d3e6;box-sizing:border-box"><div class="slice_container"><div class="react_sanbbox" id="sb"><div class="empty-state" id="es">Не было получено данных по этому запросу</div></div></div></div></div></div>
-</div></div></div></div></div>
+</div></div></div></div></div></div></div>
 <script>
 var Q = new URLSearchParams(location.search);
 var USER = Q.get('user') || 'a.sergeeva', SELFOFF = Q.get('selfoff') === '1', LONG = Q.get('long') === '1', LIMIT = Q.get('limit') || '';
