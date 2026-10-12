@@ -163,7 +163,8 @@ var CFG = {
   levels: { 1: 'Компания' },
   tabs: [
     { key: 'onepager', label: 'Сводка' }, { key: 'teams', label: 'Команды' },
-    { key: 'transform', label: 'Трансформеры' }, { key: 'goals', label: 'Цели' },
+    { key: 'transform', label: 'Трансформеры' },
+    // «Цели» скрыты до готовности (владелец 12.10, к тестам): goalsHTML и её тур — в коде, вкладки нет.
     { key: 'catalog', label: 'Каталог метрик' }
   ],
   text: {
@@ -213,7 +214,7 @@ var CFG = {
   // thG — строка групп метрик над ней («Все метрики» в «Командах»).
   spacing: { gutter: 16, gap: 12, thH: 30, thG: 22 },
   // Графики (Adoption, ДС 6.3): воздух над марками под подписи 26, ось X 30, отрисовка линии 760 мс.
-  chart: { h: 236, hSmall: 212, bars: 300, top: 26, axis: 30, drawMs: 760 },
+  chart: { h: 236, hSmall: 176, bars: 300, top: 26, axis: 30, drawMs: 760 },
   // «Команды»: доля таблицы в раскладке «таблица | динамика» (перетаскивается разделителем).
   // minH — нижний предел высоты двух колонок (таблица и «Динамика» прокручиваются внутри).
   split: { def: 0.6, min: 0.3, max: 0.8, minH: 420 },
@@ -1313,7 +1314,7 @@ function buildCSS() {
   var SH = '0 1px 3px rgba(20,28,45,.06),0 4px 16px rgba(20,28,45,.04)';
   return [
     '<style>',
-    P + '-root{width:100%;height:100%;box-sizing:border-box;'
+    P + '-root{width:100%;min-height:100%;box-sizing:border-box;'
             + 'font-family:' + CFG.fonts.family + ';'
             + 'font-size:' + F.body + 'px;color:' + C.ink + ';background:' + C.bg + ';}',
     P + '-root *{box-sizing:border-box;font-family:inherit;}',
@@ -1345,7 +1346,10 @@ function buildCSS() {
 
     // ---- шапка: имя, выбор юнита, свежесть, вкладки ----
     // шапка — карточка на холсте (как шапка листа Adoption): радиус 12, без тени и без полосы во всю ширину
-    P + '-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 16px 0;padding:8px 12px 8px 8px;background:' + C.card + ';border-radius:12px;}',
+    // Шапка, строка контекста и плашки — липкий верх (владелец 12.10): вкладки, фильтры и база видны при
+    // любой прокрутке отчёта. Поля по бокам даёт борд (CSS файла 4, 24 px) — у чарта своих нет.
+    P + '-stick{position:sticky;top:0;z-index:40;background:' + C.bg + ';padding:0 0 10px;}',
+    P + '-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0;padding:8px 12px 8px 8px;background:' + C.card + ';border-radius:12px;}',
     P + '-logo{font-weight:600;font-size:' + F.title + 'px;white-space:nowrap;color:' + C.ink + ';padding-left:8px;}',
     P + '-logo small{color:' + C.muted + ';font-weight:400;font-size:' + F.note + 'px;margin-left:6px;}',
     P + '-sp{flex:1;}',
@@ -1359,7 +1363,8 @@ function buildCSS() {
     P + '-cnt{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 4px;margin-left:5px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;font-size:9px;font-weight:500;}',
 
     // ---- строка фильтров: контролы 34 px ----
-    P + '-fbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px 0;}',
+    P + '-fbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0 0;min-height:44px;}',
+    P + '-ctx{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;margin-right:6px;font-size:' + F.body + 'px;color:' + C.ink2 + ';}',
     P + '-dd{position:relative;display:inline-block;}',
     P + '-ddb{display:inline-flex;align-items:center;gap:6px;height:34px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:9px;padding:0 12px;font-size:' + F.control + 'px;font-weight:500;color:' + C.ink2 + ';cursor:pointer;white-space:nowrap;max-width:340px;}',
     P + '-ddb:hover{border-color:#d8dce4;}',
@@ -1552,7 +1557,7 @@ function buildCSS() {
     P + '-lnk:hover{text-decoration:underline;}',
 
     // ---- уведомления и загрузка ----
-    P + '-notes{padding:0 16px;}',
+    P + '-notes{padding:8px 0 0;}',
     P + '-note{font-size:' + F.note + 'px;color:' + C.ink2 + ';background:' + C.card + ';border:1px dashed ' + C.line + ';border-radius:9px;padding:10px 14px;margin-top:12px;line-height:1.5;}',
     P + '-note b{color:' + C.ink + ';}',
     P + '-note' + P + '-warn{border-style:solid;border-color:#f3d58f;background:#fff8e6;color:' + C.warnTx + ';}',
@@ -1564,7 +1569,7 @@ function buildCSS() {
     P + '-busy ' + P + '-content{opacity:.5;pointer-events:none;transition:opacity .2s;}',
 
     // ---- контент вкладки: шкала отступов 2…16 ----
-    P + '-content{padding:14px 16px 16px;min-width:0;}',
+    P + '-content{padding:2px 0 16px;min-width:0;}',
     P + '-pageh{margin:0 0 12px;}',
     P + '-h2{font-size:' + F.title + 'px;margin:0 0 4px;font-weight:600;color:' + C.ink + ';}',
     P + '-lede{margin:0;color:' + C.muted + ';font-size:' + F.note + 'px;line-height:1.9;}',
@@ -1590,7 +1595,9 @@ function buildCSS() {
     P + '-phs{font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;}',
     // «Динамика»: длинное имя юнита — одной строкой с «…», кнопки шапки не переносятся под него.
     P + '-dpan ' + P + '-ph{flex-wrap:nowrap;}',
-    P + '-dpan ' + P + '-pht{flex:1 1 auto;}',
+    P + '-dpan ' + P + '-pht{flex:1 1 auto;flex-direction:row;align-items:baseline;gap:8px;}',
+    P + '-fit>' + P + '-panel>' + P + '-ph{padding:10px 16px;}',
+    P + '-fit>' + P + '-dpan>' + P + '-pb{padding-top:6px;}',
     P + '-dpan ' + P + '-pht>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
     P + '-dpan ' + P + '-pbtn{flex:0 0 auto;}',
     P + '-pb{padding:14px 16px;}',
@@ -1600,7 +1607,8 @@ function buildCSS() {
     P + '-sub{display:inline-flex;align-items:center;gap:6px;height:28px;border:0;background:transparent;padding:0 12px;border-radius:9px;font-weight:500;font-size:' + F.note + 'px;line-height:1;color:' + C.muted + ';cursor:pointer;white-space:nowrap;}',
     P + '-sub:hover{color:' + C.ink2 + ';}',
     P + '-sub' + P + '-on{background:' + C.card + ';color:' + C.ink + ';}',
-    P + '-tools{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:12px;}',
+    P + '-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;}',
+    P + '-tools>' + P + '-legend{margin:0;}',
     P + '-tools ' + P + '-lh{align-self:center;}',
     P + '-dnote{font-size:' + F.note + 'px;color:' + C.muted + ';max-width:380px;line-height:1.4;}',
     P + '-below{color:' + C.muted2 + ';cursor:help;border-bottom:1px dotted ' + C.muted2 + ';}',
@@ -1680,6 +1688,7 @@ function buildCSS() {
     P + '-crb:hover,' + P + '-crb:focus-visible{color:' + C.act + ';text-decoration:underline;outline:none;}',
     P + '-csep{color:' + C.muted2 + ';margin:0 6px;}',
     P + '-lede ' + P + '-crumbs b{color:' + C.ink + ';font-weight:500;}',
+    P + '-ctx ' + P + '-crumbs b{color:' + C.ink + ';font-weight:600;font-size:' + F.title + 'px;}',
     // Поиск по таблице «Команд» в шапке панели; совпадение подсвечено тоном акцента.
     P + '-tsw{position:relative;display:inline-block;width:220px;color:' + C.muted + ';}',
     P + '-tsw svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none;}',
@@ -1831,7 +1840,7 @@ function buildCSS() {
     P + '-t' + P + '-g2 tr' + P + '-tot td{top:' + (CFG.spacing.thG + CFG.spacing.thH) + 'px;}',
     P + '-t th' + P + '-gs,' + P + '-t td' + P + '-gs{border-left:1px solid ' + C.line2 + ';}',
     // стопка графиков: зазор 26 (chart-gap профиля)
-    P + '-dyn{display:flex;flex-direction:column;gap:26px;}',
+    P + '-dyn{display:flex;flex-direction:column;gap:14px;}',
 
     // ---- числа людей, маленькие команды ----
     P + '-t td ' + P + '-abs{white-space:normal;line-height:1.25;}',
@@ -1991,7 +2000,7 @@ function deltaTd(m, d, text, cls) {
 function dirText(m) { return m.better === 'flat' ? 'больше не значит лучше' : (m.better === 'higher' ? 'выше — лучше' : 'ниже — лучше'); }
 function pageHead(title, ledeHtml) {
   var P = CFG.ns;
-  return '<div class="' + P + '-pageh"><h2 class="' + P + '-h2">' + esc(title) + '</h2><p class="' + P + '-lede">' + ledeHtml + '</p></div>';
+  return '<div class="' + P + '-pageh" data-title="' + esc(title) + '"><p class="' + P + '-lede">' + ledeHtml + '</p></div>';
 }
 
 // ---- разрезы: подписи для чипов, цели и базы ----
@@ -2039,19 +2048,20 @@ function moreFocus(rules, withMetric) {
     rows: rows, note: notes }) + '>+' + rules.length + ' по разрезам</span>';
 }
 // Легенда светофора — одна на отчёт, над таблицами и справа, на вертикали цвета.
-function legendHTML(right, small) {
+// short — в строке инструментов «Команд»: без заголовка, подписи короче (целиком — в подсказках).
+function legendHTML(right, small, short) {
   var P = CFG.ns, C = CFG.colors;
   var dz = 'Отклонение до 5% от ориентира не считается значимым — ни в плюс, ни в минус. Для цели 4,0% это коридор 3,8–4,2%, для 80% — 76–84%.';
-  return '<div class="' + P + '-legend' + (right ? ' ' + P + '-r' : '') + '"><span class="' + P + '-lh">Цвет значения</span>'
+  return '<div class="' + P + '-legend' + (right ? ' ' + P + '-r' : '') + '">' + (short ? '' : '<span class="' + P + '-lh">Цвет значения</span>')
     + '<span class="' + P + '-sw"' + tip({ title: 'Зелёный', text: 'Метрика лучше ориентира больше чем на 5%.', note: 'Ориентир — цель, если она есть, иначе база сравнения.' })
-    + '><span class="' + P + '-dot" style="background:' + C.green + '"></span> лучше ориентира</span>'
+    + '><span class="' + P + '-dot" style="background:' + C.green + '"></span> ' + (short ? 'лучше' : 'лучше ориентира') + '</span>'
     + '<span class="' + P + '-sw"' + tip({ title: 'Красный', text: 'Метрика хуже ориентира больше чем на 5%.', note: '«Лучше» у каждой метрики своё: у текучести — меньше, у закрепляемости — больше.' })
-    + '><span class="' + P + '-dot" style="background:' + C.red + '"></span> хуже ориентира</span>'
+    + '><span class="' + P + '-dot" style="background:' + C.red + '"></span> ' + (short ? 'хуже' : 'хуже ориентира') + '</span>'
     + '<span class="' + P + '-sw"' + tip({ title: 'Серый — мёртвая зона ±5%', text: dz, note: 'Серым красится и метрика без ориентира: у «больше не значит лучше» цвета быть не может.' })
-    + '><span class="' + P + '-dot" style="background:' + C.neutral + '"></span> в пределах ±5% или без ориентира</span>'
+    + '><span class="' + P + '-dot" style="background:' + C.neutral + '"></span> ' + (short ? '±5% или без ориентира' : 'в пределах ±5% или без ориентира') + '</span>'
     + (small ? '<span class="' + P + '-sw"' + tip({ title: 'Прочерк — меньше ' + CFG.small.min + ' человек',
         text: 'Закрепляемость и текучесть команды меньше ' + CFG.small.min + ' человек не оцениваются: один человек сдвигает процент на несколько пунктов.',
-        note: 'Сколько это людей — в подсказке ячейки.' }) + '><b class="' + P + '-dash0">—</b> меньше ' + CFG.small.min + ' чел.: без оценки</span>' : '')
+        note: 'Сколько это людей — в подсказке ячейки.' }) + '><b class="' + P + '-dash0">—</b> ' + (short ? '< ' + CFG.small.min + ' чел.' : 'меньше ' + CFG.small.min + ' чел.: без оценки') + '</span>' : '')
     + '</div>';
 }
 // Ячейка ориентира: подпись и значение одной строкой («Цель ≤ 2,0%», «База 92,0%»), под ней —
@@ -2131,6 +2141,7 @@ function headHTML() {
     s += '<span class="' + P + '-logo">' + esc(CFG.text.title) + '<small>метрики команд</small></span>';
   }
   s += '<span class="' + P + '-sp"></span>';
+  if (ok) s += filterBtnHTML();
   // Тур «Как работать» — по той вкладке, на которой нажали (ДС §10: справка доступна кнопкой).
   if (ok && M.L >= 12) {
     s += '<button type="button" class="' + P + '-btn ' + P + '-help" data-tact="tour" data-tour="help"'
@@ -2542,12 +2553,18 @@ function filterChips() {
   if (state.focusOnly) out.push({ key: 'focus', label: '', value: 'Только фокусные', list: [] });
   return out;
 }
-function filterBarHTML() {
-  var P = CFG.ns, chips = filterChips(), n = pendingN(), on = !!state.drawer;
-  var s = '<div class="' + P + '-fbar">'
-    + '<button type="button" class="' + P + '-fbtn' + (on ? ' ' + P + '-on' : '') + '" data-action="drawer" aria-haspopup="true" aria-expanded="' + (on ? 'true' : 'false') + '"'
+// Кнопка «Фильтры» — в шапке справа, рядом с «Как работать» (владелец 12.10: «как настроить свой дашборд»).
+function filterBtnHTML() {
+  var P = CFG.ns, n = filterChips().length, on = !!state.drawer;
+  return '<button type="button" class="' + P + '-fbtn' + (on ? ' ' + P + '-on' : '') + '" data-action="drawer" aria-haspopup="true" aria-expanded="' + (on ? 'true' : 'false') + '"'
     + tip({ title: 'Фильтры и настройки', text: 'Юнит, HRBP, разрезы численности и показ метрик — в одном окне. Всё выбранное применяется вместе кнопкой «Применить».' })
-    + '>' + FILTER_SVG + 'Фильтры' + (chips.length ? '<span class="' + P + '-cnt">' + chips.length + '</span>' : '') + '</button>';
+    + '>' + FILTER_SVG + 'Фильтры' + (n ? '<span class="' + P + '-cnt">' + n + '</span>' : '') + '</button>';
+}
+// Строка контекста под шапкой — вместо заголовка вкладки (владелец 12.10): путь юнита, применённые
+// фильтры чипами, справа база. Вместе с шапкой прилипает к верху при прокрутке (-stick).
+function filterBarHTML() {
+  var P = CFG.ns, chips = filterChips(), n = pendingN(), on = !!state.drawer, v = state.view || 'onepager';
+  var s = '<div class="' + P + '-fbar"><span class="' + P + '-ctx">' + crumbsHTML() + (v === 'onepager' ? sumInfo() : '') + '</span>';
   for (var i = 0; i < chips.length; i++) {
     var c = chips[i];
     s += '<span class="' + P + '-chip"' + (c.list.length > 1 ? tip({ title: c.label, text: c.list.join(', ') }) : '') + '>'
@@ -2753,7 +2770,7 @@ function kpiCardsHTML() {
     + kpiCard({ label: M.single ? 'Целей на юните' : 'Целей внутри зоны', value: String(own.length),
         q: hInfo({ title: 'Свои цели', text: 'Цели, поставленные на сам юнит (для зоны — на юниты внутри неё). Цель с разрезом видна, только когда выбран ровно этот разрез.' }),
         row1: live ? '<span class="' + P + '-tag ' + P + '-own">' + live + ' в фокусе сейчас</span>' : '<span class="' + P + '-ks">' + (own.length ? 'ни одна не подходит под разрезы' : 'своих целей нет') + '</span>',
-        row2: '<span class="' + P + '-ks">реестр и новая цель — вкладка «Цели»</span>' })
+        row2: '<span class="' + P + '-ks">цели ставит владелец отчёта</span>' })
     + kpiCard({ label: 'Наследуемых целей', value: String(inh),
         q: hInfo({ title: 'Наследование', text: 'Цель, поставленная выше по дереву, действует на всю ветку вниз, пока не встретится своя.' }),
         row1: inh ? '<span class="' + P + '-tag">Фокус через родителя</span>' : '<span class="' + P + '-ks">—</span>',
@@ -3039,12 +3056,14 @@ function popHintHTML() {
     + '<button type="button" class="' + P + '-lnk" data-action="pophint" data-key="' + esc(h.key) + '" data-val="' + esc(h.v) + '">Сравнить с «' + esc(cutName(h.v)) + '»</button>'
     + ' · <button type="button" class="' + P + '-lnk" data-action="pophint" data-key="">Скрыть</button></div>';
 }
+function sumInfo() {
+  return hInfo({ title: 'Как читать сводку', text: 'Значение метрики за ' + monthLow(MODEL.L) + ' сравнивается с ориентиром: с целью, если она утверждена (своя или унаследованная сверху), иначе — с базой.',
+    rows: [{ label: 'база', value: benchLabel() }],
+    note: ['База собирается из тех же разрезов численности, но по всей компании.', 'Клик по строке раскрывает динамику: год к году и 12 недель. Раскрыть можно несколько строк.'] });
+}
 function onepagerHTML() {
   var P = CFG.ns, M = MODEL, L = M.L, u = scopeUnit();
-  var s = pageHead('Сводка', crumbsHTML() + '<span class="' + CFG.ns + '-ldm"> · ' + esc(monthLow(L)) + ' · ' + esc(selLabel()) + '</span>'
-    + hInfo({ title: 'Как читать сводку', text: 'Значение метрики за последний закрытый месяц сравнивается с ориентиром: с целью, если она утверждена (своя или унаследованная сверху), иначе — с базой.',
-              rows: [{ label: 'база', value: benchLabel() }],
-              note: ['База собирается из тех же разрезов численности, но по всей компании.', 'Клик по строке раскрывает динамику: год к году и 12 недель. Раскрыть можно несколько строк.'] }));
+  var s = '';
   if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Под текущими разрезами в выбранном юните нет сотрудников за два года. Снимите один из разрезов: × у его чипа над отчётом.');
   if (!selMetrics('').length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики: «Фильтры» → «Что показывать».');
   var smallScope = isSmall(M.scope), gatedOn = false;
@@ -3118,7 +3137,7 @@ function onepagerHTML() {
       + '<th class="' + P + '-c">12 мес<span class="' + P + '-hc">точка — к ориентиру месяца</span></th></tr></thead><tbody>' + rows + '</tbody></table>';
     s += '<div class="' + P + '-gap">' + hPanel({ title: blk.name, sub: blk.hint, body: tbl, tbl: true }) + '</div>';
   }
-  if (!any) s += hEmpty('Под фильтром «Только фокусные» метрик не осталось', 'На этом юните и выше по ветке целей по выбранным метрикам нет. Выключите тумблер или поставьте цель — вкладка «Цели».');
+  if (!any) s += hEmpty('Под фильтром «Только фокусные» метрик не осталось', 'На этом юните и выше по ветке целей по выбранным метрикам нет. Выключите тумблер «Только фокусные» в окне «Фильтры».');
   return s;
 }
 
@@ -3409,12 +3428,13 @@ function teamsTableHTML(tc) {
 }
 function teamsHTML() {
   var P = CFG.ns, M = MODEL, L = M.L;
-  var s = pageHead('Команды', crumbsHTML() + '<span class="' + P + '-ldm"> · ' + (M.depth === 'all' ? 'все уровни вниз' : 'на 3 уровня вниз') + ' · ' + esc(monthLow(L)) + '</span>');
-  var tc = teamsCtx();
+  // Без заголовка вкладки: юнит и фильтры — в липкой строке контекста; группы, легенда и глубина — одной
+  // строкой над таблицей (владелец 12.10: «мало информации на экране»).
+  var s = '', tc = teamsCtx();
   if (tc.live.length === 1) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики: «Фильтры» → «Что показывать».');
-  s += '<div class="' + P + '-tools">' + hSubs(tc.live, tc.blk, 'block') + '<span class="' + P + '-sp2"></span>'
-    + '<span class="' + P + '-dhint"' + tip({ title: 'Глубина — 3 уровня', text: 'Таблица показывает три уровня вниз от юнита отчёта. Глубже: выберите строку и нажмите иконку «Открыть юнит» у её правого края — отчёт встанет на этот юнит, и ниже откроются следующие три уровня.' })
-    + '>Глубина — 3 уровня · глубже: выберите строку и откройте юнит ' + OPEN_SVG + '</span></div>';
+  s += '<div class="' + P + '-tools">' + hSubs(tc.live, tc.blk, 'block') + '<span class="' + P + '-sp2"></span>' + legendHTML(false, true, true)
+    + '<span class="' + P + '-dhint"' + tip({ title: 'Глубина — 3 уровня', text: 'Таблица показывает три уровня вниз от юнита отчёта (' + monthLow(L) + '). Глубже: выберите строку и нажмите иконку «Открыть юнит» у её правого края — отчёт встанет на этот юнит, и ниже откроются следующие три уровня.' })
+    + '>' + (M.depth === 'all' ? 'Все уровни' : '3 уровня вниз') + ' ' + OPEN_SVG + '</span></div>';
   if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Снимите один из разрезов: × у его чипа над отчётом.');
   var sel = tc.sel, mets = tc.mets;
   var cur = sel || { lvl: 0, id: '', ser: M.scope, key: '' };
@@ -3430,14 +3450,13 @@ function teamsHTML() {
     note: ['Клик по строке — её графики справа. «Открыть юнит» у выбранной строки делает её юнитом отчёта; вернуться — «← Назад» или путь над таблицей.', 'Клик по заголовку колонки — сортировка. «Напрямую в …» — сотрудники самого юнита, а не его подразделений.'] });
   var mode = state.narrow ? 'both' : (state.splitMode || 'both');
   var search = '<span class="' + P + '-tsw">' + SEARCH_SVG + '<input class="' + P + '-srch" type="text" data-tsearch="1" placeholder="Поиск юнита в таблице" value="' + esc(state.tq || '') + '"></span>';
-  var left = hPanel({ cls: P + '-tpan', title: 'Юниты', info: info, sub: 'клик по строке — графики справа и ориентиры под значениями',
+  var left = hPanel({ cls: P + '-tpan', title: 'Юниты', info: info,
     body: '<div data-tbox="1">' + teamsTableHTML(tc) + '</div>', tbl: true, tabs: '<span class="' + P + '-pbtn">' + search + copyBtn('teams') + splitBtn('table') + '</span>' });
   var subTxt = sel ? rowName(sel) : 'ИТОГО · ' + scopeLabel();
   var subHtml = '<span' + tip({ title: subTxt, text: 'Графики — по этой строке таблицы.' }) + '>' + esc(subTxt) + '</span>';
   var rightP = hPanel({ cls: P + '-dpan', title: 'Динамика', subHtml: subHtml, body: right,
     tabs: '<span class="' + P + '-pbtn">' + (sel && sel.id !== '·' ? drillBtn(sel.id) : '') + hSubs([['yoy', 'Год'], ['wow', '12 недель']], dyn, 'dyn') + splitBtn('charts') + '</span>' });
   var sh = state.split || CFG.split.def;
-  s += legendHTML(false, true);
   if (mode === 'table') s += '<div class="' + P + '-split ' + P + '-sp1">' + left + splitRail('Динамика', '◂') + '</div>';
   else if (mode === 'charts') s += '<div class="' + P + '-split ' + P + '-sp2c">' + splitRail('Юниты', '▸') + rightP + '</div>';
   else {
@@ -3755,7 +3774,7 @@ function catalogHTML() {
 // need — показывать ли шаг. Цель не нашлась (нет строк, нет данных) — шаг пропускается.
 var HELP_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + '<circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.6-2.7 2.6"/><path d="M12 16.6h.01"/></svg>';
-var TOUR_NEXT = { onepager: 'teams', teams: 'transform', transform: 'goals', goals: 'catalog' };
+var TOUR_NEXT = { onepager: 'teams', teams: 'transform', transform: 'catalog' };
 function tabLabel(v) { for (var i = 0; i < CFG.tabs.length; i++) if (CFG.tabs[i].key === v) return CFG.tabs[i].label; return v; }
 // Первый шаг полного тура: как читать отчёт — четыре правила (ДС §10).
 function tourIntroHTML() {
@@ -3774,7 +3793,7 @@ function tourSteps(view) {
   if (view === 'onepager') {
     add({ intro: true, title: 'HRBP HUB за минуту', html: tourIntroHTML() });
     add({ sel: P + '-tabbar', lock: true, title: 'Вкладки',
-      html: '<b>Сводка</b> — метрики выбранного юнита. <b>Команды</b> — сравнение подразделений. <b>Трансформеры</b> — метрика по грейду, стажу, городу. <b>Цели</b> — реестр целей. <b>Каталог метрик</b> — что и как считается.' });
+      html: '<b>Сводка</b> — метрики выбранного юнита. <b>Команды</b> — сравнение подразделений. <b>Трансформеры</b> — метрика по грейду, стажу, городу. <b>Каталог метрик</b> — что и как считается.' });
     add({ sel: '[data-action="drawer"]', demo: true, done: function () { return !!state.drawer; }, title: 'Фильтры и настройки',
       html: 'Юнит, HRBP, разрезы численности и что показывать — в одном окне. Нажмите — окно откроется.',
       hint: 'Нажмите на подсвеченную кнопку или «Показать».' });
@@ -3788,8 +3807,8 @@ function tourSteps(view) {
       html: '<b>Метрики</b> — какие строки показывать, по группам: заголовок группы прописными с флажком снимает или возвращает её целиком, метрики группы — под ним с отступом. <b>Только фокусные</b> — метрики, у которых есть цель. Это вид: данные не перезапрашиваются.' });
     add({ sel: P + '-mdf', drawer: true, lock: true, title: 'Применить',
       html: 'Внизу окна всегда видно, что изменено. «Применить» пересчитывает отчёт одним запросом и закрывает окно, «Отменить» возвращает как было. Закрыли окно, не применив, — над отчётом останется напоминание.' });
-    add({ sel: P + '-fbar', lock: true, title: 'Применённые фильтры',
-      html: 'Что применено — чипами рядом с кнопкой «Фильтры»: × снимает фильтр сразу. Справа — база сравнения: вся компания под теми же разрезами, с ней сравниваются метрики без цели.' });
+    add({ sel: P + '-fbar', lock: true, title: 'Юнит, фильтры и база',
+      html: 'Строка под вкладками: юнит отчёта и путь к нему, что применено — чипами (× снимает фильтр сразу), справа — база сравнения: вся компания под теми же разрезами, с ней сравниваются метрики без цели. Вкладки, «Фильтры» и эта строка остаются наверху при прокрутке.' });
     add({ sel: function (R) { var k = R.querySelectorAll(P + '-kpis>' + P + '-kpi'); return k.length > 1 ? k[1] : null; }, title: 'Сотрудники и движение',
       html: 'Численность на конец месяца и как она менялась за год: найм в компанию, увольнения из компании, переводы между подразделениями. Помесячно — в ⓘ.' });
     add({ sel: '[data-pophint]', lock: true, need: !!popHint(), title: 'С кем сравнивать',
@@ -3891,7 +3910,7 @@ function accessHTML() {
 function tabHTML(v) {
   if (v === 'teams') return teamsHTML();
   if (v === 'transform') return transformHTML();
-  if (v === 'goals') return goalsHTML();
+  if (v === 'goals') return onepagerHTML();  // вкладка скрыта (CFG.tabs)
   if (v === 'catalog') return catalogHTML();
   return onepagerHTML();
 }
@@ -3905,13 +3924,11 @@ function buildHTML() {
   var h = [], ok = MODEL.ok && MODEL.role !== 'none' && MODEL.L >= 12, v = state.view || 'onepager';
   CHARTS = [];
   h.push('<div class="' + P + '-root' + (state.narrow ? ' ' + P + '-narrow' : '') + (state.pend ? ' ' + P + '-busy' : '') + '">');
-  h.push(headHTML());
   if (!ok) {
-    h.push('<div class="' + P + '-content">' + accessHTML() + '</div></div>');
+    h.push(headHTML() + '<div class="' + P + '-content">' + accessHTML() + '</div></div>');
     return buildCSS() + h.join('');
   }
-  h.push(filterBarHTML());
-  h.push(noticesHTML());
+  h.push('<div class="' + P + '-stick">' + headHTML() + filterBarHTML() + noticesHTML() + '</div>');
   h.push('<div class="' + P + '-content" role="tabpanel">' + tabHTML(v) + '</div>');
   if (state.drawer) h.push(filtersModalHTML());
   h.push('</div>');
@@ -4403,6 +4420,9 @@ function buildHTML() {
     // (state.vpH: в iframe Proteus ячейка выше экрана, а прокручивается страница борда), каждая
     // прокручивается внутри. Узкая ячейка — одна колонка, высота по содержимому.
     function fitSplit() {
+      // липкий верх: переход к строке (scrollIntoView) не прячет её под шапкой
+      var stk = overlay.querySelector('.' + CFG.ns + '-stick');
+      overlay.style.scrollPaddingTop = stk ? stk.offsetHeight + 'px' : '';
       var sp = overlay.querySelector('.' + CFG.ns + '-split');
       if (!sp) return;
       if (state.narrow) { sp.classList.remove(CFG.ns + '-fit'); sp.style.height = ''; return; }
