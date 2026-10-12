@@ -87,13 +87,15 @@
     значений 6 разрезов, 11 — множители смешанной системы счисления, 12 — словари JSON для meta. -#}
 {% set EX = '(SELECT ext FROM ex0)' %}
 {% set FZ = '(SELECT fzt FROM fz)' %}
-{#- Строковый литерал ClickHouse: обратный слэш и кавычка экранируются. -#}
-{% macro qs(v) -%}'{{ v|string|replace('\\', '\\\\')|replace("'", "\\'") }}'{%- endmacro %}
+{#- Строковый литерал ClickHouse (09.10): сначала обратный слэш (удвоением), потом кавычка — удвоением '', не \'
+    (с \' лексер sqlparse Superset читает литерал иначе: «multiple statements» или тихо другой ответ).
+    Массив со «]» в значении — array(…), а не […]: лексер sqlparse читает […] одним именем до первой «]». -#}
+{% macro qs(v) -%}'{{ v|string|replace('\\', '\\\\')|replace("'", "''") }}'{%- endmacro %}
 {#- Список для IN по ключу таблицы (id): индекс ClickHouse берёт его сразу. -#}
 {% macro qt(values) -%}({% for v in values %}{{ qs(v) }}{% if not loop.last %}, {% endif %}{% endfor %}){%- endmacro %}
 {#- Массив строк: для has()/hasAny(); пустой — типизированный. -#}
 {% macro qa(values) -%}
-{%- if values|length == 0 -%}CAST([], 'Array(String)'){%- else -%}[{% for v in values %}{{ qs(v) }}{% if not loop.last %}, {% endif %}{% endfor %}]{%- endif -%}
+{%- if values|length == 0 -%}CAST([], 'Array(String)'){%- else -%}{%- set br = [] -%}{%- for v in values if ']' in v|string -%}{%- set _ = br.append(1) -%}{%- endfor -%}{{ 'array(' if br else '[' }}{% for v in values %}{{ qs(v) }}{% if not loop.last %}, {% endif %}{% endfor %}{{ ')' if br else ']' }}{%- endif -%}
 {%- endmacro %}
 {#- Значения фильтров: список собирается циклом — при сохранении датасета Proteus
     отдаёт вместо списка AlwaysTrueObject, у него нет длины и «+» не определён. -#}
@@ -104,7 +106,7 @@
     Поэтому в условии доступа (acc) логин берётся прямо в {{ }} — не переносить в {% set %};
     stand/check.py сверяет текст шаблона с регуляркой Superset 2. -#}
 {% set me = (current_username() or '')|string|trim|lower %}
-{% set unit_req = [] %}{% for v in (filter_values('unit_f') or []) %}{% if v|string|trim != '' and unit_req|length < 50 %}{% set _ = unit_req.append(v|string|trim) %}{% endif %}{% endfor %}
+{% set unit_req = [] %}{% for v in (filter_values('unit_f') or []) %}{% if v|string|trim != '' and (v|string|trim)|length <= 64 and unit_req|length < 50 %}{% set _ = unit_req.append(v|string|trim) %}{% endif %}{% endfor %}
 {#- Глубина «Команд»: 3 уровня вниз; 'all' — до 12-го уровня, если в ветке юнита не больше
     ALL_MAX юнитов (иначе ответ — мегабайты: у каждой строки 24 ряда по 24 точки). -#}
 {% set ALL_MAX = 1000 %}
@@ -112,7 +114,7 @@
 {% set depth_req = 'all' if (filter_values('depth_f')|first|default('', true))|string == 'all' else '3' %}
 {% set D = DEEP if depth_req == 'all' else 3 %}
 {% set F = {} %}
-{% for c in CUTS %}{% set vals = [] %}{% for v in (filter_values(c[1]) or []) %}{% if v|string != '' and vals|length < 200 %}{% set _ = vals.append(v|string) %}{% endif %}{% endfor %}{% set _ = F.update({c[0]: vals}) %}{% endfor %}
+{% for c in CUTS %}{% set vals = [] %}{% for v in (filter_values(c[1]) or []) %}{% if v|string != '' and (v|string)|length <= 500 and vals|length < 200 %}{% set _ = vals.append(v|string) %}{% endif %}{% endfor %}{% set _ = F.update({c[0]: vals}) %}{% endfor %}
 {#- Выбран ли хоть один разрез: без разрезов атрибуты берутся из свёртки. -#}
 {% set ANYCUT = [] %}{% for c in CUT_COLS %}{% if F[c]|length > 0 %}{% set _ = ANYCUT.append(c) %}{% endif %}{% endfor %}
 {% set axis = filter_values('tr_f')|first|default('', true) %}
@@ -316,7 +318,7 @@ FROM (
     FROM (
       SELECT toInt64(ifNull(cb.m_hc[ctx.last_m + 1], 0)) AS hn, ctx.last_m AS lm0,
         arrayJoin(arrayConcat(
-          {% for c in CUT_COLS %}if({{ cond(c) }}, [('{{ c }}', ifNull(cb.{{ c }}, '-'), toUInt8({{ cond('') }}))], []){% if not loop.last %},
+          {% for c in CUT_COLS %}if({{ cond(c) }}, array(('{{ c }}', ifNull(cb.{{ c }}, '-'), toUInt8({{ cond('') }}))), []){% if not loop.last %},
           {% endif %}{% endfor %}
         )) AS fv,
         {{ win('[' ~ MM|join(', ') ~ ']', 'ctx.last_m') }} AS v

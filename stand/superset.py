@@ -1,6 +1,7 @@
 """Что Superset 2 (Proteus) делает с SQL датасета до ClickHouse — и сколько это стоит.
 
     <venv chdb 2.1.1 + sqlparse==0.4.4>/bin/python stand/superset.py [логин] ['{"staff_f": ["Штат"]}']
+    … stand/superset.py --hostile [логин] [фильтры]   # враждебные значения в каждом носителе: путь = прямой
     HH_DATASET=<другой .sql> … — то же для другой версии датасета (сравнить «было / стало»)
 
 Повторяет шаги Superset 2.1 для виртуального датасета (superset/connectors/sqla/models.py):
@@ -17,6 +18,7 @@
 """
 import json
 import os
+import re
 import sys
 import time
 
@@ -27,6 +29,34 @@ except ImportError:
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ch  # noqa: E402
+
+# Патч лексера Superset 2.0.1 / 2.1.0 (superset/sql_parse.py): литерал '…' с '' и \\ внутри — одна строка.
+# В бою (09.10) — Superset 2.1.0, sqlparse 0.4.3 + этот патч (insert(0)); на 0.4.4 тот же литерал ставят
+# insert(25) через Lexer (как Superset 2.1.3) — так стенд в venv sp044. Без патча стенд видел бы текст не так, как бой.
+_PATCH_RX = r"'(''|\\\\|\\|[^'])*'"
+
+
+def lexer_patch():
+    kw = sqlparse.keywords
+    if hasattr(kw, 'FLAGS'):
+        first = kw.SQL_REGEX[0][0]
+        if getattr(getattr(first, '__self__', None), 'pattern', None) != _PATCH_RX:
+            kw.SQL_REGEX.insert(0, (re.compile(_PATCH_RX, kw.FLAGS).match, sqlparse.tokens.String.Single))
+        return
+    lex = sqlparse.lexer.Lexer
+    rx = kw.SQL_REGEX
+    if not any(isinstance(r, str) and r == _PATCH_RX for r, _ in rx[:40]):
+        rx.insert(25, (_PATCH_RX, sqlparse.tokens.String.Single))
+        lex.get_default_instance().set_SQL_REGEX(rx)
+
+
+lexer_patch()
+
+# Враждебные значения (набор SP-11 гайда, kit/superset201.py HOSTILE_FULL): апостроф, «]», комментарии,
+# слэш в конце, «;», управляющие, 3000 знаков. Тире chdb портит в тексте запроса — его здесь нет.
+HOSTILE = ["O'Brien; x", 'a]b', 'x -- y', 'x // y', '# x', 'a\\', 'a;b', 'Отдел «Альфа» 1',
+           '[a', 'x /* y', 'y */ z', '`b`', "O\\'K", 'a\tb\x01c', 'Ж' * 3000]
+CARRIERS = ['unit_f', 'paint_f', 'it_f', 'stream_f', 'spec_f', 'staff_f', 'hct_f', 'tr_f']
 
 
 def tm(f, *a, **k):
@@ -51,7 +81,79 @@ def superset_steps(rendered, cols, limit=50000):
     return final, st
 
 
+def _sg_tokens(sql):
+    import sqlglot
+    return [(t.token_type, t.text) for t in sqlglot.tokenize(sql, read='clickhouse')]
+
+
+def path_check(rendered, direct=None):
+    """Путь Superset над рендером → None, если всё как надо, иначе текст ошибки: одна инструкция,
+    strip_comments и reindent не трогают токенов (sqlglot), ответ ClickHouse после пути = прямому."""
+    if direct is None:
+        direct, _ = ch.run(rendered)
+    cols = list(direct[0].keys()) if direct else ['role']
+    try:
+        final, _ = superset_steps(rendered, cols)
+    except AssertionError as ex:
+        return str(ex)
+    try:
+        import sqlglot  # noqa: F401
+        sc = sqlparse.format(rendered.strip('\t\r\n; '), strip_comments=True)
+        if _sg_tokens(sc) != _sg_tokens(rendered.strip('\t\r\n; ')):
+            return 'strip_comments меняет токены'
+        wrapped = 'SELECT %s \nFROM (%s) AS virtual_table \n LIMIT %d' % (', '.join(cols), sc, 50000)
+        if _sg_tokens(final) != _sg_tokens(wrapped):
+            return 'reindent меняет не только пробелы'
+    except ImportError:
+        pass
+    except Exception as ex:  # noqa: BLE001 — sqlglot не разобрал текст после пути
+        return 'sqlglot: %s' % str(ex).split('\n')[0][:200]
+    try:
+        via, _ = ch.run(final)
+    except Exception as ex:  # noqa: BLE001
+        return 'ClickHouse: %s' % str(ex).split('\n')[0][:200]
+    key = lambda rs: sorted(json.dumps(r, sort_keys=True, ensure_ascii=False) for r in rs)  # noqa: E731
+    return None if key(via) == key(direct) else 'ответ ДРУГОЙ'
+
+
+def hostile_cases(base=None):
+    """(подпись, фильтры): все хвосты разом в каждом носителе + каждый хвост отдельно в spec_f."""
+    base = dict(base or {})
+    out = []
+    for c in CARRIERS:
+        f = dict(base)
+        f[c] = list(HOSTILE)
+        out.append(('%s ← все %d хвостов' % (c, len(HOSTILE)), f))
+    for h in HOSTILE:
+        f = dict(base)
+        f['spec_f'] = [h]
+        out.append(('spec_f ← %r' % (h if len(h) < 40 else '%s × %d' % (h[0], len(h))), f))
+    return out
+
+
+def hostile_run(user='b.kotov', base=None, path=None):
+    """→ [(подпись, None | ошибка)] по hostile_cases."""
+    res = []
+    for label, flt in hostile_cases(base):
+        try:
+            rendered = ch.render(flt, user, path=path or ch.DATASET)
+            res.append((label, path_check(rendered)))
+        except Exception as ex:  # noqa: BLE001
+            res.append((label, 'рендер / прямой запуск: %s' % str(ex).split('\n')[0][:200]))
+    return res
+
+
 def main():
+    if '--hostile' in sys.argv:
+        args = [a for a in sys.argv[1:] if a != '--hostile']
+        res = hostile_run(args[0] if args else 'b.kotov', json.loads(args[1]) if len(args) > 1 else {'staff_f': ['Штат']},
+                          os.environ.get('HH_DATASET'))
+        for label, err in res:
+            print('%-4s %s%s' % ('ok' if err is None else 'FAIL', label, '' if err is None else ' — ' + err))
+        bad = sum(1 for _, e in res if e)
+        print('враждебный ввод через путь Superset: %d случаев, %d провалов' % (len(res), bad))
+        sys.exit(1 if bad else 0)
+
     user = sys.argv[1] if len(sys.argv) > 1 else 'b.kotov'
     flt = json.loads(sys.argv[2]) if len(sys.argv) > 2 else {}
     rendered, t_jinja = tm(ch.render, flt, user, path=os.environ.get('HH_DATASET') or ch.DATASET)

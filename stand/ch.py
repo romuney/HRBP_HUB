@@ -26,6 +26,8 @@ import psycopg2
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATASET = os.path.join(HERE, '..', 'proteus', 'hrbp-hub.data.sql')
+if os.environ.get('HH_DIST') == '1':  # стенд на файлах поставки
+    DATASET = os.path.join(HERE, '..', 'Поставка — HRBP HUB v2', '2. Proteus — датасет hrbp_hub.sql')
 # Сессия — до любого запроса: в chdb 2.x глобальный движок инициализируется один раз.
 _MAJOR_GUESS = 24 if chdb.__version__.startswith('2.') else 26
 DB = os.environ.get('HH_CHDB') or os.path.join(HERE, '.chdb%d' % _MAJOR_GUESS)
