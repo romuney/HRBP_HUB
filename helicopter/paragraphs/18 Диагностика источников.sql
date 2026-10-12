@@ -9,11 +9,19 @@
 select 'paint' as cut, paint as value, count(*) as hc from hh_src s join hh_param p on s.business_dt = p.data_dt where s.hc = 1 group by 1, 2
 union all select 'it', it, count(*) from hh_src s join hh_param p on s.business_dt = p.data_dt where s.hc = 1 group by 1, 2
 union all select 'staff', staff, count(*) from hh_src s join hh_param p on s.business_dt = p.data_dt where s.hc = 1 group by 1, 2
-union all select 'hct', hct, count(*) from hh_src s join hh_param p on s.business_dt = p.data_dt group by 1, 2
+union all select 'hct', hct, count(*) from hh_src s join hh_param p on s.business_dt = p.data_dt where s.hc = 1 group by 1, 2
 union all select 'seniority', s.seniority || ' → джун ' || coalesce(j.jun, 0)::text, count(*)
           from hh_src s join hh_param p on s.business_dt = p.data_dt left join hh_seniority j on j.seniority = s.seniority
           where s.hc = 1 group by 1, 2
 order by 1, 3 desc;
+
+-- 1а. Тип численности против флага активной численности и статуса «в списочной» (hc) в
+--     срезе: «Активная» должна совпасть с active_employee_flg = 1; строки с hc = 0 — уволенные
+--     или ещё не нанятые, в численность не идут ни при каком типе.
+select hct, hc_act as active_employee_flg, hc as in_list, count(*) as rows_n
+from hh_src s join hh_param p on s.business_dt = p.data_dt
+group by 1, 2, 3
+order by 4 desc;
 
 -- 2. Регrettable-разметка по месяцам увольнения: доля размеченных.
 select date_trunc('month', fire_dt)::date as fire_month,

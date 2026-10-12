@@ -6,6 +6,12 @@
 --   is_fire_row  строка дня увольнения из компании (business_dt = company_fire_dt);
 --   is_hire_row  строка дня найма (business_dt = company_hire_dt);
 --   is_ahire_row строка дня перехода в активную численность (= active_hire_dt).
+--   hc           в списочной численности на эту дату — ЛЮБОГО типа (active_type_nm):
+--                нанят (company_hire_dt <= дата) и не уволен раньше (company_fire_dt пусто
+--                или >= дата). Активная численность — фильтр «Тип численности» = «Активная»
+--                (владелец 12.10: все метрики — и по активной, и по всем типам; до 12.10
+--                hc = active_employee_flg, и у прочих типов численность была 0).
+--   hc_act       active_employee_flg — для «Диагностики источников» (сверка с hct).
 -- Атрибуты строки — на ЕЁ дату: запасы берут разрезы на конец периода, события —
 -- на дату события. Путь юнита — mapped-цепочка, как в ультраширокой: lvl1
 -- (компания) и lvl3…lvl12. lvl2 (группировка юрлиц над блоками) пропускается —
@@ -29,7 +35,10 @@ select
     case when e.business_dt = e.company_fire_dt then 1 else 0 end              as is_fire_row,
     case when e.business_dt = e.company_hire_dt then 1 else 0 end              as is_hire_row,
     case when e.business_dt = e.active_hire_dt  then 1 else 0 end              as is_ahire_row,
-    coalesce(e.active_employee_flg, 0)::int                                    as hc,
+    case when coalesce(e.company_hire_dt, e.business_dt) <= e.business_dt
+          and (e.company_fire_dt is null or e.company_fire_dt >= e.business_dt)
+         then 1 else 0 end                                                     as hc,
+    coalesce(e.active_employee_flg, 0)::int                                    as hc_act,
     e.company_hire_dt::date                                                    as company_hire_dt,
     e.active_hire_dt::date                                                     as active_hire_dt,
     e.legal_fire_dt::date                                                      as legal_fire_dt,
