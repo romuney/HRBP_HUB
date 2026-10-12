@@ -252,7 +252,8 @@ var STATE0 = {
   metricOff: {},         // метрики, снятые с показа
   focusOnly: false,      // «Только фокусные»
   block: 'all',          // подвкладка «Команд»: 'all' — все метрики, иначе группа
-  split: 0,              // доля таблицы «Команд» (0 — по умолчанию CFG.split.def)
+  split: 0,              // доля таблицы «Команд», выставленная руками (0 — по числу метрик, splitAuto)
+  splitW: 0,             // ширина сетки «таблица | динамика», px (fitSplit)
   splitMode: 'both',     // 'both' | 'table' (таблица во всю ширину) | 'charts' (динамика во всю ширину)
   lineOff: {},           // серии линий, выключенные в легенде: cur | prev | ref
   ytd: true,             // текучесть в «Динамике» — с начала года (false — скользящие 12 мес)
@@ -3459,17 +3460,25 @@ function teamsHTML() {
   var subHtml = '<span' + tip({ title: subTxt, text: 'Графики — по этой строке таблицы.' }) + '>' + esc(subTxt) + '</span>';
   var rightP = hPanel({ cls: P + '-dpan', title: 'Динамика', subHtml: subHtml, body: right,
     tabs: '<span class="' + P + '-pbtn">' + (sel && sel.id !== '·' ? drillBtn(sel.id) : '') + hSubs([['yoy', 'Год'], ['wow', '12 недель']], dyn, 'dyn') + splitBtn('charts') + '</span>' });
-  var sh = state.split || CFG.split.def;
+  var sh = state.split || splitAuto(mets.length);
   if (mode === 'table') s += '<div class="' + P + '-split ' + P + '-sp1">' + left + splitRail('Динамика', '◂') + '</div>';
   else if (mode === 'charts') s += '<div class="' + P + '-split ' + P + '-sp2c">' + splitRail('Юниты', '▸') + rightP + '</div>';
   else {
-    s += '<div class="' + P + '-split" data-split-box="1" style="grid-template-columns:' + splitCols(sh) + '">' + left
+    s += '<div class="' + P + '-split" data-split-box="1" data-mets="' + mets.length + '" style="grid-template-columns:' + splitCols(sh) + '">' + left
       + '<div class="' + P + '-gut" data-split="1" role="separator" aria-orientation="vertical" aria-label="Ширина таблицы" aria-valuemin="' + Math.round(CFG.split.min * 100)
       + '" aria-valuemax="' + Math.round(CFG.split.max * 100) + '" aria-valuenow="' + Math.round(sh * 100) + '" tabindex="0"'
-      + tip({ title: 'Ширина колонок', text: 'Потяните, чтобы дать больше места таблице или графикам. Двойной клик — как было; стрелки ← → — с клавиатуры.' }) + '><i></i></div>'
+      + tip({ title: 'Ширина колонок', text: 'Потяните, чтобы дать больше места таблице или графикам: ширина сохранится и для других групп метрик. Двойной клик — снова по числу метрик; стрелки ← → — с клавиатуры.' }) + '><i></i></div>'
       + rightP + '</div>';
   }
   return s;
+}
+// Доля таблицы по умолчанию — по числу колонок метрик (владелец 12.10): «Удержание» (2) и «Текучесть» (3) —
+// уже, «Все метрики» — CFG.split.def. Имя ≈ 300 px + 104 px на метрику, в пределах min…def. Подвинули
+// разделитель руками — доля держится между группами и вкладками; двойной клик — снова по умолчанию.
+function splitAuto(n) {
+  var C = CFG.split, W = state.splitW || 0;
+  var sh = W > 300 ? (300 + 104 * n) / (W - 12) : 0.24 + 0.06 * n;
+  return Math.max(C.min, Math.min(C.def, sh));
 }
 function splitCols(sh) {
   return state.narrow ? 'minmax(0,1fr)' : 'minmax(0,' + (sh * 100).toFixed(2) + 'fr) 12px minmax(0,' + ((1 - sh) * 100).toFixed(2) + 'fr)';
@@ -4416,6 +4425,10 @@ function buildHTML() {
       var or = overlay.getBoundingClientRect(), r = sp.getBoundingClientRect(), scr = state.vpH > 0 ? state.vpH : Math.min(window.innerHeight || overlay.clientHeight, scrH);
       var top = r.top - or.top + overlay.scrollTop, vis = Math.min(overlay.clientHeight, scr);
       var h = Math.max(CFG.split.minH, Math.min(overlay.clientHeight - top - CFG.spacing.gutter, vis - 2 * CFG.spacing.gap));
+      if (sp.getAttribute('data-split-box') && sp.clientWidth) {
+        state.splitW = sp.clientWidth;
+        if (!state.split) sp.style.gridTemplateColumns = splitCols(splitAuto(+sp.getAttribute('data-mets') || 0));
+      }
       sp.classList.add(CFG.ns + '-fit');
       sp.style.height = Math.round(h) + 'px';
     }
@@ -4725,8 +4738,8 @@ function buildHTML() {
     function onDbl(e) {
       var g = trigger(e.target, 'data-split');
       if (!g) return;
-      setSplit(g.parentNode, CFG.split.def);
-      relayout();
+      state.split = 0;
+      render();
     }
     // Трансформеры: ось грузится лениво — один раз на ось, когда вкладку открыли.
     function ensureAxis() {
@@ -5236,7 +5249,8 @@ function buildHTML() {
       var k = e.keyCode || e.which;
       if ((k === 37 || k === 39) && e.target && e.target.getAttribute && e.target.getAttribute('data-split')) {
         e.preventDefault();
-        setSplit(e.target.parentNode, (state.split || CFG.split.def) + (k === 39 ? 0.05 : -0.05));
+        var bx = e.target.parentNode;
+        setSplit(bx, (state.split || splitAuto(+bx.getAttribute('data-mets') || 0)) + (k === 39 ? 0.05 : -0.05));
         relayout();
         return;
       }
