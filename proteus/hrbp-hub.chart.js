@@ -1880,7 +1880,6 @@ function buildCSS() {
     // Команда в факте — ссылка в «Команды»: цвет текста и пунктир (список читается спокойно), синий — при наведении.
     P + '-obs-a{border:0;background:transparent;padding:0;font:inherit;color:' + C.ink2 + ';cursor:pointer;text-decoration:underline dotted ' + C.muted2 + ';text-underline-offset:3px;}',
     P + '-obs-a:hover{color:' + C.act + ';text-decoration-color:' + C.act + ';}',
-    P + '-pull{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:' + C.redBg + ';color:' + C.redTx + ';font-size:' + F.micro + 'px;font-weight:500;letter-spacing:.2px;vertical-align:1px;white-space:nowrap;cursor:help;}',
     P + '-cpok{font-size:' + F.note + 'px;font-weight:500;color:' + C.greenTx + ';white-space:nowrap;margin-right:4px;align-self:center;}',
 
     // ---- каталог и цели ----
@@ -3609,43 +3608,26 @@ function transformHTML() {
   var list = trSorted(axis), months = [];
   if (!list.length || !M.scope) return s + hEmpty('Нет данных для разбивки', 'Под текущими разрезами в выбранном юните нет сотрудников.');
   for (var k = L - 11; k <= L; k++) months.push(k);
-  // Что тянет метрику: значения оси, которые сильнее всего уводят её хуже ориентира юнита (цели или
-  // базы) в последнем месяце — в людях (excessPeople). До 3 значений от CFG.obs.minPeople; у
-  // удержания и текучести — только от CFG.small.min человек, как у команд. «Остальные» не помечаются.
-  var vS = mval(M.scope, 'm', m, L), blS = vS === null ? null : baseline(scopeUnit(), m, vS, 'm', L), pull = {}, pulls = [];
-  if (blS && blS.ref !== null && m.exL) {
-    for (var q = 0; q < list.length; q++) {
-      if (list[q].rest || smallHide(list[q].ser, m)) continue;
-      var exq = excessPeople(m, list[q].ser, L, blS.ref);
-      if (exq >= CFG.obs.minPeople) pulls.push({ i: q, ex: exq });
-    }
-    pulls.sort(function (a2, b2) { return b2.ex - a2.ex; });
-    pulls = pulls.slice(0, 3);
-    for (var pq = 0; pq < pulls.length; pq++) pull[pulls[pq].i] = pulls[pq].ex;
-  }
-  var refL = blS && blS.kind === 'kpi' ? 'цель ' + fmtVal(m, blS.ref) : (blS ? 'база ' + fmtVal(m, blS.ref) : '');
-  function pullTag(ex) {
-    return '<span class="' + P + '-pull"' + tip({ title: 'Тянет метрику', text: 'Это значение оси сильнее других уводит «' + m.name + '» хуже ориентира юнита (' + refL + ') — в ' + monthLow(L) + '.',
-      rows: [{ label: m.exL, value: fmtPeople(ex) }], note: 'Сравнение с ориентиром юнита — без поправки на то, что у разных групп свой обычный уровень.' }) + '>' + esc(fmtPeople(ex)) + ' сверх</span>';
-  }
+  // Метки «≈ N сверх» («что тянет метрику») убраны (владелец 12.10: «никто не понимает»): сравнение
+  // значения оси с ориентиром всего юнита бессмысленно там, где ось сама задаёт метрику (сеньорность и
+  // % джунов: у Middle джунов нет по определению).
   var th = '<table class="' + P + '-t"><thead><tr><th class="' + P + '-l">' + esc(axisLabel(axis)) + '</th>';
   for (var hm = 0; hm < months.length; hm++) {
     var pp = dparts(M.cal.m[months[hm]].s);
     th += '<th>' + esc(MONTH_ABBR[pp.m] + (hm === 0 || pp.m === 0 ? ' ' + String(pp.y).slice(2) : '')) + '</th>';
   }
   th += '<th class="' + P + '-vs">За 12 мес<span class="' + P + '-hc">к ' + esc(monthDat(L - 11)) + '</span></th></tr></thead><tbody>';
-  function prow(name, ser, cls, ex) {
-    var r = '<tr class="' + cls + '"><td class="' + P + '-l">' + esc(name) + (ex ? pullTag(ex) : '') + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел</span></td>';
+  function prow(name, ser, cls) {
+    var r = '<tr class="' + cls + '"><td class="' + P + '-l">' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел</span></td>';
     for (var c = 0; c < months.length; c++) r += '<td' + (c === months.length - 1 ? ' class="' + P + '-now"' : '') + '>' + esc(fmtVal(m, mval(ser, 'm', m, months[c]))) + '</td>';
     return r + deltaTd(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.', P + '-vs') + '</tr>';
   }
   th += prow('ИТОГО · ' + scopeLabel(), M.scope, P + '-tot');
-  for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr]), list[rr].ser, list[rr].rest ? P + '-rest' : '', pull[rr]);
+  for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr]), list[rr].ser, list[rr].rest ? P + '-rest' : '');
   th += '</tbody></table>';
-  var nv = trCount(axis), worst = [];
-  for (var w0 = 0; w0 < pulls.length; w0++) worst.push(trName(list[pulls[w0].i]));
+  var nv = trCount(axis);
   return s + hPanel({ title: m.name + ' · сводная по оси «' + axisLabel(axis) + '»',
-    sub: 'последний месяц выделен · ' + nv + ' ' + plural(nv, 'значение', 'значения', 'значений') + (worst.length ? ' · хуже ориентира сильнее всего: ' + worst.join(', ') : ''),
+    sub: 'последний месяц выделен · ' + nv + ' ' + plural(nv, 'значение', 'значения', 'значений'),
     body: th, tbl: true, tabs: '<span class="' + P + '-pbtn">' + copyBtn('tr') + '</span>' });
 }
 
@@ -3862,8 +3844,6 @@ function tourSteps(view) {
       html: 'Разрез численности или атрибут сотрудника на конец месяца: грейд, сеньорность, стаж, возраст, город… Все оси уже посчитаны — переключаются сразу.' });
     add({ sel: P + '-content ' + P + '-panel', title: 'Сводная таблица',
       html: 'Строки — значения оси, колонки — 12 месяцев (последний выделен), справа — изменение за год. Юнит и разрезы берутся из «Фильтров».' });
-    add({ sel: P + '-pull', all: true, rings: true, title: 'Что тянет метрику',
-      html: 'Метка «≈ 1,2 сверх» — значение оси, которое сильнее других уводит метрику хуже ориентира юнита: столько людей сверх ориентира (уходов за год, ушедших новичков…). Нет меток — ни одно значение заметно не тянет.' });
     add({ sel: P + '-content ' + P + '-panel [data-action="copy"]', pad: 4, title: 'Копировать',
       html: 'Сводная — в буфер обмена: вставьте в Excel или письмо.' });
   } else if (view === 'goals') {
