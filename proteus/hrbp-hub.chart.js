@@ -273,6 +273,7 @@ var STATE0 = {
   axisTried: {},         // оси трансформеров, которые уже запрашивались
   kd: {},                // черновик новой цели (вкладка «Цели»)
   copied: '',
+  dynH: 0,               // высота графиков «Динамики» «Команд» по панели (fitDyn, БЛОК 6)
   cw: {},                // измеренные ширины графиков по видам: half | side | wide
   narrow: false,         // ячейка уже 1100 px
   pend: null,            // {sig, at} — эмит ушёл, ждём ответ с тем же эхом
@@ -1348,7 +1349,9 @@ function buildCSS() {
     // шапка — карточка на холсте (как шапка листа Adoption): радиус 12, без тени и без полосы во всю ширину
     // Шапка, строка контекста и плашки — липкий верх (владелец 12.10): вкладки, фильтры и база видны при
     // любой прокрутке отчёта. Поля по бокам даёт борд (CSS файла 4, 24 px) — у чарта своих нет.
-    P + '-stick{position:sticky;top:0;z-index:40;background:' + C.bg + ';padding:0 0 10px;}',
+    P + '-stick{position:sticky;top:0;z-index:40;background:' + C.bg + ';padding:0 0 10px;transition:box-shadow .15s;}',
+    // под липким верхом прокручено содержимое — тонкая тень снизу: видно, что отчёт листается под шапкой
+    P + '-stick' + P + '-shd{box-shadow:0 6px 8px -6px rgba(20,28,45,.18);}',
     P + '-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0;padding:8px 12px 8px 8px;background:' + C.card + ';border-radius:12px;}',
     P + '-logo{font-weight:600;font-size:' + F.title + 'px;white-space:nowrap;color:' + C.ink + ';padding-left:8px;}',
     P + '-logo small{color:' + C.muted + ';font-weight:400;font-size:' + F.note + 'px;margin-left:6px;}',
@@ -1813,7 +1816,7 @@ function buildCSS() {
     P + '-split' + P + '-fit{align-items:stretch;}',
     P + '-fit>' + P + '-panel{display:flex;flex-direction:column;min-height:0;}',
     P + '-fit>' + P + '-panel>' + P + '-ph{flex:0 0 auto;}',
-    P + '-fit>' + P + '-panel>' + P + '-pb{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:auto;}',
+    P + '-fit>' + P + '-panel>' + P + '-pb{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:auto;overscroll-behavior:contain;}',
     P + '-fit>' + P + '-dpan>' + P + '-pb{overflow-x:hidden;scrollbar-gutter:stable;}',
     // Таблица едет рядом с графиками при прокрутке — выбранная строка остаётся перед глазами.
     P + '-gut{position:relative;align-self:stretch;cursor:col-resize;display:flex;justify-content:center;outline:none;}',
@@ -2707,9 +2710,10 @@ function chartBlock(kind, key, title, spec, H) {
     }
     yt += '</span>';
   }
+  // H < 0 — высота по панели «Динамики» (state.dynH, fitDyn в БЛОКЕ 6): две метрики целиком на любом экране.
   return '<div class="' + P + '-chb" data-chb="1"><div class="' + P + '-chh"><span class="' + P + '-cap">' + esc(title) + '</span>' + yt
     + '<span class="' + P + '-lgd" role="group" aria-label="Линии графика">' + lg + '</span></div>'
-    + chartSlot(kind, key, function (w, ctx) { return svgLine(spec, w, H, ctx); }) + '</div>';
+    + chartSlot(kind, key, function (w, ctx) { return svgLine(spec, w, H < 0 ? (state.dynH || CFG.chart.hSmall) : H, ctx); }) + '</div>';
 }
 // Спарклайн строки: 12 закрытых месяцев, цвет — оценка каждого месяца.
 function sparkHTML(unitId, ser, m) {
@@ -3442,7 +3446,7 @@ function teamsHTML() {
   for (var cm = 0; cm < mets.length; cm++) {
     if (smallHide(cur.ser, mets[cm])) { gated++; continue; }
     var spec = dyn === 'wow' ? weekSpec(cu, cur.ser, mets[cm]) : yoySpec(cu, cur.ser, mets[cm]);
-    charts += chartBlock('side', 'tm:' + mets[cm].key + ':' + dyn + ':' + cu + ':' + cur.key, mets[cm].name, spec, CFG.chart.hSmall);
+    charts += chartBlock('side', 'tm:' + mets[cm].key + ':' + dyn + ':' + cu + ':' + cur.key, mets[cm].name, spec, -1);
   }
   var right = '<div class="' + P + '-dyn">'
     + (gated ? '<div class="' + P + '-snote">' + esc(smallWhy(cur.ser)) + ' Графиков закрепляемости и текучести по ней нет.</div>' : '') + charts + '</div>';
@@ -4423,6 +4427,7 @@ function buildHTML() {
       // липкий верх: переход к строке (scrollIntoView) не прячет её под шапкой
       var stk = overlay.querySelector('.' + CFG.ns + '-stick');
       overlay.style.scrollPaddingTop = stk ? stk.offsetHeight + 'px' : '';
+      if (stk) stk.classList.toggle(CFG.ns + '-shd', overlay.scrollTop > 2);
       var sp = overlay.querySelector('.' + CFG.ns + '-split');
       if (!sp) return;
       if (state.narrow) { sp.classList.remove(CFG.ns + '-fit'); sp.style.height = ''; return; }
@@ -4434,9 +4439,24 @@ function buildHTML() {
       sp.classList.add(CFG.ns + '-fit');
       sp.style.height = Math.round(h) + 'px';
     }
+    // Высота графиков «Динамики» — по высоте её панели: два графика с заголовками целиком (владелец 12.10:
+    // «две метрики точно должны поместиться»), 150…236 px; узкая ячейка (одна колонка) — CFG.chart.hSmall.
+    function fitDyn() {
+      var pb = overlay.querySelector('.' + CFG.ns + '-fit>.' + CFG.ns + '-dpan>.' + CFG.ns + '-pb'), h = 0;
+      if (pb && !state.narrow) {
+        var cs = window.getComputedStyle(pb), hh = pb.querySelector('.' + CFG.ns + '-chh');
+        var inner = pb.clientHeight - parseFloat(cs.paddingTop || 0) - parseFloat(cs.paddingBottom || 0);
+        var head = hh ? hh.offsetHeight + 4 : 32;
+        h = Math.max(150, Math.min(CFG.chart.h, Math.floor((inner - 14 - 2 * head - 4) / 2)));
+      }
+      if (Math.abs(h - (state.dynH || 0)) <= 4) return false;
+      state.dynH = h;
+      return true;
+    }
     function relayout() {
       var a = measureNarrow();
       fitSplit();
+      a = fitDyn() || a;
       var b = measureCharts();
       measureNames();
       placeDrawer();
@@ -5276,7 +5296,11 @@ function buildHTML() {
     overlay.addEventListener('input', onInput);
     overlay.addEventListener('keydown', onKeydown);
     // Прокрутка отчёта во время тура — подсветка едет за целью.
-    overlay.addEventListener('scroll', function () { if (state.tour) tourPos(); });
+    overlay.addEventListener('scroll', function () {
+      if (state.tour) tourPos();
+      var stk = overlay.querySelector('.' + CFG.ns + '-stick');
+      if (stk) stk.classList.toggle(CFG.ns + '-shd', overlay.scrollTop > 2);
+    });
 
     // Глобальные слушатели переживают перезапуск скрипта и накапливаются.
     // Старый снимаем ЯВНО, ссылку держим в state. Escape вешай здесь же,
