@@ -31,9 +31,9 @@ var CFG = {
   fields: {
     role: 'role', id: 'id', pid: 'pid', n: 'n', j: 'j',
     m: { hc: 'm_hc', jun: 'm_jun', rg: 'm_rg', nrg: 'm_nrg', hcw: 'm_hcw', nr: 'm_nr',
-         r3n: 'm_r3n', r3d: 'm_r3d', r6n: 'm_r6n', r6d: 'm_r6d', hire: 'm_hire', fire: 'm_fire' },
+         r3n: 'm_r3n', r3d: 'm_r3d', r6n: 'm_r6n', r6d: 'm_r6d', hire: 'm_hire', fire: 'm_fire', rgs: 'm_rgs', nrgs: 'm_nrgs' },
     w: { hc: 'w_hc', jun: 'w_jun', rg: 'w_rg', nrg: 'w_nrg', hcw: 'w_hcw', nr: 'w_nr',
-         r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire' }
+         r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire', rgs: 'w_rgs', nrgs: 'w_nrgs' }
   },
   carriers: { unit: 'unit_f', axis: 'tr_f', depth: 'depth_f' },
   // Разрезы численности: ключ колонки куба → носитель кросс-фильтра. Один перечень
@@ -88,13 +88,13 @@ var CFG = {
       calc: 'Как на 3 месяцах, горизонт 6 мес (26 нед).',
       numL: 'продолжают работать', denL: 'новичков в когорте', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
     { key: 'regret', block: 'turnover', name: 'Regrettable текучесть', short: 'Regret',
-      fmt: 'pct', better: 'lower', num: 'rg', den: 'hcw', denDiv: { m: 12, w: 52 },
+      fmt: 'pct', better: 'lower', num: 'rg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'rgs',
       hint: 'Годовой темп уходов ценных сотрудников (нежелательные увольнения).',
       calc: 'Regrettable-увольнения за 12 мес (52 нед) / средняя списочная численность за то же окно. Разметка — usr_cross_data.regrettable_n_non_regrettable_base.',
       numL: 'regrettable-уходов за 12 мес', denL: 'средняя численность за 12 мес', cnt: { n: ['уход', 'ухода', 'уходов'], tail: 'за год' },
       exL: 'уходов сверх ориентира', exA: 'сверх ориентира' },
     { key: 'nonregret', block: 'turnover', name: 'Non regrettable текучесть', short: 'Non-reg.',
-      fmt: 'pct', better: 'flat', num: 'nrg', den: 'hcw', denDiv: { m: 12, w: 52 },
+      fmt: 'pct', better: 'flat', num: 'nrg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'nrgs',
       hint: 'Текучесть без сожаления (управляемые уходы). Нейтральная: больше не значит лучше.',
       calc: 'Non-regrettable-увольнения за 12 мес (52 нед) / средняя численность за окно.',
       numL: 'non-regrettable-уходов за 12 мес', denL: 'средняя численность за 12 мес', cnt: { n: ['уход', 'ухода', 'уходов'], tail: 'за год' } },
@@ -106,7 +106,7 @@ var CFG = {
       exL: 'увольнений без причины сверх ориентира', exA: 'сверх ориентира' },
     { key: 'headcount', block: 'structure', name: 'Численность', short: 'Числ.',
       fmt: 'int', better: 'flat', num: 'hc',
-      hint: 'Списочная численность на конец периода (active_employee_flg = 1). Абсолютная величина — с базой не сравнивается.',
+      hint: 'Списочная численность на конец периода, все типы численности (активная — фильтр «Тип численности» = «Активная»). Абсолютная величина — с базой не сравнивается.',
       calc: 'Сотрудники в списочной численности на последний день периода.' },
     { key: 'jun_team', block: 'structure', name: '% джунов в команде', short: 'Джуны',
       fmt: 'pct', better: 'higher', share: true, num: 'jun', den: 'hc',
@@ -139,6 +139,10 @@ var CFG = {
   // Маленькие команды (владелец, 06.10: «не смотреть закрепляемость и текучесть в командах
   // меньше чем 30 чел»): у юнита с численностью меньше min на последний закрытый месяц метрики
   // этих блоков не оцениваются — ни процента, ни цвета, ни графиков, ни фактов в «Что видно в данных».
+  // Подсказка о популяции (владелец 12.10, пример Дарьи: у HRBP 70 % людей — HQ, а база — вся компания):
+  // разрезы не выбраны, одно значение «популяционного» разреза — share и больше людей области → предложить
+  // сравнить с ним. Тип численности и штат — не популяции: «Активная» и «Штат» почти везде большинство.
+  pop: { share: 0.6, cuts: ['paint', 'it', 'stream', 'spec'] },
   small: { min: 30, blocks: ['retention', 'turnover'] },
   // «Что видно в данных» на «Сводке» (как Proteus Adoption, ДС §4.10) — факты по порогам, не шаблон:
   // dev — отклонение от ориентира (доля ориентира); minPeople — «сверх ориентира» у юнита в людях,
@@ -250,6 +254,8 @@ var STATE0 = {
   split: 0,              // доля таблицы «Команд» (0 — по умолчанию CFG.split.def)
   splitMode: 'both',     // 'both' | 'table' (таблица во всю ширину) | 'charts' (динамика во всю ширину)
   lineOff: {},           // серии линий, выключенные в легенде: cur | prev | ref
+  ytd: true,             // текучесть в «Динамике» — с начала года (false — скользящие 12 мес)
+  popOff: '',            // подпись области, для которой подсказку о популяции скрыли («Скрыть»)
   drawn: {},             // графики, уже нарисованные с анимацией: ключ → подпись данных
   hz: '',                // HRBP, чья зона выбрана (логин): выбор юнита сужается до неё
   unitAll: false,        // выбор юнита при выбранном HRBP: показать всю зону видимости
@@ -346,7 +352,9 @@ function isoOf(p) { return p ? p.y + '-' + pad2(p.m + 1) + '-' + pad2(p.d) : '';
 // ---------- БЛОК 3: ТРАНСФОРМАЦИЯ ДАННЫХ ----------
 // rawData → MODEL. SQL отдаёт числители и знаменатели по слотам; проценты, окна
 // в знаменателе, дельты, наследование целей и светофор считаются здесь.
-var COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire'];
+var COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs'];
+// Необязательные колонки: датасет до 12.10 их не везёт — тогда «с начала года» в «Динамике» нет.
+var COMP_OPT = { rgs: 1, nrgs: 1 };
 // Разрезы распределения численности в справочнике — в порядке CUT_COLS датасета (в нём записан код
 // сочетания); FDC — кэш чисел окна фильтров по набранному выбору (fdCalc). Объявлены до buildModel.
 var FD_KEYS = ['paint', 'it', 'stream', 'spec', 'staff', 'hct'];
@@ -375,7 +383,8 @@ function buildModel() {
             depth: '3', depthReq: '3', scopeN: 0, allMax: 0, hKids: {}, hTop: [], hBy: {} };
   if (!rawData.length) return M;
   var need = [F.role, F.id, F.pid, F.n, F.j];
-  for (var ci = 0; ci < COMP.length; ci++) { need.push(F.m[COMP[ci]]); need.push(F.w[COMP[ci]]); }
+  for (var ci = 0; ci < COMP.length; ci++) if (!COMP_OPT[COMP[ci]]) { need.push(F.m[COMP[ci]]); need.push(F.w[COMP[ci]]); }
+  M.ytdOk = (F.m.rgs in rawData[0]) && (F.m.nrgs in rawData[0]);
   for (var ni = 0; ni < need.length; ni++) if (!(need[ni] in rawData[0])) M.missing.push(need[ni]);
   if (M.missing.length) return M;
   for (var i = 0; i < rawData.length; i++) {
@@ -562,6 +571,17 @@ function mval(ser, g, m, i) {
   if (!p.den) return null;
   var den = m.denDiv ? p.den / m.denDiv[g] : p.den;
   return 100 * p.num / den;
+}
+// Текучесть нарастающим итогом с начала года (владелец 12.10): Σ увольнений без окна с января по месяц i /
+// средняя численность за те же месяцы, без пересчёта в годовой темп — к декабрю это годовая текучесть.
+function ytdOn(m) { return !!(m && m.ytd && MODEL.ytdOk && state.ytd !== false); }
+function ytdVal(ser, m, i) {
+  if (!ser || !ser.m || i < 0 || i > 23 || !slotClosed('m', i)) return null;
+  var a = ser.m[m.ytd], h = ser.m.hc, y0 = i < 12 ? 0 : 12, num = 0, hc = 0;
+  if (!a || !h) return null;
+  for (var j = y0; j <= i; j++) { num += a[j] || 0; hc += h[j] || 0; }
+  hc = hc / (i - y0 + 1);
+  return hc > 0 ? 100 * num / hc : null;
 }
 function mseries(ser, g, m) {
   var out = [];
@@ -2600,20 +2620,25 @@ function refKind(unitId, m, g, i) {
   return comparable(m) ? 'bench' : '';
 }
 function yoySpec(unitId, ser, m) {
-  var M = MODEL, L = M.L, cur = [], prev = [], labels = [], heads = [], ref = null;
+  var M = MODEL, L = M.L, cur = [], prev = [], labels = [], heads = [], ref = null, ytd = ytdOn(m);
+  var val = ytd ? function (s, i) { return ytdVal(s, m, i); } : function (s, i) { return mval(s, 'm', m, i); };
   for (var k = 0; k < 12; k++) {
-    cur.push(12 + k <= L ? mval(ser, 'm', m, 12 + k) : null);
-    prev.push(mval(ser, 'm', m, k));
+    cur.push(12 + k <= L ? val(ser, 12 + k) : null);
+    prev.push(val(ser, k));
     labels.push(MONTH_ABBR[dparts(M.cal.m[12 + k] ? M.cal.m[12 + k].s : '').m]);
     heads.push(monthFull(12 + k) + ' · к ' + monthDat(k));
   }
   var rk = refKind(unitId, m, 'm', L);
-  if (rk === 'kpi') ref = targetSeries(unitId, m.key, 'm').slice(12, 24);
-  else if (rk === 'bench') { ref = []; for (var b = 0; b < 12; b++) ref.push(12 + b <= L ? mval(M.base, 'm', m, 12 + b) : null); }
+  if (rk === 'kpi') {
+    ref = targetSeries(unitId, m.key, 'm').slice(12, 24);
+    // годовая цель на нарастающем итоге — доля года: к марту — 3/12 цели
+    if (ytd) for (var t = 0; t < 12; t++) ref[t] = ref[t] === null ? null : ref[t] * (t + 1) / 12;
+  } else if (rk === 'bench') { ref = []; for (var b = 0; b < 12; b++) ref.push(12 + b <= L ? val(M.base, 12 + b) : null); }
   var y = dparts(M.cal.m[L].s).y;
-  return { m: m, labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: L - 12, heads: heads, prevHeads: null,
+  return { m: m, ytd: ytd, ytdAble: !!(m.ytd && M.ytdOk), labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: L - 12, heads: heads, prevHeads: null,
            curName: String(y), prevName: String(y - 1), refName: rk === 'kpi' ? 'цель' : 'база · ' + benchLabel(),
-           tips: { cur: 'Значения ' + y + ' года на конец закрытых месяцев. Незакрытый месяц не показывается.',
+           tips: { cur: ytd ? 'Нарастающим итогом с января ' + y + ': увольнения с начала года / средняя численность с начала года. Незакрытый месяц не показывается.'
+                              : 'Значения ' + y + ' года на конец закрытых месяцев. Незакрытый месяц не показывается.',
                    prev: 'Те же месяцы ' + (y - 1) + ' года — с чем сравнивается «год к году».',
                    ref: rk === 'kpi' ? 'Цель юнита — своя или ближайшая выше по дереву — на каждый месяц.' : 'База — вся компания под теми же разрезами численности.' } };
 }
@@ -2653,7 +2678,19 @@ function chartBlock(kind, key, title, spec, H) {
       + tip({ title: it.l, text: spec.tips ? spec.tips[it.k] : '', note: lock ? 'Последнюю линию выключить нельзя.' : (off ? 'Клик — вернуть линию на графики.' : 'Клик — убрать линию со всех графиков.') }) + '>'
       + '<i class="' + P + '-lgk' + (it.dash ? ' ' + P + '-dash' : '') + '" style="border-top-color:' + it.c + '"></i>' + esc(it.l) + '</button>';
   }
-  return '<div class="' + P + '-chb" data-chb="1"><div class="' + P + '-chh"><span class="' + P + '-cap">' + esc(title) + '</span>'
+  var yt = '';
+  if (spec.ytdAble) {
+    var ytOpts = [['on', 'С начала года', 'Нарастающим итогом: увольнения с января / средняя численность с января. К декабрю — годовая текучесть.'],
+                  ['off', '12 мес', 'Скользящие 12 месяцев на каждый месяц — как значение на «Сводке».']];
+    yt = '<span class="' + P + '-seg" role="group" aria-label="Как считать текучесть">';
+    for (var yo = 0; yo < ytOpts.length; yo++) {
+      var yon = (ytOpts[yo][0] === 'on') === !!spec.ytd;
+      yt += '<button type="button" class="' + P + '-segb' + (yon ? ' ' + P + '-on' : '') + '" data-action="ytd" data-key="' + ytOpts[yo][0] + '" aria-pressed="' + (yon ? 'true' : 'false') + '"'
+        + tip({ title: ytOpts[yo][1], text: ytOpts[yo][2], note: 'Действует на графики текучести во всём отчёте.' }) + '>' + ytOpts[yo][1] + '</button>';
+    }
+    yt += '</span>';
+  }
+  return '<div class="' + P + '-chb" data-chb="1"><div class="' + P + '-chh"><span class="' + P + '-cap">' + esc(title) + '</span>' + yt
     + '<span class="' + P + '-lgd" role="group" aria-label="Линии графика">' + lg + '</span></div>'
     + chartSlot(kind, key, function (w, ctx) { return svgLine(spec, w, H, ctx); }) + '</div>';
 }
@@ -2980,6 +3017,28 @@ function obsHTML() {
 }
 // Метрики, строки которых раскрыты на «Сводке» (раскрыть можно несколько сразу).
 function opOpen(mk) { return !!state.openM[mk]; }
+// Доминирующее значение популяционного разреза в области без выбранных разрезов: {key, v, share} | null.
+function popHint() {
+  var M = MODEL, best = null;
+  for (var i = 0; i < CFG.cuts.length; i++) if ((M.sel[CFG.cuts[i].key] || []).length) return null;
+  for (var c = 0; c < CFG.pop.cuts.length; c++) {
+    var key = CFG.pop.cuts[c], f = M.facets[key] || [], tot = 0, top = null;
+    for (var j = 0; j < f.length; j++) { tot += f[j].n; if (!isNoVal(f[j].v) && (!top || f[j].n > top.n)) top = f[j]; }
+    if (!top || tot <= 0 || f.length < 2) continue;
+    var sh = top.n / tot;
+    if (sh >= CFG.pop.share && sh < 0.999 && (!best || sh > best.share)) best = { key: key, v: top.v, share: sh };
+  }
+  return best;
+}
+function popHintHTML() {
+  var P = CFG.ns, h = popHint(), sig = sigOf(reqNow());
+  if (!h || state.popOff === sig) return '';
+  var lab = CUT[h.key] ? CUT[h.key].label : h.key, pc = Math.round(h.share * 100);
+  return '<div class="' + P + '-note ' + P + '-ninfo ' + P + '-gap" data-pophint="1">' + esc(lab) + ': ' + pc + ' % людей области — «' + esc(cutName(h.v)) + '», а база сравнения — вся компания со всеми значениями. '
+    + 'Метрики «' + esc(cutName(h.v)) + '» и других популяций заметно отличаются (у линии и саппорта, например, уходов больше), поэтому для честного сравнения выберите разрез. '
+    + '<button type="button" class="' + P + '-lnk" data-action="pophint" data-key="' + esc(h.key) + '" data-val="' + esc(h.v) + '">Сравнить с «' + esc(cutName(h.v)) + '»</button>'
+    + ' · <button type="button" class="' + P + '-lnk" data-action="pophint" data-key="">Скрыть</button></div>';
+}
 function onepagerHTML() {
   var P = CFG.ns, M = MODEL, L = M.L, u = scopeUnit();
   var s = pageHead('Сводка', crumbsHTML() + '<span class="' + CFG.ns + '-ldm"> · ' + esc(monthLow(L)) + ' · ' + esc(selLabel()) + '</span>'
@@ -2990,7 +3049,7 @@ function onepagerHTML() {
   if (!selMetrics('').length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики: «Фильтры» → «Что показывать».');
   var smallScope = isSmall(M.scope), gatedOn = false;
   for (var g0 = 0; g0 < CFG.small.blocks.length; g0++) if (selMetrics(CFG.small.blocks[g0]).length) gatedOn = true;
-  s += kpiCardsHTML() + obsHTML()
+  s += kpiCardsHTML() + popHintHTML() + obsHTML()
     + (smallScope && gatedOn ? '<div class="' + P + '-note ' + P + '-ninfo ' + P + '-gap">В юните ' + fmtInt(hcOf(M.scope)) + ' ' + plural(hcOf(M.scope), 'человек', 'человека', 'человек')
       + ' — меньше ' + CFG.small.min + ': закрепляемость и текучесть не оцениваются, под прочерком — сколько это людей. Оценка — у юнита уровнем выше.</div>' : '')
     + legendHTML(true, smallScope && gatedOn);
@@ -3733,6 +3792,8 @@ function tourSteps(view) {
       html: 'Что применено — чипами рядом с кнопкой «Фильтры»: × снимает фильтр сразу. Справа — база сравнения: вся компания под теми же разрезами, с ней сравниваются метрики без цели.' });
     add({ sel: function (R) { var k = R.querySelectorAll(P + '-kpis>' + P + '-kpi'); return k.length > 1 ? k[1] : null; }, title: 'Сотрудники и движение',
       html: 'Численность на конец месяца и как она менялась за год: найм в компанию, увольнения из компании, переводы между подразделениями. Помесячно — в ⓘ.' });
+    add({ sel: '[data-pophint]', lock: true, need: !!popHint(), title: 'С кем сравнивать',
+      html: 'Большинство людей области — одна популяция (например, HQ), а база сравнения — вся компания. Нажмите «Сравнить с …» — разрез применится, и база станет той же популяцией по всей компании. «Скрыть» убирает подсказку для этого выбора.' });
     add({ sel: P + '-obs', title: 'Что видно в данных',
       html: 'Короткая сводка: только факты, которые прошли пороги, — хуже или лучше цели и базы на 10% и больше (в людях), в какой команде сидит отклонение, ухудшение 3 месяца подряд, всплеск уходов, незаполненные причины. <b>«Ещё N»</b> раскрывает список, имя команды в нём открывает её в «Командах». Команды меньше ' + CFG.small.min + ' человек не оцениваются.' });
     add({ sel: function (R) { var t = firstOp(R); return t ? t.querySelectorAll(P + '-row>' + P + '-lead') : null; }, all: true, title: 'Значение',
@@ -3759,6 +3820,8 @@ function tourSteps(view) {
       html: 'Иконка у выбранной строки делает её юнитом отчёта: сводка, команды и цели перестроятся под неё, ниже откроются её три уровня. Вернуться — «← Назад» или путь над таблицей.' });
     add({ sel: P + '-dpan', title: 'Динамика строки',
       html: '<b>Год</b> — помесячно к прошлому году, <b>12 недель</b> — к предыдущим 12 неделям. Наведите на график — значения; клик по пункту легенды выключает линию.' });
+    add({ sel: function (R) { var b = R.querySelector(P + '-dpan [data-action="ytd"]'); return b ? b.parentNode : null; }, lock: true, need: !!MODEL.ytdOk, title: 'Текучесть: с начала года или 12 месяцев',
+      html: '<b>С начала года</b> — нарастающим итогом: увольнения с января / средняя численность с января, к декабрю — годовая текучесть; цель — доля года. <b>12 мес</b> — скользящие 12 месяцев, как значение на «Сводке». Переключатель — у графиков текучести здесь и на «Сводке».' });
     add({ sel: P + '-tsw', title: 'Поиск в таблице',
       html: 'Найдёт подразделение среди трёх загруженных уровней и подсветит совпадение. По всей зоне ищет фильтр «Юнит».' });
     add({ sel: P + '-tpan [data-action="copy"]', pad: 4, title: 'Копировать таблицу',
@@ -5022,6 +5085,14 @@ function buildHTML() {
         render();
         return;
       }
+      if (act === 'pophint') {
+        if (!key) { state.popOff = sigOf(reqNow()); render(); return; }
+        var np = reqNow();
+        np.cuts[key] = [a.getAttribute('data-val') || ''];
+        emit(np);
+        return;
+      }
+      if (act === 'ytd') { state.ytd = key !== 'off'; state.drawn = {}; render(); return; }
       if (act === 'lg') {
         if (a.getAttribute('data-lock')) return;
         state.lineOff[key] = !state.lineOff[key];

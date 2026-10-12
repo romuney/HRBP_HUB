@@ -727,6 +727,8 @@ paragraphs:
       --   nr (незаполненные причины) — 3 мес / 13 нед;
       --   r3*/r6* (созревшие новички и дожившие) — 3 мес / 13 нед.
       --   hc, jun, hire, fire — без окна (запас на конец слота и поток слота).
+      --   rgs, nrgs — те же regrettable / non-regrettable увольнения БЕЗ окна (поток слота): по ним чарт
+      --               считает текучесть нарастающим итогом с начала года (владелец 12.10).
       -- Окно считается на каждой строке куба: сумма окон по строкам = окно суммы.
       -- ============================================================================
       drop table if exists hh_cube_long;
@@ -760,6 +762,8 @@ paragraphs:
              x.jun,
              case when x.grain = 'm' then sum(x.rg) over w12 else sum(x.rg) over w52 end as rg,
              case when x.grain = 'm' then sum(x.nrg) over w12 else sum(x.nrg) over w52 end as nrg,
+             x.rg as rgs,
+             x.nrg as nrgs,
              case when x.grain = 'm' then sum(x.hc) over w12 else sum(x.hc) over w52 end as hcw,
              case when x.grain = 'm' then sum(x.nr) over w3 else sum(x.nr) over w13 end as nr,
              case when x.grain = 'm' then sum(x.r3n) over w3 else sum(x.r3n) over w13 end as r3n,
@@ -811,6 +815,8 @@ paragraphs:
              m.jun as m_jun,
              m.rg as m_rg,
              m.nrg as m_nrg,
+             m.rgs as m_rgs,
+             m.nrgs as m_nrgs,
              m.hcw as m_hcw,
              m.nr as m_nr,
              m.r3n as m_r3n,
@@ -827,6 +833,8 @@ paragraphs:
              w.jun as w_jun,
              w.rg as w_rg,
              w.nrg as w_nrg,
+             w.rgs as w_rgs,
+             w.nrgs as w_nrgs,
              w.hcw as w_hcw,
              w.nr as w_nr,
              w.r3n as w_r3n,
@@ -845,6 +853,8 @@ paragraphs:
                  array_agg(jun::int order by idx) as jun,
                  array_agg(rg::int order by idx) as rg,
                  array_agg(nrg::int order by idx) as nrg,
+                 array_agg(rgs::int order by idx) as rgs,
+                 array_agg(nrgs::int order by idx) as nrgs,
                  array_agg(hcw::int order by idx) as hcw,
                  array_agg(nr::int order by idx) as nr,
                  array_agg(r3n::int order by idx) as r3n,
@@ -867,6 +877,8 @@ paragraphs:
                  array_agg(jun::int order by idx) as jun,
                  array_agg(rg::int order by idx) as rg,
                  array_agg(nrg::int order by idx) as nrg,
+                 array_agg(rgs::int order by idx) as rgs,
+                 array_agg(nrgs::int order by idx) as nrgs,
                  array_agg(hcw::int order by idx) as hcw,
                  array_agg(nr::int order by idx) as nr,
                  array_agg(r3n::int order by idx) as r3n,
@@ -902,6 +914,8 @@ paragraphs:
              sum(w.jun) as jun,
              sum(w.rg) as rg,
              sum(w.nrg) as nrg,
+             sum(w.rgs) as rgs,
+             sum(w.nrgs) as nrgs,
              sum(w.hcw) as hcw,
              sum(w.nr) as nr,
              sum(w.r3n) as r3n,
@@ -928,6 +942,8 @@ paragraphs:
              m.jun as m_jun,
              m.rg as m_rg,
              m.nrg as m_nrg,
+             m.rgs as m_rgs,
+             m.nrgs as m_nrgs,
              m.hcw as m_hcw,
              m.nr as m_nr,
              m.r3n as m_r3n,
@@ -944,6 +960,8 @@ paragraphs:
              w.jun as w_jun,
              w.rg as w_rg,
              w.nrg as w_nrg,
+             w.rgs as w_rgs,
+             w.nrgs as w_nrgs,
              w.hcw as w_hcw,
              w.nr as w_nr,
              w.r3n as w_r3n,
@@ -961,6 +979,8 @@ paragraphs:
                    array_agg(jun::int order by idx) as jun,
                    array_agg(rg::int order by idx) as rg,
                    array_agg(nrg::int order by idx) as nrg,
+                   array_agg(rgs::int order by idx) as rgs,
+                   array_agg(nrgs::int order by idx) as nrgs,
                    array_agg(hcw::int order by idx) as hcw,
                    array_agg(nr::int order by idx) as nr,
                    array_agg(r3n::int order by idx) as r3n,
@@ -981,6 +1001,8 @@ paragraphs:
                    array_agg(jun::int order by idx) as jun,
                    array_agg(rg::int order by idx) as rg,
                    array_agg(nrg::int order by idx) as nrg,
+                   array_agg(rgs::int order by idx) as rgs,
+                   array_agg(nrgs::int order by idx) as nrgs,
                    array_agg(hcw::int order by idx) as hcw,
                    array_agg(nr::int order by idx) as nr,
                    array_agg(r3n::int order by idx) as r3n,

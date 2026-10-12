@@ -7,6 +7,7 @@
 Определения — ровно те, что зафиксированы в business-context.md и в параграфах:
   hc, jun    на конец слота, все типы численности (с 12.10; «Активная» — фильтром hct)
   rg, nrg    увольнения за окно 12 мес / 52 нед, атрибуты на день увольнения
+  rgs, nrgs  те же увольнения без окна (поток слота)
   hcw        Σ hc за то же окно
   nr         увольнения за 3 мес / 13 нед без причины, legal_fire_dt не пуст, прошло 30+ дней
   r3*, r6*   новички, созревшие (найм + 3/6 мес или + 91/182 дня) в окне 3 мес / 13 нед
@@ -169,6 +170,8 @@ def component_series(grain, pred, flt, active_base=False):
     out['rg'] = [sum(raw['rg'][j] for j in range(i - win['rg'] + 1, i + 1)) for i in range(24)]
     out['nrg'] = [sum(raw['nrg'][j] for j in range(i - win['rg'] + 1, i + 1)) for i in range(24)]
     out['hcw'] = [sum(raw['hc'][j] for j in range(i - win['rg'] + 1, i + 1)) for i in range(24)]
+    out['rgs'] = [raw['rg'][i] for i in range(24)]      # без окна — для текучести с начала года (12.10)
+    out['nrgs'] = [raw['nrg'][i] for i in range(24)]
     out['nr'] = [sum(raw['nr'][j] for j in range(i - win['nr'] + 1, i + 1)) for i in range(24)]
     for k in ('r3n', 'r3d', 'r6n', 'r6d'):
         out[k] = [sum(raw[k][j] for j in range(max(i - win['ret'] + 1, lo), i + 1)) for i in range(24)]

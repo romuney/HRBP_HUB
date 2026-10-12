@@ -64,13 +64,17 @@
     каждый забор результата qc-…), на проверку «только SELECT» и на reindent обёртки SELECT … FROM
     (датасет) LIMIT N. Время reindent растёт как число скобок × число токенов: на прежних 34 КБ это
     ~10 с плюс ~2 с на каждый разбор (08.10 «Применить» в бою — 20 с). Поэтому 12 компонентов × 2
-    сетки едут по плечам ОДНИМ плоским массивом (24 массива по 24 слота подряд) и режутся на 24
+    сетки (с 12.10 — 14 × 2) едут по плечам ОДНИМ плоским массивом (по 24 слота подряд) и режутся на
     колонки один раз, в самом верху; повторять выражения по компонентам в плечах нельзя.
 ============================================================================ -#}
 {% set CUTS = [['paint', 'paint_f'], ['it', 'it_f'], ['stream', 'stream_f'], ['spec', 'spec_f'], ['staff', 'staff_f'], ['hct', 'hct_f']] %}
 {% set CUT_COLS = ['paint', 'it', 'stream', 'spec', 'staff', 'hct'] %}
 {% set ATTRS = ['grade', 'seniority', 'exp', 'gender', 'age', 'office', 'work', 'head', 'legal', 'macro', 'city'] %}
-{% set COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire'] %}
+{#- rgs, nrgs — regrettable / non-regrettable увольнения без окна (поток слота): текучесть нарастающим итогом с
+    начала года (владелец 12.10). Новые компоненты — только в конец списка: трансформеры везут первые 12 (MT), у них
+    колонки rgs / nrgs пустые. -#}
+{% set COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs'] %}
+{% set NC = COMP|length %}
 {% set ROLES = ['meta', 'f', 'scope', 'base', 'kpi', 'hrbps', 'dict', 'c', 'g', 'tr', 'x', 'end'] %}
 {#- Трансформеры: все 11 атрибутов в каждом ответе. Без разрезов — из свёртки (если она есть
     у открытых юнитов), с разрезами — из листового куба ветки, пока в ней не больше TR_ALL_MAX
@@ -121,10 +125,12 @@
 {% set axis = axis|string if (axis|string in CUT_COLS or axis|string in ATTRS) else '' %}
 {#- Закрепляемость от active_hire_dt — только когда «Тип численности» = ровно «Активная». -#}
 {% set RA = 'a' if (F['hct']|length == 1 and F['hct'][0] == 'Активная') else '' %}
-{#- Колонки компонентов (закрепляемость — с подменой RA): MM — 12 месячных, MW — они же и 12 недельных. -#}
+{#- Колонки компонентов (закрепляемость — с подменой RA): MM — месячные, MW — они же и недельные, MT — месячные
+    трансформеров (первые 12: в кубе атрибутов rgs / nrgs нет). -#}
 {% set MM = [] %}{% set WW = [] %}
 {% for c in COMP %}{% set s = c[:2] ~ RA ~ c[2:] if c in ['r3n', 'r3d', 'r6n', 'r6d'] else c %}{% set _ = MM.append('m_' ~ s) %}{% set _ = WW.append('w_' ~ s) %}{% endfor %}
 {% set MW = (MM + WW)|join(', ') %}
+{% set MT = MM[:12]|join(', ') %}
 {#- Условие «строка проходит разрезы», кроме разреза skip (для фасетов). -#}
 {% macro cond(skip) -%}
 {%- set parts = [] -%}
@@ -249,17 +255,17 @@ WITH
       FROM prod_proteus.hrbp_hub_base
     ) AS fdv
   )
-{#- Плечи ниже отдают компоненты одним плоским массивом a: lw < 0 — 24 массива по 24 слота
+{#- Плечи ниже отдают компоненты одним плоским массивом a: lw < 0 — 2 × NC массивов по 24 слота
     (m_*, затем w_*), lw ≥ 0 — трансформер: только 12 месячных, окно W12 до месяца lw. Здесь a
-    режется на 24 колонки: строкой через запятую без хвостовых нулей, у трансформеров слева —
+    режется на 2 × NC колонок: строкой через запятую без хвостовых нулей, у трансформеров слева —
     число пропущенных слотов («8@5,0,7»), чарт дополняет до 24 (parseArr); пустая строка — «массива
     нет». Обрезка — одним регулярным выражением, без лямбд поиска нулей: они замедляли запрос. -#}
 SELECT role, id, pid, n, j,
-  {% for c in COMP %}o[{{ loop.index }}] AS m_{{ c }}, {% endfor %}{% for c in COMP %}o[{{ loop.index + 12 }}] AS w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
+  {% for c in COMP %}o[{{ loop.index }}] AS m_{{ c }}, {% endfor %}{% for c in COMP %}o[{{ loop.index + NC }}] AS w_{{ c }}{% if not loop.last %}, {% endif %}{% endfor %}
 FROM (
   SELECT role, id, pid, n, j, if(lw < 0, 24, least(lw + 1, 12)) AS wl,
     if(lw < 0, '', concat(toString(greatest(lw - 11, 0)), '@')) AS pf,
-    arrayMap(i -> if(i * wl >= length(a), '', concat(pf, replaceRegexpOne(arrayStringConcat(arraySlice(a, i * wl + 1, wl), ','), '(,0)+$', ''))), range(24)) AS o
+    arrayMap(i -> if(i * wl >= length(a), '', concat(pf, replaceRegexpOne(arrayStringConcat(arraySlice(a, i * wl + 1, wl), ','), '(,0)+$', ''))), range({{ 2 * NC }})) AS o
   FROM (
 
   {#- ---------- куб, дерево «Команд»: юнит и D уровней вниз одним проходом (ROLLUP) ----------
@@ -321,7 +327,7 @@ FROM (
           {% for c in CUT_COLS %}if({{ cond(c) }}, array(('{{ c }}', ifNull(cb.{{ c }}, '-'), toUInt8({{ cond('') }}))), []){% if not loop.last %},
           {% endif %}{% endfor %}
         )) AS fv,
-        {{ win('[' ~ MM|join(', ') ~ ']', 'ctx.last_m') }} AS v
+        {{ win('[' ~ MT ~ ']', 'ctx.last_m') }} AS v
       FROM (
         SELECT * FROM prod_proteus.hrbp_hub_cube
         WHERE path_s >= tupleElement({{ EX }}, 1) AND path_s < tupleElement({{ EX }}, 2)
@@ -352,12 +358,12 @@ FROM (
           arrayMap(x -> ifNull(x, 0), sumForEach({{ win('ab.mm', 'ctx.last_m') }})) AS s0
         FROM (
           {%- if not ANYCUT %}
-          SELECT CAST([], 'Array(Nullable(String))') AS path, attr_k, attr_v, [{{ MM|join(', ') }}] AS mm, toUInt8(1) AS top
+          SELECT CAST([], 'Array(Nullable(String))') AS path, attr_k, attr_v, [{{ MT }}] AS mm, toUInt8(1) AS top
           FROM prod_proteus.hrbp_hub_attr_top
           WHERE has(tupleElement({{ EX }}, 5), ifNull(unit_id, ''))
           UNION ALL
           {%- endif %}
-          SELECT path, attr_k, attr_v, [{{ MM|join(', ') }}] AS mm, toUInt8(0) AS top
+          SELECT path, attr_k, attr_v, [{{ MT }}] AS mm, toUInt8(0) AS top
           FROM prod_proteus.hrbp_hub_attr
           WHERE ({% if axis in ATTRS %}(attr_k = {{ qs(axis) }} AND empty(tupleElement({{ EX }}, 5)) AND path_s >= tupleElement({{ EX }}, 1) AND path_s < tupleElement({{ EX }}, 2)) OR {% endif %}(path_s >= tupleElement({{ EX }}, 3) AND path_s < tupleElement({{ EX }}, 4)))
             AND ({{ cond('') }})

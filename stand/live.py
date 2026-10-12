@@ -19,8 +19,10 @@ applyCrossFilter(mask). Маска превращается в фильтры д
 /board — тот же чарт так, как его кладёт Proteus: <iframe sandbox="allow-scripts"> высотой с ячейку
 борда внутри холдера с полем 16 px и шапкой чарта, страница борда прокручивается снаружи, шапка
 дашборда липкая; данные и кросс-фильтр — через postMessage (до родителя иначе не достучаться).
-?ch= — высота ячейки (1300), ?css=1 — вставка «4. CSS борда» из поставки, ?delay= — ответ
-датасета дольше на столько мс (бой отвечает дольше стенда). Остальные параметры — как у /.
+?ch= — высота ячейки (1300), ?css=1 — вставка «4. CSS борда» из поставки (с ней ряд — по экрану, блок 7),
+?delay= — ответ датасета дольше на столько мс (бой отвечает дольше стенда), ?first= — iframe появляется через
+столько мс, до того в ячейке заглушка Proteus «Не было получено данных…» (как на загрузке в бою). Остальные
+параметры — как у /.
 """
 import http.server
 import json
@@ -35,7 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CHART = os.path.join(HERE, '..', 'proteus', 'hrbp-hub.chart.js')
 if os.environ.get('HH_DIST') == '1':
     CHART = os.path.join(HERE, '..', 'Поставка — HRBP HUB v2', '3. Proteus — чарт HRBP HUB.js')
-COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire']
+COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs']
 COLS = ', '.join(['role', 'id', 'pid', 'n', 'j'] + ['m_' + c for c in COMP] + ['w_' + c for c in COMP])
 
 PAGE = r'''<!doctype html><html><head><meta charset="utf-8"><title>HRBP HUB · стенд</title>
@@ -83,14 +85,19 @@ BOARD = r'''<!doctype html><html><head><meta charset="utf-8"><title>HRBP HUB · 
 <div class="dashboard-grid"><div class="grid-content"><div class="dragdroppable-row"><div class="resizable-container" id="cellbox">
 <div class="dashboard-component dashboard-component-chart-holder dashboard-chart-id-800919">
 <div class="chart-slice"><div class="slice-header" data-test="slice-header"><div class="header-title">HRBP HUB</div><div class="header-controls">⋯</div></div>
-<div class="dashboard-chart"><div class="chart-container"><div class="slice_container"><div class="react_sanbbox" id="sb"><iframe id="fr" sandbox="allow-scripts"></iframe></div></div></div></div></div>
+<div class="dashboard-chart" id="chart-id-800919"><div class="chart-container"><img class="loading floating" aria-label="Loading" alt="" style="position:absolute;left:50%;top:50%;width:50px;height:50px;margin:-25px 0 0 -25px;border-radius:50%;border:4px solid #c9d3e6;box-sizing:border-box"><div class="slice_container"><div class="react_sanbbox" id="sb"><div class="empty-state" id="es">Не было получено данных по этому запросу</div></div></div></div></div></div>
 </div></div></div></div></div>
 <script>
 var Q = new URLSearchParams(location.search);
 var USER = Q.get('user') || 'a.sergeeva', SELFOFF = Q.get('selfoff') === '1', LONG = Q.get('long') === '1', LIMIT = Q.get('limit') || '';
-var CH = +(Q.get('ch') || 1300), DELAY = +(Q.get('delay') || 0), SRC = null, FILTERS = JSON.parse(Q.get('flt') || '{}');
+var CH = +(Q.get('ch') || 1300), DELAY = +(Q.get('delay') || 0), FIRST = +(Q.get('first') || 0), SRC = null, FILTERS = JSON.parse(Q.get('flt') || '{}');
 document.getElementById('cellbox').style.height = CH + 'px';
-document.getElementById('fr').style.height = (CH - 32 - 26) + 'px';
+function mkFrame() {  // как Proteus: iframe появляется, когда пришёл ответ; высота — атрибутом при монтаже
+  var es = document.getElementById('es'); if (es) es.remove();
+  var f = document.createElement('iframe'); f.id = 'fr'; f.setAttribute('sandbox', 'allow-scripts');
+  f.setAttribute('height', String(CH - 32 - 26)); f.style.height = (CH - 32 - 26) + 'px';
+  document.getElementById('sb').appendChild(f); return f;
+}
 window.__masks = []; window.__posts = 0;
 var INNER = '<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%}</style></head><body>'
   + '<div _echarts_instance_="ec_1" style="width:100%;height:100%;position:relative"><canvas></canvas></div><script>'
@@ -118,7 +125,7 @@ window.addEventListener('message', function (e) {
     setTimeout(function () { load().then(function (rows) { post(rows, false); }); }, 300 + DELAY);
   }
 });
-fetch('/chart.js').then(function (r) { return r.text(); }).then(function (t) { SRC = t; document.getElementById('fr').srcdoc = INNER; });
+fetch('/chart.js').then(function (r) { return r.text(); }).then(function (t) { SRC = t; setTimeout(function () { mkFrame().srcdoc = INNER; }, FIRST); });
 </script></body></html>'''
 BOARD_CSS = os.path.join(HERE, '..', 'Поставка — HRBP HUB v2', '4. CSS борда (дописать в конец).css')
 

@@ -9,6 +9,7 @@
 логины мира × юниты (до 12-го уровня, несколько, чужой) × разрезы (реальные значения из фасетов,
 «Активная» — закрепляемость от active_hire_dt) × оси × глубина × запасные режимы (TR_ALL_MAX,
 TR_TOP, без свёртки атрибутов). Сверяет порядок ролей и строки целиком (внутри роли — без порядка).
+Новые колонки (добавлены, старые не тронуты) в сверку не идут — сверяются колонки старой версии.
 Печатает первые расхождения; в конце — «случаев N, расхождений M».
 """
 import itertools
@@ -59,6 +60,8 @@ def main():
                     continue
                 a, _ = ch.run(ch.render(flt, user, path=OLD, **m), SETTINGS)
                 b, _ = ch.run(ch.render(flt, user, **m), SETTINGS)
+                if a and b and set(b[0]) - set(a[0]):  # новые колонки (12.10: m_rgs …) — сверка по колонкам старой версии
+                    b = [dict((c, r[c]) for c in a[0]) for r in b]
                 n += 1
                 ra = [k for k, _ in itertools.groupby(r['role'] for r in a)]
                 rb = [k for k, _ in itertools.groupby(r['role'] for r in b)]

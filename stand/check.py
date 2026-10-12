@@ -38,7 +38,8 @@ import ch  # noqa: E402
 import expect as X  # noqa: E402
 import world as W  # noqa: E402
 
-COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire']
+COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs']
+COMP_TR = COMP[:12]  # трансформеры везут первые 12 (rgs / nrgs у них пустые)
 CARRIER = {'paint': 'paint_f', 'it': 'it_f', 'stream': 'stream_f', 'spec': 'spec_f', 'staff': 'staff_f', 'hct': 'hct_f'}
 bad = 0
 cases = 0
@@ -108,8 +109,9 @@ def tr_ok(rows, axes, label):
     tr = by(rows, 'tr')
     for ax in axes:
         vs = [r for r in tr if r['pid'] == ax]
-        s12 = {c: [x if last - 11 <= i <= last else 0 for i, x in enumerate(sc[c])] for c in COMP}
-        good = len(vs) > 0 and vsum(vs, 'm') == s12
+        s12 = {c: [x if last - 11 <= i <= last else 0 for i, x in enumerate(sc[c])] for c in COMP_TR}
+        vs_m = vsum(vs, 'm')
+        good = len(vs) > 0 and {c: vs_m[c] for c in COMP_TR} == s12 and all(not r['m_rgs'] and not r['m_nrgs'] for r in vs)
         ok(good, 'Σ трансформера «%s» == область за 12 мес [%s]' % (ax, label))
     ok(all(not r['w_hc'] for r in tr), 'у трансформера нет недель [%s]' % label)
 
