@@ -465,8 +465,13 @@ def main():
            % (user, flt, len(frows), hc))
     rows, _ = ask({}, 'b.kotov')
     lines = by(rows, 'dict')[0]['j'].split('\n')
-    ok(all(len(ln.split('\t')) == 9 for ln in lines) and sum(1 for ln in lines if ln.split('\t')[8]) > 0,
-       'у каждой строки справочника 9 полей, у юнитов с людьми — распределение')
+    ok(all(len(ln.split('\t')) == 10 for ln in lines) and sum(1 for ln in lines if ln.split('\t')[8]) > 0,
+       'у каждой строки справочника 10 полей, у юнитов с людьми — распределение')
+    # 10-е поле (13.10) — логин руководителя юнита: то же, что head_login в hrbp_hub_unit
+    hl = {r['id']: r['head_login'] or '' for r in ch.run("SELECT id, ifNull(head_login, '') AS head_login FROM prod_proteus.hrbp_hub_unit", '')[0]}
+    got = {ln.split('\t')[0]: ln.split('\t')[9] for ln in lines}
+    ok(all(got[k] == hl.get(k, '') for k in got) and any(got.values()),
+       'логин руководителя в справочнике == hrbp_hub_unit.head_login (%d из %d юнитов с логином)' % (sum(1 for v in got.values() if v), len(got)))
     ok(meta(ask({}, 'nobody')[0]).get('fdv') == {}, 'без роли словарей значений нет')
 
     # ---------------- 7. кеш Proteus: логин в ключе кеша ----------------
