@@ -33,11 +33,13 @@ COLS = (['business_dt', 'mdm_employee_rk', 'last_day_flg', 'last_day_of_month_fl
         + ['emp_specialization_oper_code', 'emp_specialization_it_code', 'emp_stream_desc', 'emp_specialization_desc',
            'hrbp_mdm_employee_rk', 'hrbp_ad_login', 'hrbp_last_nm', 'hrbp_first_nm',
            'experience_group_nm', 'gender_desc', 'birth_dt', 'office_desc', 'employee_contract_type_desc',
-           'management_head_flg', 'lvl1_legal_unit_nm', 'ad_login', 'last_nm', 'first_nm', 'management_head_ad_login'])
+           'management_head_flg', 'lvl1_legal_unit_nm', 'ad_login', 'last_nm', 'first_nm', 'management_head_ad_login',
+           'company_hire_flg', 'company_fire_flg', 'candidate_transfer_flg', 'internal_transfer_flg'])
 TYPES = {'business_dt': 'date', 'mdm_employee_rk': 'bigint', 'last_day_flg': 'smallint', 'last_day_of_month_flg': 'smallint',
          'last_state_flg': 'smallint', 'active_employee_flg': 'smallint', 'legal_employee_flg': 'smallint', 'grade': 'integer',
          'company_hire_dt': 'date', 'company_fire_dt': 'date', 'active_hire_dt': 'date', 'legal_fire_dt': 'date',
-         'management_unit_lvl_num': 'numeric', 'hrbp_mdm_employee_rk': 'bigint', 'birth_dt': 'date', 'management_head_flg': 'smallint'}
+         'management_unit_lvl_num': 'numeric', 'hrbp_mdm_employee_rk': 'bigint', 'birth_dt': 'date', 'management_head_flg': 'smallint',
+         'company_hire_flg': 'smallint', 'company_fire_flg': 'smallint', 'candidate_transfer_flg': 'smallint', 'internal_transfer_flg': 'smallint'}
 for i in LV:
     TYPES['lvl%d_management_head_mdm_employee_rk' % i] = 'bigint'
 
@@ -94,7 +96,7 @@ def row(e, d, last_state):
     r.update(business_dt=d, mdm_employee_rk=e.rk, last_day_flg=int(d == W.D),
              last_day_of_month_flg=int(d == W.month_end(d)), last_state_flg=int(last_state),
              active_employee_flg=0 if a['hct'] == 'Декрет' else 1, active_type_nm=a['hct'],
-             legal_employee_flg=int(a['rel'] == 'Штатный сотрудник'), employment_relation_type_desc=a['rel'],
+             legal_employee_flg=int(W.is_legal(a)), employment_relation_type_desc=a['rel'],
              seniority=a['sen'], grade=a['grade'], company_hire_dt=p.hire,
              company_fire_dt=p.fire if (p.fire and d == p.fire) else None,          # пессимистично: только в день увольнения
              active_hire_dt=p.active_hire if (p.active_hire and p.active_hire <= d) else None,
@@ -108,7 +110,12 @@ def row(e, d, last_state):
              experience_group_nm=exp_group(p, d), gender_desc=e.gender, birth_dt=e.birth, office_desc=e.office,
              employee_contract_type_desc=a['contract'], management_head_flg=int(unit.head is e),
              lvl1_legal_unit_nm=a['legal'], ad_login=e.login, last_nm=e.last, first_nm=e.first,
-             management_head_ad_login=head_login(unit, e, d))
+             management_head_ad_login=head_login(unit, e, d),
+             # флаги событий, как в источнике (HRBP 13.10: найм и отток — по ним); переход кандидата — стажёр
+             # стал активным, внутренний перевод — W.internal_transfers
+             company_hire_flg=int(d == p.hire), company_fire_flg=int(bool(p.fire) and d == p.fire),
+             candidate_transfer_flg=int(bool(p.active_hire) and d == p.active_hire and p.active_hire != p.hire),
+             internal_transfer_flg=int(d in W.internal_transfers(e)))
     for u in ch:
         r['lvl%d_mapped_management_unit_rk' % u.level] = u.rk
         r['lvl%d_mapped_management_unit_nm' % u.level] = u.name_at(d)

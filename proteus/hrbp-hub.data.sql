@@ -69,6 +69,9 @@
 ============================================================================ -#}
 {% set CUTS = [['paint', 'paint_f'], ['it', 'it_f'], ['stream', 'stream_f'], ['spec', 'spec_f'], ['staff', 'staff_f'], ['hct', 'hct_f']] %}
 {% set CUT_COLS = ['paint', 'it', 'stream', 'spec', 'staff', 'hct'] %}
+{#- Тип численности строк вне юридической численности (legal_employee_flg <> 1; hh_param.nonlegal_type). Без
+    выбранного типа их нет нигде (HRBP 13.10, Дьяченко); выбрать значение можно явно. -#}
+{% set NONLEGAL = 'Вне юр. численности' %}
 {% set ATTRS = ['grade', 'seniority', 'exp', 'gender', 'age', 'office', 'work', 'head', 'legal', 'macro', 'city'] %}
 {#- rgs, nrgs — regrettable / non-regrettable увольнения без окна (поток слота): текучесть нарастающим итогом с
     начала года (владелец 12.10). Новые компоненты — только в конец списка. С 13.10 трансформеры везут все 14 (MT):
@@ -128,7 +131,8 @@
 {#- Колонки компонентов (закрепляемость — с подменой RA): MM — месячные, MW — они же и недельные, MT — месячные
     трансформеров (все 14, с 13.10). -#}
 {% set MM = [] %}{% set WW = [] %}
-{% for c in COMP %}{% set s = c[:2] ~ RA ~ c[2:] if c in ['r3n', 'r3d', 'r6n', 'r6d'] else c %}{% set _ = MM.append('m_' ~ s) %}{% set _ = WW.append('w_' ~ s) %}{% endfor %}
+{#- При «Активной» найм — приход в активную (hirea, 13.10); колонки нет (ноут не перезапущен) — обычный найм. -#}
+{% for c in COMP %}{% set s = c[:2] ~ RA ~ c[2:] if c in ['r3n', 'r3d', 'r6n', 'r6d'] else c %}{% if c == 'hire' and RA %}{% set _ = MM.append("arraySlice(arrayConcat(COLUMNS('^m_hirea$'), m_hire), 1, 24)") %}{% set _ = WW.append("arraySlice(arrayConcat(COLUMNS('^w_hirea$'), w_hire), 1, 24)") %}{% else %}{% set _ = MM.append('m_' ~ s) %}{% set _ = WW.append('w_' ~ s) %}{% endif %}{% endfor %}
 {#- rgs / nrgs (с 12–13.10) — через матчер COLUMNS: в бою датасет вставляют раньше, чем ноут успевает выгрузить новые
     колонки, и ClickHouse падал «Unknown identifier 'o'» (13.10). Нет колонки — на её месте 24 пустых слота, а meta.ytd = 0
     говорит чарту не считать текучесть с начала года (он показывает 12 мес). -#}
@@ -140,7 +144,7 @@
 {#- Условие «строка проходит разрезы», кроме разреза skip (для фасетов). -#}
 {% macro cond(skip) -%}
 {%- set parts = [] -%}
-{%- for c in CUT_COLS -%}{%- if c != skip and F[c]|length > 0 -%}{%- set _ = parts.append('has(' ~ qa(F[c]) ~ ', ifNull(' ~ c ~ ", '-'))") -%}{%- endif -%}{%- endfor -%}
+{%- for c in CUT_COLS -%}{%- if c != skip and F[c]|length > 0 -%}{%- set _ = parts.append('has(' ~ qa(F[c]) ~ ', ifNull(' ~ c ~ ", '-'))") -%}{%- elif c == 'hct' and c != skip -%}{%- set _ = parts.append('ifNull(hct, ' ~ qs(NONLEGAL) ~ ') != ' ~ qs(NONLEGAL)) -%}{%- endif -%}{%- endfor -%}
 {{- parts|join(' AND ') if parts else '1' -}}
 {%- endmacro %}
 {#- 12 последних закрытых месяцев (трансформеры): из массивов a2 (по одному на компонент) — окно
@@ -501,6 +505,7 @@ FROM (
       ',"rk":', toJSONString(if(length(ctx.scope) = 1, ex.rk1, '')),
       ',"ret_base":', toJSONString('{{ 'active' if RA else 'company' }}'),
       ',"ytd":', toString({% for t in ['cube', 'base', 'attr', 'attr_top'] %}hasColumnInTable('prod_proteus', 'hrbp_hub_{{ t }}', 'm_rgs'){% if not loop.last %} AND {% endif %}{% endfor %}),
+      ',"hq":', toString({% for t in ['cube', 'base', 'attr', 'attr_top'] %}hasColumnInTable('prod_proteus', 'hrbp_hub_{{ t }}', 'm_hirea'){% if not loop.last %} AND {% endif %}{% endfor %}),
       ',"last_m":', toString(ctx.last_m),
       ',"fdv":', tupleElement({{ FZ }}, 12),
       ',"end":1',

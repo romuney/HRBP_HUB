@@ -7,8 +7,9 @@
 --   gender — пол; age — возрастная группа; office — офис; work — тип работы
 --   (employee_contract_type_desc); head — руководитель / нет; legal — юрлицо
 --   (lvl1_legal_unit_nm); macro — макрорегион; city — город (mdm_employee_residence).
--- Окна — как в «HH · куб по разрезам» (месячные: текучесть 12, причины 3, закрепляемость 9 / 6 — найм за
--- 12 мес); rgs / nrgs — увольнения месяца без окна (текучесть с начала года, 13.10).
+-- Окна — как в «HH · куб по разрезам» (месячные: текучесть 12 со знаменателем по активной HQ, причины — с
+-- начала года, закрепляемость 9 / 6 — найм за 12 мес); rgs / nrgs, hch, hirea — без окна (13.10).
+-- Свёртка (без разрезов) — только юридическая численность: строки «вне юр. численности» в неё не идут.
 --
 -- Свёртка → hrbp_hub_attr_top: юнит открывают — трансформер должен приехать сразу, а
 -- листовой куб всей компании — сотни тысяч строк на каждый ответ. Поэтому юнитам, которые
@@ -42,7 +43,9 @@ select md5(path_s || '|' || paint || '|' || it || '|' || stream || '|' || spec |
        sum(r3an) as r3an,
        sum(r3ad) as r3ad,
        sum(r6an) as r6an,
-       sum(r6ad) as r6ad
+       sum(r6ad) as r6ad,
+       sum(hch) as hch,
+       sum(hirea) as hirea
 from (
     select e.*, a.attr_k,
            coalesce(case a.attr_k when 'grade' then e.a_grade when 'seniority' then e.seniority when 'exp' then e.a_exp when 'gender' then e.a_gender when 'age' then e.a_age when 'office' then e.a_office when 'work' then e.a_work when 'head' then e.a_head when 'legal' then e.a_legal when 'macro' then e.a_macro when 'city' then e.a_city end, '-') as attr_v
@@ -74,13 +77,17 @@ select md5('T:' || u.id || '|' || l.attr_k || '|' || l.attr_v) as kid,
        sum(l.r3an) as r3an,
        sum(l.r3ad) as r3ad,
        sum(l.r6an) as r6an,
-       sum(l.r6ad) as r6ad
+       sum(l.r6ad) as r6ad,
+       sum(l.hch) as hch,
+       sum(l.hirea) as hirea
 from hh_attr_long l
 join (select q.path_s, unnest(string_to_array(q.path_s, '/')) as uid
       from (select distinct path_s from hh_attr_long) q) p
     on p.path_s = l.path_s
 join hrbp_hub_unit u
     on u.id = p.uid and u.attr_top = 1
+cross join hh_param pr
+where l.hct <> pr.nonlegal_type  -- свёртка — «без разрезов», а без разрезов отчёт берёт только юридическую численность
 group by u.id, l.attr_k, l.attr_v, l.idx;
 
 drop table if exists hh_attr_win;
@@ -92,8 +99,8 @@ select x.kid, x.grain, x.idx,
        sum(x.nrg) over w12 as nrg,
        x.rg as rgs,
        x.nrg as nrgs,
-       sum(x.hc) over w12 as hcw,
-       sum(x.nr) over w3 as nr,
+       x.hch as hcw,
+       sum(x.nr) over wy as nr,
        sum(x.r3n) over w9 as r3n,
        sum(x.r3d) over w9 as r3d,
        sum(x.r6n) over w6 as r6n,
@@ -102,6 +109,7 @@ select x.kid, x.grain, x.idx,
        sum(x.r3ad) over w9 as r3ad,
        sum(x.r6an) over w6 as r6an,
        sum(x.r6ad) over w6 as r6ad,
+       x.hirea,
        x.hire,
        x.fire
 from (
@@ -120,7 +128,9 @@ from (
                    coalesce(l.r3an, 0) as r3an,
                    coalesce(l.r3ad, 0) as r3ad,
                    coalesce(l.r6an, 0) as r6an,
-                   coalesce(l.r6ad, 0) as r6ad
+                   coalesce(l.r6ad, 0) as r6ad,
+                   coalesce(l.hch, 0) as hch,
+                   coalesce(l.hirea, 0) as hirea
     from (select k.kid, c.grain, c.idx
           from (select distinct kid from hh_attr_long) k
           cross join hh_calendar c
@@ -129,6 +139,7 @@ from (
         on l.kid = g.kid and l.idx = g.idx
 ) x
 window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
+       wy as (partition by x.kid, x.grain, floor(x.idx / 12.0) order by x.idx rows between unbounded preceding and current row),
        w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
        w9 as (partition by x.kid, x.grain order by x.idx rows between 8 preceding and current row),
        w6 as (partition by x.kid, x.grain order by x.idx rows between 5 preceding and current row)
@@ -155,7 +166,8 @@ select kid,
        array_agg(r6ad::int order by idx) as r6ad,
        array_agg(hire::int order by idx) as hire,
        array_agg(fire::int order by idx) as fire,
-       sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) as tot
+       array_agg(hirea::int order by idx) as hirea,
+       sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
 from hh_attr_win
 where grain = 'm' and idx >= 0
 group by kid
@@ -183,6 +195,7 @@ select k.path_s,
        m.r6ad as m_r6ad,
        m.hire as m_hire,
        m.fire as m_fire,
+       m.hirea as m_hirea,
        m.rgs as m_rgs,
        m.nrgs as m_nrgs
 from (select distinct kid, path_s, paint, it, stream, spec, staff, hct, attr_k, attr_v
@@ -213,6 +226,7 @@ select substr(k.path_s, 3) as unit_id, k.attr_k, k.attr_v,
        m.r6ad as m_r6ad,
        m.hire as m_hire,
        m.fire as m_fire,
+       m.hirea as m_hirea,
        m.rgs as m_rgs,
        m.nrgs as m_nrgs
 from (select distinct kid, path_s, attr_k, attr_v

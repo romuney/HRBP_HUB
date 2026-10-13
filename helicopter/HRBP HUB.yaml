@@ -64,8 +64,13 @@ paragraphs:
       --                        увольнения прошло столько дней, а её всё нет
       --   super_hrbp_unit_rk — юнит, где сидит супер-HRBP («лид эйчар»), как в ноуте
       --                        «Связи и подчинения»; сверить с фактическим юнитом
-      --   active_type_value  — тип численности, при котором закрепляемость считается
-      --                        от active_hire_dt (в остальных случаях — от company_hire_dt)
+      --   active_type_value  — тип численности «Активная»: при нём найм и закрепляемость — по приходу в
+      --                        активную численность (найм в компанию с этим типом + candidate_transfer_flg +
+      --                        internal_transfer_flg), иначе — по найму в компанию (company_hire_flg)
+      --   hq_paint_value     — покраска HQ: знаменатель текучести — активная численность этой покраски
+      --   nonlegal_type      — значение «Тип численности» для строк legal_employee_flg <> 1: без выбранного
+      --                        типа отчёт берёт только юридическую численность (датасет исключает это значение),
+      --                        выбрать его можно явно (HRBP 13.10)
       -- Окна метрик (12 мес / 52 нед и т. д.) — в параграфе «HH · куб по разрезам».
       -- ============================================================================
       drop table if exists hh_param;
@@ -75,7 +80,9 @@ paragraphs:
              (d.data_dt - (extract(isodow from d.data_dt)::int % 7))::date       as last_week_end,
              30                                                                  as nr_grace_days,
              '50eb70d6df69372ceb7f354df8e8aa53'::text                            as super_hrbp_unit_rk,
-             'Активная'::text                                                    as active_type_value
+             'Активная'::text                                                    as active_type_value,
+             'HQ'::text                                                          as hq_paint_value,
+             'Вне юр. численности'::text                                         as nonlegal_type
       from (select max(business_dt)::date as data_dt
             from prod_v_emart.mdm_employee_structure_d
             where business_dt >= current_date - 14
@@ -151,9 +158,13 @@ paragraphs:
       -- считается отсюда.
       --   is_slot_row  строка на конец слота (месяц / неделя, вкл. историю окон) или на
       --                срез data_dt: запасы (численность, джуны), справочник, зоны HRBP;
-      --   is_fire_row  строка дня увольнения из компании (business_dt = company_fire_dt);
-      --   is_hire_row  строка дня найма (business_dt = company_hire_dt);
-      --   is_ahire_row строка дня перехода в активную численность (= active_hire_dt).
+      --   is_fire_row  строка увольнения из компании — company_fire_flg = 1 (HRBP 13.10: отток всегда по нему);
+      --   is_hire_row  строка найма в компанию — company_hire_flg = 1;
+      --   is_ahire_row строка прихода в активную численность (HRBP 13.10, Дьяченко): найм в компанию с типом
+      --                «Активная» + переход кандидата (candidate_transfer_flg) + внутренний перевод
+      --                (internal_transfer_flg) — найм и когорта закрепляемости при фильтре «Активная».
+      --   hct          тип численности; у строк вне юридической численности (legal_employee_flg <> 1) —
+      --                значение hh_param.nonlegal_type: без выбранного типа отчёт их не берёт (HRBP 13.10).
       --   hc           в списочной численности на эту дату — ЛЮБОГО типа (active_type_nm):
       --                нанят (company_hire_dt <= дата) и не уволен раньше (company_fire_dt пусто
       --                или >= дата). Активная численность — фильтр «Тип численности» = «Активная»
@@ -183,9 +194,11 @@ paragraphs:
           e.business_dt::date                                                        as business_dt,
           e.mdm_employee_rk,
           case when sd.d is not null then 1 else 0 end                                as is_slot_row,
-          case when e.business_dt = e.company_fire_dt then 1 else 0 end              as is_fire_row,
-          case when e.business_dt = e.company_hire_dt then 1 else 0 end              as is_hire_row,
-          case when e.business_dt = e.active_hire_dt  then 1 else 0 end              as is_ahire_row,
+          case when coalesce(e.company_fire_flg, 0) = 1 then 1 else 0 end            as is_fire_row,
+          case when coalesce(e.company_hire_flg, 0) = 1 then 1 else 0 end            as is_hire_row,
+          case when (coalesce(e.company_hire_flg, 0) = 1 and e.active_type_nm = pa.active_type_value)
+                 or coalesce(e.candidate_transfer_flg, 0) = 1
+                 or coalesce(e.internal_transfer_flg, 0) = 1 then 1 else 0 end      as is_ahire_row,
           case when coalesce(e.company_hire_dt, e.business_dt) <= e.business_dt
                 and (e.company_fire_dt is null or e.company_fire_dt >= e.business_dt)
                then 1 else 0 end                                                     as hc,
@@ -213,7 +226,8 @@ paragraphs:
           coalesce(nullif(trim(e.emp_specialization_desc::text), ''), '-')           as spec,
           case when e.employment_relation_type_desc = 'Штатный сотрудник'
                then 'Штат' else 'Не штат' end                                        as staff,
-          coalesce(nullif(trim(e.active_type_nm::text), ''), '-')                    as hct,
+          case when coalesce(e.legal_employee_flg, 0) <> 1 then pa.nonlegal_type
+               else coalesce(nullif(trim(e.active_type_nm::text), ''), '-') end      as hct,
           coalesce(nullif(trim(e.seniority::text), ''), '-')                         as seniority,
           coalesce(nullif(trim(e.grade::text), ''), '-')                             as a_grade,
           coalesce(nullif(trim(e.experience_group_nm::text), ''), '-')               as a_exp,
@@ -241,6 +255,7 @@ paragraphs:
                then 1 else 0 end                                                     as deep13
       from prod_v_emart.mdm_employee_structure_d e
       cross join (select min(slot_start) - interval '7 month' as d0 from hh_calendar) lim
+      cross join hh_param pa
       left join (select c.slot_end as d from hh_calendar c cross join hh_param p where c.slot_end <= p.data_dt
                  union
                  select data_dt from hh_param) sd
@@ -251,9 +266,10 @@ paragraphs:
          and r.deleted_flg = 0
       where e.business_dt >= lim.d0
         and (sd.d is not null
-             or e.business_dt = e.company_fire_dt
-             or e.business_dt = e.company_hire_dt
-             or e.business_dt = e.active_hire_dt)
+             or coalesce(e.company_fire_flg, 0) = 1
+             or coalesce(e.company_hire_flg, 0) = 1
+             or coalesce(e.candidate_transfer_flg, 0) = 1
+             or coalesce(e.internal_transfer_flg, 0) = 1)
       distributed by (mdm_employee_rk);
 
       -- Одна строка на (сотрудник, день): пересечения периодов проживания дают дубли —
@@ -666,8 +682,10 @@ paragraphs:
       -- ============================================================================
       -- HH · когорты найма → hh_cohort. Закрепляемость новичков (business-context § 2.7):
       -- сколько новичков продолжает работать в компании через 3 и 6 месяцев от найма.
-      --   база 'c' — от company_hire_dt (по умолчанию);
-      --   база 'a' — от active_hire_dt: отчёт берёт её, когда в фильтре «Тип численности»
+      --   база 'c' — найм в компанию (company_hire_flg = 1, по умолчанию);
+      --   база 'a' — приход в активную численность (HRBP 13.10, Дьяченко: «расчёт найма переиспользовать для
+      --             закрепляемости»): найм в компанию с типом «Активная» + переход кандидата + внутренний
+      --             перевод (is_ahire_row), от даты события. Отчёт берёт её, когда в фильтре «Тип численности»
       --             выбрана ровно «Активная» (hh_param.active_type_value).
       -- Новичок — одно трудоустройство (повторный найм — новая когорта). Юнит и разрезы —
       -- на дату найма. fire_dt — увольнение ЭТОГО трудоустройства (по company_hire_dt
@@ -685,7 +703,7 @@ paragraphs:
           on f.mdm_employee_rk = s.mdm_employee_rk and f.company_hire_dt = s.company_hire_dt
       where s.is_hire_row = 1 and s.path_s <> ''
       union all
-      select 'a'::text, s.mdm_employee_rk, s.active_hire_dt, f.fire_dt,
+      select 'a'::text, s.mdm_employee_rk, s.business_dt, f.fire_dt,
              s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct,
              s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head,
              s.a_legal, s.a_macro, s.a_city
@@ -707,34 +725,39 @@ paragraphs:
       --                               типа (hc из «строк источника»; «Активная» — фильтр hct);
       --                               джун — по hh_seniority
       --   поток      fire, rg, nrg, nr в слоте дня увольнения
-      --   найм       hire             в слоте дня найма (база company_hire_dt)
+      --   найм       hire             в слоте дня найма в компанию (company_hire_flg)
+      --              hirea            в слоте прихода в активную численность (когорта 'a': найм с типом
+      --                               «Активная» + переход кандидата + внутренний перевод; HRBP 13.10)
+      --   hch        численность активной HQ на конец слота — знаменатель текучести (HRBP 13.10)
       --   когорты    r3d / r3n        новичок созрел (найм + 3 мес / + 13 нед) в этом слоте
       --              r6d / r6n        и дожил ли (+ 6 мес / + 26 нед); суффикс a — база
-      --                               active_hire_dt. Незрелые (срок позже data_dt) — не в счёт.
+      --                               прихода в активную численность. Незрелые (срок позже data_dt) — не в счёт.
       -- Слоты — с историей окон (idx < 0), окна применяются в следующем параграфе.
       -- ============================================================================
       drop table if exists hh_evt;
       create table hh_evt as
       select c.grain, c.idx, s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct, s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head, s.a_legal, s.a_macro, s.a_city,
-             1 as hc, coalesce(j.jun, 0) as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad
+             1 as hc, coalesce(j.jun, 0) as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
+             case when s.hct = p.active_type_value and s.paint = p.hq_paint_value then 1 else 0 end as hch, 0 as hirea
       from hh_src s
       join hh_calendar c on c.slot_end = s.business_dt
       left join hh_seniority j on j.seniority = s.seniority
+      cross join hh_param p
       where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> ''
       union all
       select c.grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city,
-             0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, f.nr as nr, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad
+             0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, f.nr as nr, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea
       from hh_fire f
       join hh_calendar c on f.fire_dt between c.slot_start and c.slot_end
       union all
       select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city,
-             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 1 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad
+             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, case when h.base = 'c' then 1 else 0 end as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
+             0 as hch, case when h.base = 'a' then 1 else 0 end as hirea
       from hh_cohort h
       join hh_calendar c on h.hire_dt between c.slot_start and c.slot_end
-      where h.base = 'c'
       union all
       select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city,
-             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as hire, case when h.base = 'c' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3n, case when h.base = 'c' and h.hz = 3 then 1 else 0 end as r3d, case when h.base = 'c' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6n, case when h.base = 'c' and h.hz = 6 then 1 else 0 end as r6d, case when h.base = 'a' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3an, case when h.base = 'a' and h.hz = 3 then 1 else 0 end as r3ad, case when h.base = 'a' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6an, case when h.base = 'a' and h.hz = 6 then 1 else 0 end as r6ad
+             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as hire, case when h.base = 'c' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3n, case when h.base = 'c' and h.hz = 3 then 1 else 0 end as r3d, case when h.base = 'c' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6n, case when h.base = 'c' and h.hz = 6 then 1 else 0 end as r6d, case when h.base = 'a' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3an, case when h.base = 'a' and h.hz = 3 then 1 else 0 end as r3ad, case when h.base = 'a' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6an, case when h.base = 'a' and h.hz = 6 then 1 else 0 end as r6ad, 0 as hch, 0 as hirea
       from (
           select q.*,
                  case when q.fire_dt is null or q.fire_dt >= q.md then 1 else 0 end as ret
@@ -765,9 +788,14 @@ paragraphs:
       -- знаменатель, поэтому любую строку можно складывать с любой другой.
       --
       -- ОКНА (меняются здесь и только здесь):
-      --   rg, nrg (regrettable / non-regrettable увольнения), hcw (Σ численности за окно,
-      --   знаменатель текучести; средняя = hcw / 12 или / 52) — 12 мес / 52 нед;
-      --   nr (незаполненные причины) — 3 мес / 13 нед;
+      --   rg, nrg (regrettable / non-regrettable увольнения) — 12 мес / 52 нед;
+      --   hcw — знаменатель текучести, всегда по АКТИВНОЙ численности HQ, какие бы разрезы ни были выбраны
+      --   (HRBP 13.10, Дьяченко): месяцы — численность активной HQ на конец месяца (hch, без окна: из неё чарт
+      --   считает текучесть с начала года), недели — Σ за 52 нед (как раньше; в отчёте не показываются);
+      --   nr (незаполненные причины) — с начала года (месяцы: окно wy — с января того же года; недели — 13 нед):
+      --   увольнения с 1 января, у которых прошло 30+ дней, а причины нет (HRBP 13.10);
+      --   hirea — найм в активную численность (без окна): найм в компанию с типом «Активная» + переходы
+      --   кандидатов + внутренние переводы (candidate_transfer_flg, internal_transfer_flg; HRBP 13.10);
       --   r3*/r6* (созревшие новички и дожившие) — когорта найма за последние 12 мес (52 нед), у которой уже
       --          исполнилось 3 (6) мес стажа (HRBP 13.10): созревание лежит в слоте даты «найм + 3 (6) мес»,
       --          поэтому это окно по слотам созревания — 9 и 6 мес (39 и 26 нед). Числитель — дожившие до отметки.
@@ -794,7 +822,9 @@ paragraphs:
              sum(r3an) as r3an,
              sum(r3ad) as r3ad,
              sum(r6an) as r6an,
-             sum(r6ad) as r6ad
+             sum(r6ad) as r6ad,
+             sum(hch) as hch,
+             sum(hirea) as hirea
       from hh_evt
       group by path_s, paint, it, stream, spec, staff, hct, grain, idx
       distributed by (kid);
@@ -809,8 +839,8 @@ paragraphs:
              case when x.grain = 'm' then sum(x.nrg) over w12 else sum(x.nrg) over w52 end as nrg,
              x.rg as rgs,
              x.nrg as nrgs,
-             case when x.grain = 'm' then sum(x.hc) over w12 else sum(x.hc) over w52 end as hcw,
-             case when x.grain = 'm' then sum(x.nr) over w3 else sum(x.nr) over w13 end as nr,
+             case when x.grain = 'm' then x.hch else sum(x.hch) over w52 end as hcw,
+             case when x.grain = 'm' then sum(x.nr) over wy else sum(x.nr) over w13 end as nr,
              case when x.grain = 'm' then sum(x.r3n) over w9 else sum(x.r3n) over w39 end as r3n,
              case when x.grain = 'm' then sum(x.r3d) over w9 else sum(x.r3d) over w39 end as r3d,
              case when x.grain = 'm' then sum(x.r6n) over w6 else sum(x.r6n) over w26 end as r6n,
@@ -819,6 +849,7 @@ paragraphs:
              case when x.grain = 'm' then sum(x.r3ad) over w9 else sum(x.r3ad) over w39 end as r3ad,
              case when x.grain = 'm' then sum(x.r6an) over w6 else sum(x.r6an) over w26 end as r6an,
              case when x.grain = 'm' then sum(x.r6ad) over w6 else sum(x.r6ad) over w26 end as r6ad,
+             x.hirea,
              x.hire,
              x.fire
       from (
@@ -837,7 +868,9 @@ paragraphs:
                          coalesce(l.r3an, 0) as r3an,
                          coalesce(l.r3ad, 0) as r3ad,
                          coalesce(l.r6an, 0) as r6an,
-                         coalesce(l.r6ad, 0) as r6ad
+                         coalesce(l.r6ad, 0) as r6ad,
+                         coalesce(l.hch, 0) as hch,
+                         coalesce(l.hirea, 0) as hirea
           from (select k.kid, c.grain, c.idx
                 from (select distinct kid from hh_cube_long) k
                 cross join hh_calendar c) g
@@ -845,6 +878,7 @@ paragraphs:
               on l.kid = g.kid and l.grain = g.grain and l.idx = g.idx
       ) x
       window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
+             wy as (partition by x.kid, x.grain, floor(x.idx / 12.0) order by x.idx rows between unbounded preceding and current row),
              w52 as (partition by x.kid, x.grain order by x.idx rows between 51 preceding and current row),
              w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
              w13 as (partition by x.kid, x.grain order by x.idx rows between 12 preceding and current row),
@@ -878,6 +912,7 @@ paragraphs:
              m.r6ad as m_r6ad,
              m.hire as m_hire,
              m.fire as m_fire,
+             m.hirea as m_hirea,
              w.hc as w_hc,
              w.jun as w_jun,
              w.rg as w_rg,
@@ -895,7 +930,8 @@ paragraphs:
              w.r6an as w_r6an,
              w.r6ad as w_r6ad,
              w.hire as w_hire,
-             w.fire as w_fire
+             w.fire as w_fire,
+             w.hirea as w_hirea
       from (select distinct kid, path_s, paint, it, stream, spec, staff, hct from hh_cube_long) k
       join (select kid,
                  array_agg(hc::int order by idx) as hc,
@@ -916,7 +952,8 @@ paragraphs:
                  array_agg(r6ad::int order by idx) as r6ad,
                  array_agg(hire::int order by idx) as hire,
                  array_agg(fire::int order by idx) as fire,
-                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) as tot
+                 array_agg(hirea::int order by idx) as hirea,
+                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
           from hh_cube_win
           where grain = 'm' and idx >= 0
           group by kid) m
@@ -940,7 +977,8 @@ paragraphs:
                  array_agg(r6ad::int order by idx) as r6ad,
                  array_agg(hire::int order by idx) as hire,
                  array_agg(fire::int order by idx) as fire,
-                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) as tot
+                 array_agg(hirea::int order by idx) as hirea,
+                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
           from hh_cube_win
           where grain = 'w' and idx >= 0
           group by kid) w
@@ -976,7 +1014,8 @@ paragraphs:
              sum(w.r6an) as r6an,
              sum(w.r6ad) as r6ad,
              sum(w.hire) as hire,
-             sum(w.fire) as fire
+             sum(w.fire) as fire,
+             sum(w.hirea) as hirea
       from hh_cube_win w
       join (select distinct kid, paint, it, stream, spec, staff, hct from hh_cube_long) k
           on k.kid = w.kid
@@ -1005,6 +1044,7 @@ paragraphs:
              m.r6ad as m_r6ad,
              m.hire as m_hire,
              m.fire as m_fire,
+             m.hirea as m_hirea,
              w.hc as w_hc,
              w.jun as w_jun,
              w.rg as w_rg,
@@ -1022,7 +1062,8 @@ paragraphs:
              w.r6an as w_r6an,
              w.r6ad as w_r6ad,
              w.hire as w_hire,
-             w.fire as w_fire
+             w.fire as w_fire,
+             w.hirea as w_hirea
       from (select paint, it, stream, spec, staff, hct,
                    array_agg(hc::int order by idx) as hc,
                    array_agg(jun::int order by idx) as jun,
@@ -1041,7 +1082,8 @@ paragraphs:
                    array_agg(r6an::int order by idx) as r6an,
                    array_agg(r6ad::int order by idx) as r6ad,
                    array_agg(hire::int order by idx) as hire,
-                   array_agg(fire::int order by idx) as fire
+                   array_agg(fire::int order by idx) as fire,
+                   array_agg(hirea::int order by idx) as hirea
             from hh_base_win
             where grain = 'm'
             group by 1, 2, 3, 4, 5, 6) m
@@ -1063,7 +1105,8 @@ paragraphs:
                    array_agg(r6an::int order by idx) as r6an,
                    array_agg(r6ad::int order by idx) as r6ad,
                    array_agg(hire::int order by idx) as hire,
-                   array_agg(fire::int order by idx) as fire
+                   array_agg(fire::int order by idx) as fire,
+                   array_agg(hirea::int order by idx) as hirea
             from hh_base_win
             where grain = 'w'
             group by 1, 2, 3, 4, 5, 6) w
@@ -1083,8 +1126,9 @@ paragraphs:
       --   gender — пол; age — возрастная группа; office — офис; work — тип работы
       --   (employee_contract_type_desc); head — руководитель / нет; legal — юрлицо
       --   (lvl1_legal_unit_nm); macro — макрорегион; city — город (mdm_employee_residence).
-      -- Окна — как в «HH · куб по разрезам» (месячные: текучесть 12, причины 3, закрепляемость 9 / 6 — найм за
-      -- 12 мес); rgs / nrgs — увольнения месяца без окна (текучесть с начала года, 13.10).
+      -- Окна — как в «HH · куб по разрезам» (месячные: текучесть 12 со знаменателем по активной HQ, причины — с
+      -- начала года, закрепляемость 9 / 6 — найм за 12 мес); rgs / nrgs, hch, hirea — без окна (13.10).
+      -- Свёртка (без разрезов) — только юридическая численность: строки «вне юр. численности» в неё не идут.
       --
       -- Свёртка → hrbp_hub_attr_top: юнит открывают — трансформер должен приехать сразу, а
       -- листовой куб всей компании — сотни тысяч строк на каждый ответ. Поэтому юнитам, которые
@@ -1118,7 +1162,9 @@ paragraphs:
              sum(r3an) as r3an,
              sum(r3ad) as r3ad,
              sum(r6an) as r6an,
-             sum(r6ad) as r6ad
+             sum(r6ad) as r6ad,
+             sum(hch) as hch,
+             sum(hirea) as hirea
       from (
           select e.*, a.attr_k,
                  coalesce(case a.attr_k when 'grade' then e.a_grade when 'seniority' then e.seniority when 'exp' then e.a_exp when 'gender' then e.a_gender when 'age' then e.a_age when 'office' then e.a_office when 'work' then e.a_work when 'head' then e.a_head when 'legal' then e.a_legal when 'macro' then e.a_macro when 'city' then e.a_city end, '-') as attr_v
@@ -1150,13 +1196,17 @@ paragraphs:
              sum(l.r3an) as r3an,
              sum(l.r3ad) as r3ad,
              sum(l.r6an) as r6an,
-             sum(l.r6ad) as r6ad
+             sum(l.r6ad) as r6ad,
+             sum(l.hch) as hch,
+             sum(l.hirea) as hirea
       from hh_attr_long l
       join (select q.path_s, unnest(string_to_array(q.path_s, '/')) as uid
             from (select distinct path_s from hh_attr_long) q) p
           on p.path_s = l.path_s
       join hrbp_hub_unit u
           on u.id = p.uid and u.attr_top = 1
+      cross join hh_param pr
+      where l.hct <> pr.nonlegal_type  -- свёртка — «без разрезов», а без разрезов отчёт берёт только юридическую численность
       group by u.id, l.attr_k, l.attr_v, l.idx;
 
       drop table if exists hh_attr_win;
@@ -1168,8 +1218,8 @@ paragraphs:
              sum(x.nrg) over w12 as nrg,
              x.rg as rgs,
              x.nrg as nrgs,
-             sum(x.hc) over w12 as hcw,
-             sum(x.nr) over w3 as nr,
+             x.hch as hcw,
+             sum(x.nr) over wy as nr,
              sum(x.r3n) over w9 as r3n,
              sum(x.r3d) over w9 as r3d,
              sum(x.r6n) over w6 as r6n,
@@ -1178,6 +1228,7 @@ paragraphs:
              sum(x.r3ad) over w9 as r3ad,
              sum(x.r6an) over w6 as r6an,
              sum(x.r6ad) over w6 as r6ad,
+             x.hirea,
              x.hire,
              x.fire
       from (
@@ -1196,7 +1247,9 @@ paragraphs:
                          coalesce(l.r3an, 0) as r3an,
                          coalesce(l.r3ad, 0) as r3ad,
                          coalesce(l.r6an, 0) as r6an,
-                         coalesce(l.r6ad, 0) as r6ad
+                         coalesce(l.r6ad, 0) as r6ad,
+                         coalesce(l.hch, 0) as hch,
+                         coalesce(l.hirea, 0) as hirea
           from (select k.kid, c.grain, c.idx
                 from (select distinct kid from hh_attr_long) k
                 cross join hh_calendar c
@@ -1205,6 +1258,7 @@ paragraphs:
               on l.kid = g.kid and l.idx = g.idx
       ) x
       window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
+             wy as (partition by x.kid, x.grain, floor(x.idx / 12.0) order by x.idx rows between unbounded preceding and current row),
              w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
              w9 as (partition by x.kid, x.grain order by x.idx rows between 8 preceding and current row),
              w6 as (partition by x.kid, x.grain order by x.idx rows between 5 preceding and current row)
@@ -1231,7 +1285,8 @@ paragraphs:
              array_agg(r6ad::int order by idx) as r6ad,
              array_agg(hire::int order by idx) as hire,
              array_agg(fire::int order by idx) as fire,
-             sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) as tot
+             array_agg(hirea::int order by idx) as hirea,
+             sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
       from hh_attr_win
       where grain = 'm' and idx >= 0
       group by kid
@@ -1259,6 +1314,7 @@ paragraphs:
              m.r6ad as m_r6ad,
              m.hire as m_hire,
              m.fire as m_fire,
+             m.hirea as m_hirea,
              m.rgs as m_rgs,
              m.nrgs as m_nrgs
       from (select distinct kid, path_s, paint, it, stream, spec, staff, hct, attr_k, attr_v
@@ -1289,6 +1345,7 @@ paragraphs:
              m.r6ad as m_r6ad,
              m.hire as m_hire,
              m.fire as m_fire,
+             m.hirea as m_hirea,
              m.rgs as m_rgs,
              m.nrgs as m_nrgs
       from (select distinct kid, path_s, attr_k, attr_v
@@ -1421,12 +1478,13 @@ paragraphs:
       where array_length(m_hc, 1) <> 24 or array_length(m_r6ad, 1) <> 24;
 
       -- 3б. Свёртка атрибутов = листовой куб: свёртки верхних узлов дерева (pid = '') вместе —
-      --     это весь куб; по каждому атрибуту сходятся численность и увольнения за все месяцы.
+      --     это весь куб юридической численности (свёртка — «без разрезов», 13.10); по каждому атрибуту сходятся
+      --     численность и увольнения за все месяцы.
       select 1 / (case when count(*) > 0 then 0 else 1 end) as attr_top_equals_leaf_check
       from (
           select coalesce(l.attr_k, t.attr_k) as attr_k
           from (select x.attr_k, sum(x.hc) as hc, sum(x.fire) as fire
-                from (select attr_k, unnest(m_hc) as hc, unnest(m_fire) as fire from hrbp_hub_attr) x
+                from (select attr_k, unnest(m_hc) as hc, unnest(m_fire) as fire from hrbp_hub_attr a cross join hh_param pr where a.hct <> pr.nonlegal_type) x
                 group by 1) l
           full join (select x.attr_k, sum(x.hc) as hc, sum(x.fire) as fire
                      from (select a.attr_k, unnest(a.m_hc) as hc, unnest(a.m_fire) as fire
@@ -1591,6 +1649,28 @@ paragraphs:
       from hh_src s join hh_param p on s.business_dt = p.data_dt
       group by 1, 2, 3
       order by 4 desc;
+
+      -- 1б. Юридическая численность против типа (HRBP 13.10): строки legal_employee_flg <> 1 отчёт кладёт в тип
+      --     «Вне юр. численности» (без выбранного типа их нет). Если у них встречается «Активная» — при выборе
+      --     «Активная» эти люди не попадут: сообщить, решим отдельно.
+      select coalesce(e.legal_employee_flg, 0) as legal_employee_flg, e.active_type_nm, count(*) as rows_n
+      from prod_v_emart.mdm_employee_structure_d e
+      join hh_param p on e.business_dt = p.data_dt
+      group by 1, 2
+      order by 1, 3 desc;
+
+      -- 1в. Приход в активную численность по месяцам (HRBP 13.10): найм в компанию с типом «Активная», переходы
+      --     кандидатов, внутренние переводы — сверить с ожиданием HRBP.
+      select date_trunc('month', e.business_dt)::date as month,
+             sum(case when coalesce(e.company_hire_flg, 0) = 1 and e.active_type_nm = p.active_type_value then 1 else 0 end) as hire_active,
+             sum(case when coalesce(e.candidate_transfer_flg, 0) = 1 then 1 else 0 end) as candidate_transfer,
+             sum(case when coalesce(e.internal_transfer_flg, 0) = 1 then 1 else 0 end)  as internal_transfer,
+             sum(case when coalesce(e.company_hire_flg, 0) = 1 then 1 else 0 end)       as hire_company
+      from prod_v_emart.mdm_employee_structure_d e
+      cross join hh_param p
+      where e.business_dt >= date_trunc('year', p.data_dt) - interval '1 year'
+      group by 1
+      order by 1;
 
       -- 2. Регrettable-разметка по месяцам увольнения: доля размеченных.
       select date_trunc('month', fire_dt)::date as fire_month,

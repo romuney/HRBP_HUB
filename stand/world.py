@@ -470,6 +470,30 @@ def period_at(e, d):
     return None
 
 
+
+NONLEGAL = 'Вне юр. численности'   # тип численности вне юридической численности (договор ГПХ), как hh_param.nonlegal_type
+
+
+def is_legal(a):
+    """legal_employee_flg источника: в мире вне юридической численности — договор ГПХ."""
+    return a['rel'] != 'Договор ГПХ'
+
+
+def internal_transfers(e):
+    """Даты internal_transfer_flg источника: в мире — перевод в другой юнит у каждого четвёртого сотрудника."""
+    if getattr(e, '_itr', None) is not None:
+        return e._itr
+    out = e._itr = []
+    if e.rk % 4:
+        return out
+    for p in e.periods:
+        for k in range(1, len(p.segs)):
+            d = p.segs[k][0]
+            if p.segs[k][2]['unit'] is not p.segs[k - 1][2]['unit'] and START <= d <= D and (p.fire is None or d <= p.fire):
+                out.append(d)
+    return out
+
+
 def seg_at(p, d):
     for s in p.segs:
         if s[0] <= d and (s[1] is None or d <= s[1]):

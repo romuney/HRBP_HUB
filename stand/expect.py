@@ -5,11 +5,14 @@
 окно захватило лишнее, числа разойдутся здесь.
 
 Определения — ровно те, что зафиксированы в business-context.md и в параграфах:
-  hc, jun    на конец слота, все типы численности (с 12.10; «Активная» — фильтром hct)
+  hc, jun    на конец слота, все типы численности (с 12.10; «Активная» — фильтром hct); без выбранного
+             типа — только юридическая численность (13.10: договор ГПХ — тип W.NONLEGAL)
   rg, nrg    увольнения за окно 12 мес / 52 нед, атрибуты на день увольнения
   rgs, nrgs  те же увольнения без окна (поток слота)
-  hcw        Σ hc за то же окно
-  nr         увольнения за 3 мес / 13 нед без причины, legal_fire_dt не пуст, прошло 30+ дней
+  hcw        знаменатель текучести — численность активной HQ (13.10): месяцы — на конец месяца, недели — Σ за 52
+  nr         месяцы — увольнения с начала года (недели — за 13 нед) без причины, legal_fire_dt не пуст, прошло 30+ дней
+  hire       найм в компанию; при «Активной» — приход в активную: найм с типом «Активная» + переход кандидата +
+             внутренний перевод (13.10); когорта закрепляемости при «Активной» — от него же
   r3*, r6*   новички, созревшие (найм + 3/6 мес или + 91/182 дня): найм за последние 12 мес / 52 нед и уже
              исполнилось 3/6 мес — окно по слотам созревания 9/6 мес, 39/26 нед (HRBP 13.10)
   hire, fire поток слота
@@ -53,11 +56,13 @@ CUT_KEYS = {'paint': 'paint', 'it': 'it', 'stream': 'stream', 'spec': 'spec', 'h
 
 def cuts_of(a):
     return {'paint': a['paint'], 'it': a['it'], 'stream': a['stream'], 'spec': a['spec'],
-            'staff': 'Штат' if a['rel'] == 'Штатный сотрудник' else 'Не штат', 'hct': a['hct']}
+            'staff': 'Штат' if a['rel'] == 'Штатный сотрудник' else 'Не штат', 'hct': a['hct'] if W.is_legal(a) else W.NONLEGAL}
 
 
 def passes(a, flt):
     c = cuts_of(a)
+    if not flt.get('hct') and c['hct'] == W.NONLEGAL:   # без выбранного типа — только юридическая численность
+        return False
     return all(not v or c[k] in v for k, v in flt.items())
 
 
@@ -117,8 +122,14 @@ def events():
             evs = [('hire_c', p.hire)]
             if p.fire:
                 evs.append(('fire', p.fire))
-            if p.active_hire and p.active_hire <= (p.fire or W.D) and p.active_hire <= W.D:
+            # приход в активную (13.10): найм с типом «Активная», переход кандидата (стажёр → активная), внутренний перевод
+            if W.seg_at(p, p.hire)['hct'] == 'Активная':
+                evs.append(('hire_a', p.hire))
+            if p.active_hire and p.active_hire != p.hire and p.active_hire <= (p.fire or W.D) and p.active_hire <= W.D:
                 evs.append(('hire_a', p.active_hire))
+            for d in W.internal_transfers(e):
+                if p.hire <= d <= (p.fire or W.D) and d not in (p.hire, p.active_hire):
+                    evs.append(('hire_a', d))
             for kind, d in evs:
                 a = W.seg_at(p, d)
                 rp = rpath(a['unit'], d)
@@ -132,13 +143,15 @@ EVENTS = events()
 def component_series(grain, pred, flt, active_base=False):
     """→ {компонент: [24 значения]} для области pred(unit, date) и фильтров flt."""
     lo = -11 if grain == 'm' else -51
-    raw = {k: {i: 0 for i in range(lo, 24)} for k in ('hc', 'jun', 'fire', 'rg', 'nrg', 'nr', 'hire', 'r3n', 'r3d', 'r6n', 'r6d')}
+    raw = {k: {i: 0 for i in range(lo, 24)} for k in ('hc', 'jun', 'hch', 'fire', 'rg', 'nrg', 'nr', 'hire', 'r3n', 'r3d', 'r6n', 'r6d')}
     for i in range(lo, 24):
         for a, unit, pth, rp in stock(grain, i):
             if not passes(a, flt) or not pred(unit, pth, rp):
                 continue
             raw['hc'][i] += 1
             raw['jun'][i] += int(W.is_junior(a['sen']))
+            c = cuts_of(a)
+            raw['hch'][i] += int(c['hct'] == 'Активная' and c['paint'] == 'HQ')
     for kind, d, emp, p, a, pth, rp in EVENTS:
         if not passes(a, flt) or not pred(a['unit'], pth, rp):
             continue
@@ -150,7 +163,7 @@ def component_series(grain, pred, flt, active_base=False):
             raw['rg'][i] += int(p.regret == 1)
             raw['nrg'][i] += int(p.regret == 2)
             raw['nr'][i] += int((not p.legal_fire_null) and p.reason != 'filled' and d <= W.D - dt.timedelta(days=30))
-        if kind == 'hire_c':
+        if kind == ('hire_a' if active_base else 'hire_c'):
             i = slot_of(grain, d)
             if i is not None:
                 raw['hire'][i] += 1
@@ -170,10 +183,14 @@ def component_series(grain, pred, flt, active_base=False):
         out[k] = [raw[k][i] for i in range(24)]
     out['rg'] = [sum(raw['rg'][j] for j in range(i - win['rg'] + 1, i + 1)) for i in range(24)]
     out['nrg'] = [sum(raw['nrg'][j] for j in range(i - win['rg'] + 1, i + 1)) for i in range(24)]
-    out['hcw'] = [sum(raw['hc'][j] for j in range(i - win['rg'] + 1, i + 1)) for i in range(24)]
+    # знаменатель текучести — активная HQ (13.10): месяцы — на конец месяца, недели — Σ за 52 нед
+    out['hcw'] = [raw['hch'][i] for i in range(24)] if grain == 'm' else [sum(raw['hch'][j] for j in range(i - win['rg'] + 1, i + 1)) for i in range(24)]
     out['rgs'] = [raw['rg'][i] for i in range(24)]      # без окна — для текучести с начала года (12.10)
     out['nrgs'] = [raw['nrg'][i] for i in range(24)]
-    out['nr'] = [sum(raw['nr'][j] for j in range(i - win['nr'] + 1, i + 1)) for i in range(24)]
+    if grain == 'm':   # с начала года (13.10): с января того же года — блоки idx 0…11 и 12…23
+        out['nr'] = [sum(raw['nr'][j] for j in range(i - i % 12, i + 1)) for i in range(24)]
+    else:
+        out['nr'] = [sum(raw['nr'][j] for j in range(i - win['nr'] + 1, i + 1)) for i in range(24)]
     for k in ('r3n', 'r3d', 'r6n', 'r6d'):
         out[k] = [sum(raw[k][j] for j in range(max(i - win[k[:2]] + 1, lo), i + 1)) for i in range(24)]
     return out

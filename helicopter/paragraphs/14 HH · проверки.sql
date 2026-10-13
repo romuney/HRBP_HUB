@@ -33,12 +33,13 @@ from hrbp_hub_attr_top
 where array_length(m_hc, 1) <> 24 or array_length(m_r6ad, 1) <> 24;
 
 -- 3б. Свёртка атрибутов = листовой куб: свёртки верхних узлов дерева (pid = '') вместе —
---     это весь куб; по каждому атрибуту сходятся численность и увольнения за все месяцы.
+--     это весь куб юридической численности (свёртка — «без разрезов», 13.10); по каждому атрибуту сходятся
+--     численность и увольнения за все месяцы.
 select 1 / (case when count(*) > 0 then 0 else 1 end) as attr_top_equals_leaf_check
 from (
     select coalesce(l.attr_k, t.attr_k) as attr_k
     from (select x.attr_k, sum(x.hc) as hc, sum(x.fire) as fire
-          from (select attr_k, unnest(m_hc) as hc, unnest(m_fire) as fire from hrbp_hub_attr) x
+          from (select attr_k, unnest(m_hc) as hc, unnest(m_fire) as fire from hrbp_hub_attr a cross join hh_param pr where a.hct <> pr.nonlegal_type) x
           group by 1) l
     full join (select x.attr_k, sum(x.hc) as hc, sum(x.fire) as fire
                from (select a.attr_k, unnest(a.m_hc) as hc, unnest(a.m_fire) as fire

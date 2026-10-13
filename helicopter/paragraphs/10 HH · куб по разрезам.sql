@@ -5,9 +5,14 @@
 -- знаменатель, поэтому любую строку можно складывать с любой другой.
 --
 -- ОКНА (меняются здесь и только здесь):
---   rg, nrg (regrettable / non-regrettable увольнения), hcw (Σ численности за окно,
---   знаменатель текучести; средняя = hcw / 12 или / 52) — 12 мес / 52 нед;
---   nr (незаполненные причины) — 3 мес / 13 нед;
+--   rg, nrg (regrettable / non-regrettable увольнения) — 12 мес / 52 нед;
+--   hcw — знаменатель текучести, всегда по АКТИВНОЙ численности HQ, какие бы разрезы ни были выбраны
+--   (HRBP 13.10, Дьяченко): месяцы — численность активной HQ на конец месяца (hch, без окна: из неё чарт
+--   считает текучесть с начала года), недели — Σ за 52 нед (как раньше; в отчёте не показываются);
+--   nr (незаполненные причины) — с начала года (месяцы: окно wy — с января того же года; недели — 13 нед):
+--   увольнения с 1 января, у которых прошло 30+ дней, а причины нет (HRBP 13.10);
+--   hirea — найм в активную численность (без окна): найм в компанию с типом «Активная» + переходы
+--   кандидатов + внутренние переводы (candidate_transfer_flg, internal_transfer_flg; HRBP 13.10);
 --   r3*/r6* (созревшие новички и дожившие) — когорта найма за последние 12 мес (52 нед), у которой уже
 --          исполнилось 3 (6) мес стажа (HRBP 13.10): созревание лежит в слоте даты «найм + 3 (6) мес»,
 --          поэтому это окно по слотам созревания — 9 и 6 мес (39 и 26 нед). Числитель — дожившие до отметки.
@@ -34,7 +39,9 @@ select md5(path_s || '|' || paint || '|' || it || '|' || stream || '|' || spec |
        sum(r3an) as r3an,
        sum(r3ad) as r3ad,
        sum(r6an) as r6an,
-       sum(r6ad) as r6ad
+       sum(r6ad) as r6ad,
+       sum(hch) as hch,
+       sum(hirea) as hirea
 from hh_evt
 group by path_s, paint, it, stream, spec, staff, hct, grain, idx
 distributed by (kid);
@@ -49,8 +56,8 @@ select x.kid, x.grain, x.idx,
        case when x.grain = 'm' then sum(x.nrg) over w12 else sum(x.nrg) over w52 end as nrg,
        x.rg as rgs,
        x.nrg as nrgs,
-       case when x.grain = 'm' then sum(x.hc) over w12 else sum(x.hc) over w52 end as hcw,
-       case when x.grain = 'm' then sum(x.nr) over w3 else sum(x.nr) over w13 end as nr,
+       case when x.grain = 'm' then x.hch else sum(x.hch) over w52 end as hcw,
+       case when x.grain = 'm' then sum(x.nr) over wy else sum(x.nr) over w13 end as nr,
        case when x.grain = 'm' then sum(x.r3n) over w9 else sum(x.r3n) over w39 end as r3n,
        case when x.grain = 'm' then sum(x.r3d) over w9 else sum(x.r3d) over w39 end as r3d,
        case when x.grain = 'm' then sum(x.r6n) over w6 else sum(x.r6n) over w26 end as r6n,
@@ -59,6 +66,7 @@ select x.kid, x.grain, x.idx,
        case when x.grain = 'm' then sum(x.r3ad) over w9 else sum(x.r3ad) over w39 end as r3ad,
        case when x.grain = 'm' then sum(x.r6an) over w6 else sum(x.r6an) over w26 end as r6an,
        case when x.grain = 'm' then sum(x.r6ad) over w6 else sum(x.r6ad) over w26 end as r6ad,
+       x.hirea,
        x.hire,
        x.fire
 from (
@@ -77,7 +85,9 @@ from (
                    coalesce(l.r3an, 0) as r3an,
                    coalesce(l.r3ad, 0) as r3ad,
                    coalesce(l.r6an, 0) as r6an,
-                   coalesce(l.r6ad, 0) as r6ad
+                   coalesce(l.r6ad, 0) as r6ad,
+                   coalesce(l.hch, 0) as hch,
+                   coalesce(l.hirea, 0) as hirea
     from (select k.kid, c.grain, c.idx
           from (select distinct kid from hh_cube_long) k
           cross join hh_calendar c) g
@@ -85,6 +95,7 @@ from (
         on l.kid = g.kid and l.grain = g.grain and l.idx = g.idx
 ) x
 window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
+       wy as (partition by x.kid, x.grain, floor(x.idx / 12.0) order by x.idx rows between unbounded preceding and current row),
        w52 as (partition by x.kid, x.grain order by x.idx rows between 51 preceding and current row),
        w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
        w13 as (partition by x.kid, x.grain order by x.idx rows between 12 preceding and current row),
@@ -118,6 +129,7 @@ select k.path_s,
        m.r6ad as m_r6ad,
        m.hire as m_hire,
        m.fire as m_fire,
+       m.hirea as m_hirea,
        w.hc as w_hc,
        w.jun as w_jun,
        w.rg as w_rg,
@@ -135,7 +147,8 @@ select k.path_s,
        w.r6an as w_r6an,
        w.r6ad as w_r6ad,
        w.hire as w_hire,
-       w.fire as w_fire
+       w.fire as w_fire,
+       w.hirea as w_hirea
 from (select distinct kid, path_s, paint, it, stream, spec, staff, hct from hh_cube_long) k
 join (select kid,
            array_agg(hc::int order by idx) as hc,
@@ -156,7 +169,8 @@ join (select kid,
            array_agg(r6ad::int order by idx) as r6ad,
            array_agg(hire::int order by idx) as hire,
            array_agg(fire::int order by idx) as fire,
-           sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) as tot
+           array_agg(hirea::int order by idx) as hirea,
+           sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
     from hh_cube_win
     where grain = 'm' and idx >= 0
     group by kid) m
@@ -180,7 +194,8 @@ join (select kid,
            array_agg(r6ad::int order by idx) as r6ad,
            array_agg(hire::int order by idx) as hire,
            array_agg(fire::int order by idx) as fire,
-           sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) as tot
+           array_agg(hirea::int order by idx) as hirea,
+           sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
     from hh_cube_win
     where grain = 'w' and idx >= 0
     group by kid) w
@@ -216,7 +231,8 @@ select k.paint, k.it, k.stream, k.spec, k.staff, k.hct, w.grain, w.idx,
        sum(w.r6an) as r6an,
        sum(w.r6ad) as r6ad,
        sum(w.hire) as hire,
-       sum(w.fire) as fire
+       sum(w.fire) as fire,
+       sum(w.hirea) as hirea
 from hh_cube_win w
 join (select distinct kid, paint, it, stream, spec, staff, hct from hh_cube_long) k
     on k.kid = w.kid
@@ -245,6 +261,7 @@ select m.paint, m.it, m.stream, m.spec, m.staff, m.hct,
        m.r6ad as m_r6ad,
        m.hire as m_hire,
        m.fire as m_fire,
+       m.hirea as m_hirea,
        w.hc as w_hc,
        w.jun as w_jun,
        w.rg as w_rg,
@@ -262,7 +279,8 @@ select m.paint, m.it, m.stream, m.spec, m.staff, m.hct,
        w.r6an as w_r6an,
        w.r6ad as w_r6ad,
        w.hire as w_hire,
-       w.fire as w_fire
+       w.fire as w_fire,
+       w.hirea as w_hirea
 from (select paint, it, stream, spec, staff, hct,
              array_agg(hc::int order by idx) as hc,
              array_agg(jun::int order by idx) as jun,
@@ -281,7 +299,8 @@ from (select paint, it, stream, spec, staff, hct,
              array_agg(r6an::int order by idx) as r6an,
              array_agg(r6ad::int order by idx) as r6ad,
              array_agg(hire::int order by idx) as hire,
-             array_agg(fire::int order by idx) as fire
+             array_agg(fire::int order by idx) as fire,
+             array_agg(hirea::int order by idx) as hirea
       from hh_base_win
       where grain = 'm'
       group by 1, 2, 3, 4, 5, 6) m
@@ -303,7 +322,8 @@ join (select paint, it, stream, spec, staff, hct,
              array_agg(r6an::int order by idx) as r6an,
              array_agg(r6ad::int order by idx) as r6ad,
              array_agg(hire::int order by idx) as hire,
-             array_agg(fire::int order by idx) as fire
+             array_agg(fire::int order by idx) as fire,
+             array_agg(hirea::int order by idx) as hirea
       from hh_base_win
       where grain = 'w'
       group by 1, 2, 3, 4, 5, 6) w

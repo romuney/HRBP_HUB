@@ -3,9 +3,13 @@
 -- считается отсюда.
 --   is_slot_row  строка на конец слота (месяц / неделя, вкл. историю окон) или на
 --                срез data_dt: запасы (численность, джуны), справочник, зоны HRBP;
---   is_fire_row  строка дня увольнения из компании (business_dt = company_fire_dt);
---   is_hire_row  строка дня найма (business_dt = company_hire_dt);
---   is_ahire_row строка дня перехода в активную численность (= active_hire_dt).
+--   is_fire_row  строка увольнения из компании — company_fire_flg = 1 (HRBP 13.10: отток всегда по нему);
+--   is_hire_row  строка найма в компанию — company_hire_flg = 1;
+--   is_ahire_row строка прихода в активную численность (HRBP 13.10, Дьяченко): найм в компанию с типом
+--                «Активная» + переход кандидата (candidate_transfer_flg) + внутренний перевод
+--                (internal_transfer_flg) — найм и когорта закрепляемости при фильтре «Активная».
+--   hct          тип численности; у строк вне юридической численности (legal_employee_flg <> 1) —
+--                значение hh_param.nonlegal_type: без выбранного типа отчёт их не берёт (HRBP 13.10).
 --   hc           в списочной численности на эту дату — ЛЮБОГО типа (active_type_nm):
 --                нанят (company_hire_dt <= дата) и не уволен раньше (company_fire_dt пусто
 --                или >= дата). Активная численность — фильтр «Тип численности» = «Активная»
@@ -35,9 +39,11 @@ select
     e.business_dt::date                                                        as business_dt,
     e.mdm_employee_rk,
     case when sd.d is not null then 1 else 0 end                                as is_slot_row,
-    case when e.business_dt = e.company_fire_dt then 1 else 0 end              as is_fire_row,
-    case when e.business_dt = e.company_hire_dt then 1 else 0 end              as is_hire_row,
-    case when e.business_dt = e.active_hire_dt  then 1 else 0 end              as is_ahire_row,
+    case when coalesce(e.company_fire_flg, 0) = 1 then 1 else 0 end            as is_fire_row,
+    case when coalesce(e.company_hire_flg, 0) = 1 then 1 else 0 end            as is_hire_row,
+    case when (coalesce(e.company_hire_flg, 0) = 1 and e.active_type_nm = pa.active_type_value)
+           or coalesce(e.candidate_transfer_flg, 0) = 1
+           or coalesce(e.internal_transfer_flg, 0) = 1 then 1 else 0 end      as is_ahire_row,
     case when coalesce(e.company_hire_dt, e.business_dt) <= e.business_dt
           and (e.company_fire_dt is null or e.company_fire_dt >= e.business_dt)
          then 1 else 0 end                                                     as hc,
@@ -65,7 +71,8 @@ select
     coalesce(nullif(trim(e.emp_specialization_desc::text), ''), '-')           as spec,
     case when e.employment_relation_type_desc = 'Штатный сотрудник'
          then 'Штат' else 'Не штат' end                                        as staff,
-    coalesce(nullif(trim(e.active_type_nm::text), ''), '-')                    as hct,
+    case when coalesce(e.legal_employee_flg, 0) <> 1 then pa.nonlegal_type
+         else coalesce(nullif(trim(e.active_type_nm::text), ''), '-') end      as hct,
     coalesce(nullif(trim(e.seniority::text), ''), '-')                         as seniority,
     coalesce(nullif(trim(e.grade::text), ''), '-')                             as a_grade,
     coalesce(nullif(trim(e.experience_group_nm::text), ''), '-')               as a_exp,
@@ -93,6 +100,7 @@ select
          then 1 else 0 end                                                     as deep13
 from prod_v_emart.mdm_employee_structure_d e
 cross join (select min(slot_start) - interval '7 month' as d0 from hh_calendar) lim
+cross join hh_param pa
 left join (select c.slot_end as d from hh_calendar c cross join hh_param p where c.slot_end <= p.data_dt
            union
            select data_dt from hh_param) sd
@@ -103,9 +111,10 @@ left join prod_v_sse_crossdata.mdm_employee_residence r
    and r.deleted_flg = 0
 where e.business_dt >= lim.d0
   and (sd.d is not null
-       or e.business_dt = e.company_fire_dt
-       or e.business_dt = e.company_hire_dt
-       or e.business_dt = e.active_hire_dt)
+       or coalesce(e.company_fire_flg, 0) = 1
+       or coalesce(e.company_hire_flg, 0) = 1
+       or coalesce(e.candidate_transfer_flg, 0) = 1
+       or coalesce(e.internal_transfer_flg, 0) = 1)
 distributed by (mdm_employee_rk);
 
 -- Одна строка на (сотрудник, день): пересечения периодов проживания дают дубли —
