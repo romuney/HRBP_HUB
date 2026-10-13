@@ -2043,6 +2043,13 @@ function buildCSS() {
     P + '-root ' + P + '-code+' + P + '-steps,' + P + '-kerr+' + P + '-code{margin-top:10px;}',
     P + '-steps{margin-top:10px;}',
     P + '-kact{white-space:nowrap;text-align:right;}',
+    P + '-root a' + P + '-btn{text-decoration:none;}',
+    P + '-khint{margin-top:10px;}',
+    P + '-kmsg{font-size:' + F.note + 'px;font-weight:500;color:#2b5fd0;white-space:nowrap;margin-right:4px;align-self:center;}',
+    P + '-khint b{font-weight:500;}',
+    // Обычный клик по «Открыть форму» — подсказка вспыхивает: куда нажать.
+    P + '-khint{transition:box-shadow .3s;}',
+    P + '-khint' + P + '-kflash{box-shadow:0 0 0 4px rgba(43,108,255,.35);}',
     P + '-kact ' + P + '-lnk+' + P + '-lnk{margin-left:14px;}',
     P + '-root ' + P + '-kdel{color:' + C.redTx + ';}',
 
@@ -4076,11 +4083,17 @@ function kdEditorHTML() {
       + '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">Комментарий</span><input class="' + P + '-inp" type="text" data-kd="note" placeholder="зачем цель" value="' + esc(d.note) + '"></div>';
   }
   body += '</div>'
-    + '<div class="' + P + '-chh"><span class="' + P + '-cht">Ссылка на форму</span><span class="' + P + '-chl"><span data-kd-msg="1">' + esc(state.copied || '') + '</span>'
-    + '<button type="button" class="' + P + '-btn ' + P + '-pri" data-action="kcopy"' + (err.length ? ' disabled' : '') + '>Скопировать ссылку</button></span></div>'
-    + '<div class="' + P + '-kerr" data-kd-err="1">' + (err.length ? 'Чтобы получить ссылку: ' + esc(err.join(', ')) + '.' : '') + '</div>'
-    + '<textarea class="' + P + '-code" readonly data-kd-out="1"' + (err.length ? ' style="display:none"' : '') + '>' + esc(err.length ? '' : kdLink(d)) + '</textarea>'
-    + '<ol class="' + P + '-steps"><li>Скопируйте ссылку.</li><li>Откройте новую вкладку браузера и вставьте её в адресную строку — откроется форма, все поля уже заполнены.</li>'
+    + '<div class="' + P + '-chh"><span class="' + P + '-cht">Форма KPI</span><span class="' + P + '-chl"><span class="' + P + '-kmsg" data-kd-msg="1">' + esc(state.copied || '') + '</span>'
+    // Ссылка — настоящая <a>: обычный клик песочница Proteus не пустит (нет allow-popups), а пункт контекстного меню
+    // «Открыть ссылку в новой вкладке» — действие браузера, не скрипта. Обычный клик перехватываем (иначе форма
+    // открылась бы ВМЕСТО отчёта в его iframe) и показываем, как открыть.
+    + '<a class="' + P + '-btn ' + P + '-pri ' + P + '-klink" data-kd-link="1" target="_blank" rel="noopener noreferrer" href="' + esc(err.length ? '#' : kdLink(d)) + '"' + (err.length ? ' style="display:none"' : '') + '>Открыть форму ↗</a>'
+    + '<button type="button" class="' + P + '-btn" data-action="kcopy"' + (err.length ? ' disabled' : '') + '>Скопировать ссылку</button></span></div>'
+    + '<div class="' + P + '-kerr" data-kd-err="1">' + (err.length ? 'Чтобы открыть форму: ' + esc(err.join(', ')) + '.' : '') + '</div>'
+    + '<div class="' + P + '-note ' + P + '-ninfo ' + P + '-khint" data-kd-hint="1"' + (err.length ? ' style="display:none"' : '') + '><b>Правой кнопкой мыши по «Открыть форму» → «Открыть ссылку в новой вкладке»</b>'
+    + ' (на Mac — клик двумя пальцами или с Ctrl). Обычным кликом форма не откроется: Proteus не даёт отчёту открывать вкладки. Не выходит — «Скопировать ссылку» и вставьте её в адресную строку новой вкладки.</div>'
+    + '<textarea class="' + P + '-code" readonly data-kd-out="1" style="display:none">' + esc(err.length ? '' : kdLink(d)) + '</textarea>'
+    + '<ol class="' + P + '-steps"><li>Откройте форму в новой вкладке (правой кнопкой) — все поля уже заполнены.</li>'
     + '<li>Проверьте и нажмите «Отправить».</li><li>' + (del ? 'Цель исчезнет' : 'Цель появится') + ' в отчёте в течение ' + K.lag + ' минут — обновите борд.</li></ol>';
   return hPanel({ title: title, sub: 'отчёт заполнит форму за вас — останется открыть её и отправить', body: body,
     tabs: '<span class="' + P + '-pbtn"><button type="button" class="' + P + '-btn ' + P + '-ghost" data-action="kclose">Закрыть</button></span>' });
@@ -4259,7 +4272,7 @@ function tourSteps(view) {
     add({ sel: function (R) { var ps = R.querySelectorAll(P + '-content ' + P + '-panel'); return ps.length ? ps[ps.length - 1] : null; }, title: 'Все KPI',
       html: 'KPI на юнитах вашей зоны и выше по дереву. KPI действует на юнит и все его подразделения, пока ниже нет своего. Статус: «в фокусе», «ждёт разреза» или вне срока.' });
     add({ sel: '[data-tour="kadd"]', pad: 4, title: 'Новый KPI',
-      html: 'Откроет форму для юнита, выбранного в «Фильтрах»: метрика, цель, срок, для кого (разрезы). Отчёт соберёт ссылку на форму с уже заполненными полями — останется открыть её и нажать «Отправить».' });
+      html: 'Откроет форму для юнита, выбранного в «Фильтрах»: метрика, цель, срок, для кого (разрезы). Отчёт заполнит форму n8n за вас: правой кнопкой по «Открыть форму» → «Открыть ссылку в новой вкладке», проверить и нажать «Отправить».' });
     add({ sel: '[data-action="kedit"]', lock: true, pad: 4, title: 'Изменить и удалить',
       html: 'У каждого KPI — «Изменить» и «Удалить»: та же форма, ссылка сразу с нужным действием. Изменения появятся в отчёте в течение ' + CFG.kpiForm.lag + ' минут.' });
     add({ sel: '[data-action="gorule"]', lock: true, pad: 4, title: 'Показать в отчёте',
@@ -5338,17 +5351,33 @@ function buildHTML() {
       if (!ok && navigator.clipboard && navigator.clipboard.writeText) {
         try { navigator.clipboard.writeText(kdLink(d)); ok = true; } catch (er2) { ok = false; }
       }
-      state.copied = ok ? 'Скопировано — вставьте в новую вкладку' : 'Выделите ссылку и нажмите Ctrl+C';
+      if (ok && ta) { ta.blur(); ta.style.display = 'none'; }
+      state.copied = ok ? 'Скопировано — вставьте в адресную строку новой вкладки' : 'Выделите ссылку ниже и нажмите Ctrl+C';
       var msg = overlay.querySelector('[data-kd-msg]');
       if (msg) msg.textContent = state.copied;
+    }
+    // Обычный клик по «Открыть форму»: не уходим из отчёта, подсказываем правую кнопку.
+    function kdLinkHint() {
+      state.copied = 'Нажмите правой кнопкой → «Открыть ссылку в новой вкладке»';
+      var msg = overlay.querySelector('[data-kd-msg]');
+      if (msg) msg.textContent = state.copied;
+      var h = overlay.querySelector('[data-kd-hint]');
+      if (h && h.className.indexOf(CFG.ns + '-kflash') < 0) {
+        h.className += ' ' + CFG.ns + '-kflash';
+        setTimeout(function () { h.className = h.className.replace(' ' + CFG.ns + '-kflash', ''); }, 900);
+      }
     }
     // Поля формы — без перерисовки (фокус и каретка на месте): ссылка, ошибки, «сейчас у юнита».
     function updateKd() {
       var d = kdDraft(), err = kdErrors(d);
       var out = overlay.querySelector('[data-kd-out]');
-      if (out) { out.value = err.length ? '' : kdLink(d); out.style.display = err.length ? 'none' : ''; }
+      if (out) { out.value = err.length ? '' : kdLink(d); out.style.display = 'none'; }
+      var lk = overlay.querySelector('[data-kd-link]');
+      if (lk) { lk.setAttribute('href', err.length ? '#' : kdLink(d)); lk.style.display = err.length ? 'none' : ''; }
+      var hn = overlay.querySelector('[data-kd-hint]');
+      if (hn) hn.style.display = err.length ? 'none' : '';
       var eb = overlay.querySelector('[data-kd-err]');
-      if (eb) eb.textContent = err.length ? 'Чтобы получить ссылку: ' + err.join(', ') + '.' : '';
+      if (eb) eb.textContent = err.length ? 'Чтобы открыть форму: ' + err.join(', ') + '.' : '';
       var cb = overlay.querySelector('[data-action="kcopy"]');
       if (cb) cb.disabled = !!err.length;
       var nw = overlay.querySelector('[data-kd-now]');
@@ -5364,6 +5393,8 @@ function buildHTML() {
       if (ed && ed.scrollIntoView) { try { ed.scrollIntoView({ block: 'nearest' }); } catch (er) { ed.scrollIntoView(false); } }
     }
     function onClick(e) {
+      // «Открыть форму» KPI: обычный клик не уводит отчёт на форму (см. kdEditorHTML).
+      if (trigger(e.target, 'data-kd-link')) { e.preventDefault(); kdLinkHint(); return; }
       // Тур «Как работать»: кнопка в шапке.
       var ta = trigger(e.target, 'data-tact');
       if (ta) { tourAct(ta.getAttribute('data-tact')); return; }
