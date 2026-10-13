@@ -1320,6 +1320,9 @@ function buildCSS() {
             + 'font-family:' + CFG.fonts.family + ';'
             + 'font-size:' + F.body + 'px;color:' + C.ink + ';background:' + C.bg + ';}',
     P + '-root *{box-sizing:border-box;font-family:inherit;}',
+    // Рамка фокуса — только при работе с клавиатуры (:focus-visible): мышью вид прежний (ревью 13.10).
+    P + '-root :focus-visible{outline:2px solid ' + C.act + ';outline-offset:2px;}',
+    P + '-root tr:focus-visible,' + P + '-root th:focus-visible,' + P + '-root ' + P + '-tr:focus-visible{outline-offset:-2px;}',
     // <b> по умолчанию 700 — в профиле потолок 600: выделение внутри текста — 500.
     P + '-root b,' + P + '-root strong{font-weight:500;}',
     // ТУЛТИП живёт В BODY, вне -root — шрифт ему НЕ наследуется.
@@ -1784,7 +1787,7 @@ function buildCSS() {
     P + '-lgd{display:inline-flex;gap:4px;margin-left:auto;flex-wrap:wrap;}',
     P + '-lg{display:inline-flex;align-items:center;gap:6px;height:22px;border:1px solid ' + C.line2 + ';background:' + C.card + ';border-radius:999px;padding:0 10px 0 8px;font-size:' + F.note + 'px;color:' + C.ink2 + ';cursor:pointer;font-weight:500;white-space:nowrap;}',
     P + '-lg:hover{border-color:#d8dce4;background:#fafbfc;}',
-    P + '-lg:focus{outline:none;}',
+    P + '-lg:focus:not(:focus-visible){outline:none;}',
     P + '-lg:focus-visible{border-color:' + C.act + ';}',
     P + '-lg' + P + '-off{opacity:.45;}',
     P + '-lg' + P + '-off ' + P + '-lgk{border-top-color:#c7c8cc !important;}',
@@ -1972,7 +1975,8 @@ function hCaret(open, action, key, label, tipObj) {
     + ' aria-expanded="' + (open ? 'true' : 'false') + '" aria-label="' + esc(label) + '"' + (tipObj ? tip(tipObj) : '') + '>'
     + (open ? '▾' : '▸') + '</button>';
 }
-function hInfo(o) { return '<span class="' + CFG.ns + '-info"' + tip(o) + '>i</span>'; }
+// ⓘ фокусируется с клавиатуры: подсказка показывается и по фокусу (onFocusIn, БЛОК 6).
+function hInfo(o) { return '<span class="' + CFG.ns + '-info" tabindex="0" role="note" aria-label="Справка: ' + esc(o && o.title || '') + '"' + tip(o) + '>i</span>'; }
 // Поиск в поповере: пилюля с лупой 13 px (как поиск каталога Proteus Adoption).
 var SEARCH_SVG = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true">'
   + '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>';
@@ -2261,7 +2265,7 @@ function treeRows(id, depth, cur, out) {
     if (nm.length) path = '<span class="' + P + '-tpath">' + esc(nm.join(' › ')) + '</span>';
   }
   var mark = out.hzRoots && out.hzRoots.indexOf(id) > -1 ? '<span class="' + P + '-hzt">зона HRBP</span>' : '';
-  out.s += '<div class="' + P + '-tr' + (id === cur ? ' ' + P + '-cur' : '') + (mark ? ' ' + P + '-hzr' : '') + '" data-action="pick" data-id="' + esc(id) + '" style="padding-left:' + (9 + depth * 16) + 'px">'
+  out.s += '<div class="' + P + '-tr' + (id === cur ? ' ' + P + '-cur' : '') + (mark ? ' ' + P + '-hzr' : '') + '" data-action="pick" data-id="' + esc(id) + '" tabindex="0" role="option" aria-selected="' + (id === cur ? 'true' : 'false') + '" style="padding-left:' + (9 + depth * 16) + 'px">'
     + (kids.length ? '<button class="' + P + '-tw" data-action="tree" data-id="' + esc(id) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button>' : '<span class="' + P + '-tsp"></span>')
     + '<span class="' + P + '-tn">' + esc(u.nm) + (u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>') + mark + path + '</span>'
     + '<span class="' + P + '-tl">' + esc(levelShort(u.lvl)) + '</span>' + cntHTML('th', unitN(id)) + '</div>';
@@ -2277,7 +2281,7 @@ function unitListHTML() {
     // Выбран HRBP — компактное дерево его зоны (как видит её сам HRBP); иначе — вся зона видимости.
     var top = inHz ? h.roots : M.roots;
     var all = inHz ? (sameSet(ids, h.roots) || (!ids.length && sameSet(h.roots, M.roots))) : (!ids.length || sameSet(ids, M.roots));
-    var s = '<div class="' + P + '-tr' + (all ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="">'
+    var s = '<div class="' + P + '-tr' + (all ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="" tabindex="0" role="option" aria-selected="' + (all ? 'true' : 'false') + '">'
       + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + (inHz ? 'Вся зона HRBP' : (M.role === 'hrbp' ? 'Вся моя зона' : 'Вся зона видимости')) + '</span>'
       + '<span class="' + P + '-tl">' + top.length + ' ' + plural(top.length, 'корень', 'корня', 'корней') + '</span>'
       + cntHTML('th', zoneN(top)) + '</div>';
@@ -2300,7 +2304,7 @@ function unitListHTML() {
   for (var k = 0; k < hits.length && k < 80; k++) {
     var h = hits[k], chain = pathTo(h.id), names = [];
     for (var c = Math.max(0, chain.length - 4); c < chain.length - 1; c++) names.push(unitName(M, chain[c]));
-    r += '<div class="' + P + '-tr' + (h.id === cur ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="' + esc(h.id) + '">'
+    r += '<div class="' + P + '-tr' + (h.id === cur ? ' ' + P + '-cur' : '') + '" data-action="pick" data-id="' + esc(h.id) + '" tabindex="0" role="option" aria-selected="' + (h.id === cur ? 'true' : 'false') + '">'
       + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">' + esc(h.u.nm) + (h.u.cur ? '' : '<span class="' + P + '-gone">нет в структуре</span>')
       + '<span class="' + P + '-tpath">' + esc(names.join(' › ') || levelLabel(h.u.lvl)) + '</span></span>'
       + '<span class="' + P + '-tl">' + esc(levelShort(h.u.lvl)) + '</span>' + cntHTML('th', unitN(h.id)) + '</div>';
@@ -2325,7 +2329,7 @@ function hrbpRootsText(h) {
 function hrbpRow(h, depth, cur, withPath) {
   var P = CFG.ns, M = MODEL, kids = M.hKids[h.login] || [], open = hrbpOpen(h.login, depth), chain = [], up = h.parent;
   while (up && M.hBy[up] && chain.length < 6) { chain.unshift(M.hBy[up].nm); up = M.hBy[up].parent; }
-  return '<div class="' + P + '-tr' + (h.login === cur ? ' ' + P + '-cur' : '') + '" data-action="hpick" data-id="' + esc(h.login) + '"'
+  return '<div class="' + P + '-tr' + (h.login === cur ? ' ' + P + '-cur' : '') + '" data-action="hpick" data-id="' + esc(h.login) + '" tabindex="0" role="option" aria-selected="' + (h.login === cur ? 'true' : 'false') + '"'
     + (withPath ? '' : ' style="padding-left:' + (9 + depth * 16) + 'px"') + '>'
     + (!withPath && kids.length ? '<button class="' + P + '-tw" data-action="htree" data-id="' + esc(h.login) + '" aria-expanded="' + (open ? 'true' : 'false') + '">' + (open ? '▾' : '▸') + '</button>' : '<span class="' + P + '-tsp"></span>')
     + '<span class="' + P + '-tn">' + esc(h.nm) + (h.login === (M.meta && M.meta.me) ? ' · я' : '')
@@ -2349,7 +2353,7 @@ function hrbpListHTML() {
   if (!q) {
     var out = { s: '', n: 0 };
     for (var i = 0; i < M.hTop.length; i++) hrbpTreeRows(M.hTop[i], 0, cur, out);
-    return '<div class="' + P + '-tr' + (!cur ? ' ' + P + '-cur' : '') + '" data-action="hpick" data-id="">'
+    return '<div class="' + P + '-tr' + (!cur ? ' ' + P + '-cur' : '') + '" data-action="hpick" data-id="" tabindex="0" role="option" aria-selected="' + (!cur ? 'true' : 'false') + '">'
       + '<span class="' + P + '-tsp"></span><span class="' + P + '-tn">Все HRBP<span class="' + P + '-tpath">без выбора — ' + (M.role === 'hrbp' ? 'вся моя зона' : 'вся зона видимости') + '</span></span>'
       + cntHTML('th', zoneN(M.roots)) + '</div>' + out.s;
   }
@@ -3359,7 +3363,7 @@ function sortTh(key, label, cls, tipObj, extra) {
   var t = tipObj || {};
   var note = on ? (ts.dir === 'asc' ? 'Сейчас по возрастанию. Клик — ' + (key === 'name' ? 'по убыванию.' : 'как было (по численности).') : 'Сейчас по убыванию. Клик — ' + (key === 'name' ? 'как было (по численности).' : 'по возрастанию.'))
     : 'Клик — сортировка ' + (key === 'name' ? 'по алфавиту' : 'по этой колонке') + ' внутри каждого уровня.';
-  return '<th class="' + P + '-sth' + (cls ? ' ' + cls : '') + (on ? ' ' + P + '-son' : '') + '"' + (extra || '') + ' data-action="tsort" data-key="' + key + '" aria-sort="'
+  return '<th class="' + P + '-sth' + (cls ? ' ' + cls : '') + (on ? ' ' + P + '-son' : '') + '"' + (extra || '') + ' data-action="tsort" data-key="' + key + '" tabindex="0" aria-sort="'
     + (on ? (ts.dir === 'asc' ? 'ascending' : 'descending') : 'none') + '"' + tip({ title: t.title || label, text: t.text || '', note: note }) + '>'
     + esc(label) + (on ? '<span class="' + P + '-sa">' + (ts.dir === 'asc' ? '↑' : '↓') + '</span>' : '') + '</th>';
 }
@@ -3383,7 +3387,7 @@ function teamsTableHTML(tc) {
     + (grouped ? head2 : '<tr>' + sortTh('name', 'Юнит', P + '-l', { title: 'Юнит', text: 'Юниты на 3 уровня вниз от юнита отчёта. Глубже — выберите строку и откройте её юнит иконкой у правого края.' }));
   for (var h = 0; h < mets.length; h++) t += sortTh(mets[h].key, mets[h].short, gcls[mets[h].key] || '', { title: mets[h].name, text: mets[h].hint });
   t += '</tr></thead><tbody>';
-  t += '<tr class="' + P + '-row ' + P + '-tot' + (!sel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="">'
+  t += '<tr class="' + P + '-row ' + P + '-tot' + (!sel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="" tabindex="0" aria-selected="' + (!sel ? 'true' : 'false') + '">'
     + '<td class="' + P + '-l"><span class="' + P + '-rl">'
     + (tc.expandable.length && !tc.tq ? hCaret(tc.allOpen, 'expall', tc.allOpen ? '0' : '1', tc.allOpen ? 'Свернуть всё' : 'Развернуть всё', { title: tc.allOpen ? 'Свернуть всё' : 'Развернуть всё', text: 'Все три уровня — сразу.' }) : '<span class="' + P + '-cars"></span>')
     + '<span class="' + P + '-rb"><span class="' + P + '-nml"><span class="' + P + '-nm"' + tip({ title: 'ИТОГО · ' + scopeLabel(), text: 'Юнит отчёта целиком.' }) + '>ИТОГО · ' + esc(scopeLabel()) + '</span></span><span class="' + P + '-us">' + fmtInt(hcOf(M.scope)) + ' чел</span></span></span></td>';
@@ -3409,7 +3413,7 @@ function teamsTableHTML(tc) {
     var chain = row.id !== '·' ? pathTo(row.id) : [], up = [];
     for (var ci0 = Math.max(0, chain.length - 4); ci0 < chain.length - 1; ci0++) up.push(unitName(M, chain[ci0]));
     var nmTip = tip({ title: rowName(row), text: up.length ? up.join(' › ') : '' });
-    t += '<tr class="' + P + '-row' + (row.lvl >= 2 ? ' ' + P + '-lv2' : '') + (isSel ? ' ' + P + '-sel' : '') + (tc.sr ? ' ' + P + (hit ? '-fnd' : '-anc') : '') + '" data-action="team" data-key="' + esc(row.key) + '">'
+    t += '<tr class="' + P + '-row' + (row.lvl >= 2 ? ' ' + P + '-lv2' : '') + (isSel ? ' ' + P + '-sel' : '') + (tc.sr ? ' ' + P + (hit ? '-fnd' : '-anc') : '') + '" data-action="team" tabindex="0" aria-selected="' + (isSel ? 'true' : 'false') + '" data-key="' + esc(row.key) + '">'
       + '<td class="' + P + '-l"><span class="' + P + '-rl">' + ind
       + (canExp && !tc.sr ? hCaret(open, 'exp', row.pfx, 'Раскрыть детализацию', { title: 'Детализация', text: 'Юниты уровнем ниже внутри «' + unitName(M, row.id) + '».' }) : '<span class="' + P + '-cars"></span>')
       + '<span class="' + P + '-rb"><span class="' + P + '-nml"><span class="' + P + '-nm"' + nmTip + '>' + (row.id !== '·' && tc.tq ? hlText(rowName(row), tc.tq) : esc(rowName(row))) + '</span>'
@@ -4489,7 +4493,7 @@ function buildHTML() {
     }
     // Фокус внутри окна фильтров переживает перерисовку: тот же контрол ищем по его data-атрибутам
     // (флажок значения, кнопка раздела, поиск); не нашёлся — фокус на самом окне (Esc и Tab работают).
-    var FOCUS_KEYS = ['data-psearch', 'data-cutkey', 'data-cutval', 'data-metric', 'data-mgroup', 'data-action', 'data-key', 'data-val', 'data-id', 'data-pop'];
+    var FOCUS_KEYS = ['data-view', 'data-tour', 'data-psearch', 'data-cutkey', 'data-cutval', 'data-metric', 'data-mgroup', 'data-action', 'data-key', 'data-val', 'data-id', 'data-pop'];
     function cssq(v) { return String(v).replace(/["\\]/g, '\\$&'); }
     function focusSel(el) {
       var sel = '';
@@ -4512,7 +4516,7 @@ function buildHTML() {
       var pane = { t: tpb ? tpb.scrollTop : 0, d: dpb ? dpb.scrollTop : 0, sig: state.paneSig };
       // Фокус был в окне (флажок, кнопка раздела) — перерисовка его роняет на body, и Esc
       // перестаёт доходить до чарта: возвращаем его тому же контролу или окну.
-      var ae = document.activeElement, fin = !!(state.drawer && ae && ae !== overlay && overlay.contains(ae)), fsel = fin ? focusSel(ae) : '';
+      var ae = document.activeElement, fany = !!(ae && ae !== overlay && overlay.contains(ae)), fin = !!(state.drawer && fany), fsel = fany ? focusSel(ae) : '';
       overlay.innerHTML = buildHTML();
       // Открыто окно фильтров — отчёт под ним не прокручивается: колесо над затемнением уходит странице
       // борда (окно едет за видимой частью, visTick), колонки окна листаются сами.
@@ -4541,6 +4545,10 @@ function buildHTML() {
         var fe = fsel ? overlay.querySelector('.' + CFG.ns + '-mdl ' + fsel) : null;
         if (!fe) fe = overlay.querySelector('.' + CFG.ns + '-mdl');
         if (fe) focusQuiet(fe);
+      } else if (fany && !state.drawer && fsel && !overlay.contains(document.activeElement)) {
+        // Вкладка, сортировка, строка «Команд», переключатель — тот же контрол после перерисовки (иначе фокус в начало).
+        var fo = overlay.querySelector(fsel);
+        if (fo) focusQuiet(fo);
       }
       renderTip();
       tourSync();
@@ -4633,6 +4641,19 @@ function buildHTML() {
       showTip(html, state.tip.rect);
     }
     function onLeave() { legendHi(null); dropTip(); }
+    // Подсказки и ⓘ — и с клавиатуры: фокус (Tab) показывает подсказку у элемента, уход фокуса — прячет.
+    function onFocusIn(e) {
+      var el = trigger(e.target, 'data-tip');
+      var kb = false;
+      try { kb = e.target.matches(':focus-visible'); } catch (erv) { kb = false; }
+      if (!el || !kb || state.dragging) return;
+      var html = el.getAttribute('data-tip') || '';
+      if (!html) return;
+      cancelHide();
+      state.tip = { rect: el.getBoundingClientRect(), key: html, kind: el.getAttribute('data-kind') || '' };
+      showTip(html, state.tip.rect);
+    }
+    function onFocusOut() { if (state.tip && !state.tip.rect.pt) dropTip(); }
 
     // ── ЭМИССИЯ КРОСС-ФИЛЬТРА ──
     // Чарт фильтрует САМ СЕБЯ (самовлияние включено в дашборде). Эмит ставит
@@ -5275,8 +5296,9 @@ function buildHTML() {
         return;
       }
       if (k === 27 && state.drawer) { closeDrawer(); return; }
-      // Не-кнопки с role="button" («×» у разреза): Enter/пробел = клик.
-      if ((k === 13 || k === 32) && e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button' && e.target.tagName !== 'BUTTON') {
+      // Не-кнопки с data-action (строки дерева и «Команд», сортировка, «×» у разреза): Enter/пробел = клик.
+      var tg = e.target, tn = tg && tg.tagName;
+      if ((k === 13 || k === 32) && tg && tg.getAttribute && tg.getAttribute('data-action') && !/^(BUTTON|INPUT|SELECT|TEXTAREA|LABEL|A)$/.test(tn)) {
         e.preventDefault();
         onClick({ target: e.target });
       }
@@ -5290,6 +5312,8 @@ function buildHTML() {
     overlay.addEventListener('change', onChange);
     overlay.addEventListener('input', onInput);
     overlay.addEventListener('keydown', onKeydown);
+    overlay.addEventListener('focusin', onFocusIn);
+    overlay.addEventListener('focusout', onFocusOut);
     // Прокрутка отчёта во время тура — подсветка едет за целью.
     overlay.addEventListener('scroll', function () {
       if (state.tour) tourPos();
