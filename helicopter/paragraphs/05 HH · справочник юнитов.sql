@@ -9,7 +9,8 @@
 -- ставит параграф «HH · куб атрибутов». rk — исходный
 -- mapped rk: по нему заводят цели KPI. lvl — номер уровня из источника: 1 —
 -- компания, дальше 3…12 (как в ультраширокой: lvl2 и глубже lvl12 не берутся).
--- Путь — от корня до узла, те же id, что в кубе.
+-- Путь — от корня до узла, те же id, что в кубе. head_login — логин руководителя юнита на data_dt
+-- (пусто — не определён; датасет читает колонку матчером, без неё отчёт работает).
 -- ============================================================================
 drop table if exists hh_chain;
 create table hh_chain as
@@ -98,6 +99,37 @@ from (
 ) q
 distributed randomly;
 
+-- Руководитель юнита на data_dt (13.10: логин под именем юнита в фильтре, поиск по нему). Голоса:
+--   3 — сам руководитель: management_head_flg = 1, сидит прямо в юните (не глубже 12-го уровня) → его ad_login;
+--   2 — сотрудники прямо в юните (не руководители, не глубже 12-го) → их management_head_ad_login;
+--   1 — руководители дочерних юнитов (и юнитов 13-го уровня, чьи люди считаются в юните 12-го) → их
+--       management_head_ad_login (у юнита без своих сотрудников).
+-- Берётся старший голос, внутри него — самый частый логин, при равенстве — меньший.
+drop table if exists hh_unit_head;
+create table hh_unit_head as
+select distinct on (unit_id) unit_id, head_login
+from (
+    select v.unit_id, v.head_login, max(v.w) as w, count(*) as n
+    from (
+        select a[array_length(a, 1)] as unit_id,
+               case when s.is_head = 1 and s.deep13 = 0 then s.login else s.head_login end as head_login,
+               case when s.is_head = 1 and s.deep13 = 0 then 3 else 2 end as w
+        from (select s.*, string_to_array(s.path_s, '/') as a from hh_src s) s
+        join hh_param p on s.business_dt = p.data_dt
+        where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> '' and s.deep13 = 0
+        union all
+        select a[array_length(a, 1) - 1 + s.deep13], s.head_login, 1
+        from (select s.*, string_to_array(s.path_s, '/') as a from hh_src s) s
+        join hh_param p on s.business_dt = p.data_dt
+        where s.is_slot_row = 1 and s.hc = 1 and s.is_head = 1 and s.path_s <> ''
+          and (s.deep13 = 1 or array_length(a, 1) > 1)
+    ) v
+    where v.head_login is not null and v.unit_id is not null
+    group by v.unit_id, v.head_login
+) t
+order by unit_id, w desc, n desc, head_login
+distributed by (unit_id);
+
 drop table if exists hrbp_hub_unit;
 create table hrbp_hub_unit as
 with d as (
@@ -113,8 +145,11 @@ select d.id, d.rk, d.nm, d.lvl, d.pid,
        coalesce(k.kids_n, 0)::int               as kids_n,
        coalesce(sb.sub_n, 1)::int               as sub_n,
        0                                        as attr_top,
-       d.last_dt
+       d.last_dt,
+       coalesce(hd.head_login, '')              as head_login
 from d
+left join hh_unit_head hd
+    on hd.unit_id = d.id
 left join (select id, max(is_now) as is_current from hh_unit_long group by id) n
     on n.id = d.id
 left join (

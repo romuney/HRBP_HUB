@@ -19,6 +19,9 @@
 -- lvl13 считается прямо в своём юните 12-го уровня, сотрудник lvl1/lvl2 — прямо
 -- в компании. id узла = первые 12 знаков md5(rk): короткий, стабильный между
 -- пересборками.
+-- Руководитель юнита (13.10, логин под именем юнита в фильтре): is_head — management_head_flg, login —
+-- ad_login, head_login — management_head_ad_login (руководитель юнита сотрудника, как head_login
+-- ультраширокой), deep13 — сотрудник глубже 12-го уровня (его руководитель — не руководитель юнита отчёта).
 -- Разрезы численности (как в filter-fields.md):
 --   paint  = emp_specialization_oper_code      it    = emp_specialization_it_code
 --   stream = emp_stream_desc                   spec  = emp_specialization_desc
@@ -82,7 +85,12 @@ select
     r.valid_from_dttm                                                          as res_from,
     e.hrbp_mdm_employee_rk                                                     as hrbp_rk,
     lower(trim(e.hrbp_ad_login::text))                                         as hrbp_login,
-    trim(coalesce(e.hrbp_last_nm::text, '') || ' ' || coalesce(e.hrbp_first_nm::text, '')) as hrbp_nm
+    trim(coalesce(e.hrbp_last_nm::text, '') || ' ' || coalesce(e.hrbp_first_nm::text, '')) as hrbp_nm,
+    coalesce(e.management_head_flg, 0)::int                                    as is_head,
+    nullif(lower(trim(e.ad_login::text)), '')                                  as login,
+    nullif(lower(trim(e.management_head_ad_login::text)), '')                  as head_login,
+    case when nullif(nullif(trim(e.lvl13_mapped_management_unit_rk::text), ''), '-') is not null
+         then 1 else 0 end                                                     as deep13
 from prod_v_emart.mdm_employee_structure_d e
 cross join (select min(slot_start) - interval '7 month' as d0 from hh_calendar) lim
 left join (select c.slot_end as d from hh_calendar c cross join hh_param p where c.slot_end <= p.data_dt

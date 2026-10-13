@@ -33,7 +33,7 @@ COLS = (['business_dt', 'mdm_employee_rk', 'last_day_flg', 'last_day_of_month_fl
         + ['emp_specialization_oper_code', 'emp_specialization_it_code', 'emp_stream_desc', 'emp_specialization_desc',
            'hrbp_mdm_employee_rk', 'hrbp_ad_login', 'hrbp_last_nm', 'hrbp_first_nm',
            'experience_group_nm', 'gender_desc', 'birth_dt', 'office_desc', 'employee_contract_type_desc',
-           'management_head_flg', 'lvl1_legal_unit_nm', 'ad_login', 'last_nm', 'first_nm'])
+           'management_head_flg', 'lvl1_legal_unit_nm', 'ad_login', 'last_nm', 'first_nm', 'management_head_ad_login'])
 TYPES = {'business_dt': 'date', 'mdm_employee_rk': 'bigint', 'last_day_flg': 'smallint', 'last_day_of_month_flg': 'smallint',
          'last_state_flg': 'smallint', 'active_employee_flg': 'smallint', 'legal_employee_flg': 'smallint', 'grade': 'integer',
          'company_hire_dt': 'date', 'company_fire_dt': 'date', 'active_hire_dt': 'date', 'legal_fire_dt': 'date',
@@ -41,6 +41,16 @@ TYPES = {'business_dt': 'date', 'mdm_employee_rk': 'bigint', 'last_day_flg': 'sm
 for i in LV:
     TYPES['lvl%d_management_head_mdm_employee_rk' % i] = 'bigint'
 
+
+
+def head_login(unit, e, d):
+    """management_head_ad_login источника: руководитель юнита сотрудника; у самого руководителя — руководитель выше."""
+    u = unit
+    while u is not None:
+        if u.head is not None and u.head is not e:
+            return u.head.login
+        u = u.parent_at(d)
+    return None
 
 def base_dates():
     """Дни, на которые строки есть у ВСЕХ работающих: концы месяцев и недель, срез, каждый 15-й день."""
@@ -97,7 +107,8 @@ def row(e, d, last_state):
              hrbp_last_nm=h.last if h else None, hrbp_first_nm=h.first if h else None,
              experience_group_nm=exp_group(p, d), gender_desc=e.gender, birth_dt=e.birth, office_desc=e.office,
              employee_contract_type_desc=a['contract'], management_head_flg=int(unit.head is e),
-             lvl1_legal_unit_nm=a['legal'], ad_login=e.login, last_nm=e.last, first_nm=e.first)
+             lvl1_legal_unit_nm=a['legal'], ad_login=e.login, last_nm=e.last, first_nm=e.first,
+             management_head_ad_login=head_login(unit, e, d))
     for u in ch:
         r['lvl%d_mapped_management_unit_rk' % u.level] = u.rk
         r['lvl%d_mapped_management_unit_nm' % u.level] = u.name_at(d)

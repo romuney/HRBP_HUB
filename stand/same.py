@@ -50,6 +50,13 @@ def cases():
 
 
 def dropnew(r, a):
+    if r.get('role') == 'dict':  # 13.10: 10-е поле юнита (логин руководителя) — сверка по полям старой версии
+        old = next((x for x in a if x.get('role') == 'dict'), None)
+        if old and old['j'] and r['j']:
+            k = old['j'].split('\n')[0].count('\t') + 1
+            r = dict(r)
+            r['j'] = '\n'.join('\t'.join(l.split('\t')[:k]) for l in r['j'].split('\n'))
+        return r
     if r.get('role') != 'meta':
         return r
     old = next((x for x in a if x.get('role') == 'meta'), None)

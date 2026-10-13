@@ -2,6 +2,7 @@
 drop table if exists hh_src_raw;
 drop table if exists hh_chain;
 drop table if exists hh_unit_long;
+drop table if exists hh_unit_head;
 drop table if exists hh_evt;
 drop table if exists hh_cube_long;
 drop table if exists hh_cube_win;
