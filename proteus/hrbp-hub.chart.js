@@ -1210,8 +1210,11 @@ function svgLine0(spec, W, H, ctx) {
   for (var t0 = 0; t0 < ticks.length; t0++) tw = Math.max(tw, textW(axisFmt(m, ticks[t0]), F.axis));
   if (refNow !== null) tw = Math.max(tw, textW(axisFmt(m, refNow), F.axis));
   var gl = Math.ceil(tw + 14), gr = 16, gt = G.top, gb = G.axis;
+  // Над таблицей «Трансформеров» (14.10): точка месяца — по центру его колонки, слева — колонка имён (spec.colL),
+  // подписи месяцев — в шапке таблицы под графиком.
+  if (spec.colL) { gl = spec.colL; gr = 0; gb = 10; gt = 16; }
   var pw = Math.max(40, W - gl - gr), ph = Math.max(40, H - gt - gb);
-  function X(i) { return gl + (n <= 1 ? pw / 2 : pw * i / (n - 1)); }
+  function X(i) { return spec.colL ? gl + pw * (i + 0.5) / n : gl + (n <= 1 ? pw / 2 : pw * i / (n - 1)); }
   function Y(v) { return gt + ph - (v - sc.min) / (sc.max - sc.min) * ph; }
   function dly(i) { return Math.round(150 + (G.drawMs - 160) * (n <= 1 ? 1 : i / (n - 1))); }
   var s = '<svg class="' + P + '-svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">';
@@ -1227,7 +1230,7 @@ function svgLine0(spec, W, H, ctx) {
   }
   // ось X: линия по ширине области, месяцы; текущий — 600
   s += '<line x1="' + (gl - 4) + '" x2="' + (gl + pw + 4) + '" y1="' + (gt + ph + 0.5) + '" y2="' + (gt + ph + 0.5) + '" stroke="' + C.axisLine + '"/>';
-  for (var xi = 0; xi < n; xi++) {
+  for (var xi = 0; xi < n && !spec.colL; xi++) {
     s += '<text x="' + X(xi).toFixed(1) + '" y="' + (gt + ph + 15) + '" text-anchor="middle" class="' + P + '-ax' + (xi === spec.boldIdx ? ' ' + P + '-axb' : '') + '">' + esc(spec.labels[xi]) + '</text>';
   }
   var rCur = on.cur ? runs(spec.cur, X, Y) : [], rPrev = on.prev ? runs(spec.prev, X, Y) : [], rRef = on.ref ? runs(spec.ref, X, Y) : [];
@@ -1919,10 +1922,15 @@ function buildCSS() {
     P + '-ins li' + P + '-mkon ' + P + '-insn{background:' + C.act + ';}',
     P + '-mk{transition:opacity .15s;}',
     // «Трансформеры» (13.10): сверху график и кольцо, ниже хитмап; строка ↔ доля подсвечиваются вместе.
-    P + '-trtop{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:12px;align-items:stretch;}',
+    P + '-trtop{display:grid;grid-template-columns:300px minmax(0,1fr);gap:12px;align-items:start;}',
+    P + '-heat tr' + P + '-trch td{padding:0;border-bottom:0;background:transparent;}',
+    P + '-heat tr' + P + '-trch:hover td{background:transparent;}',
     P + '-narrow ' + P + '-trtop{grid-template-columns:minmax(0,1fr);}',
     P + '-trtop>' + P + '-panel{min-width:0;}',
-    P + '-piew{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}',
+    P + '-piew{display:flex;flex-direction:column;align-items:center;gap:14px;}',
+    P + '-piew>' + P + '-plgs{align-self:stretch;}',
+    P + '-narrow ' + P + '-piew{flex-direction:row;align-items:center;}',
+    P + '-narrow ' + P + '-piew>' + P + '-plgs{align-self:center;}',
     P + '-pie{flex:0 0 auto;}',
     P + '-pseg{stroke:#fff;stroke-width:2;cursor:pointer;transition:opacity .15s;}',
     P + '-pct{font-size:' + F.title + 'px;font-weight:600;fill:' + C.ink + ';font-variant-numeric:tabular-nums;}',
@@ -3996,7 +4004,11 @@ function transformHTML() {
     if (list[q].v === state.trPick) pick = q;
     for (var q2 = 0; q2 < months.length; q2++) mx = Math.max(mx, Math.abs(cv(list[q].ser, months[q2]) || 0));
   }
-  var th = '<table class="' + P + '-t ' + P + '-heat"><thead><tr><th class="' + P + '-l">' + esc(axisLabel(axis)) + '</th>';
+  var cg = '<colgroup><col style="width:' + TR_NAMEW + 'px">';
+  for (var cq = 0; cq < months.length; cq++) cg += '<col>';
+  var th = '<table class="' + P + '-t ' + P + '-heat ' + P + '-fix">' + cg + '<col style="width:118px"></colgroup><thead>'
+    + '<tr class="' + P + '-trch"><td colspan="' + (months.length + 1) + '">' + trLineSlot(m, pick > -1 ? list[pick] : null, months) + '</td><td></td></tr>'
+    + '<tr><th class="' + P + '-l">' + esc(axisLabel(axis)) + '</th>';
   for (var hm = 0; hm < months.length; hm++) {
     var pp = dparts(M.cal.m[months[hm]].s);
     th += '<th>' + esc(MONTH_ABBR[pp.m] + (hm === 0 || pp.m === 0 ? ' ' + String(pp.y).slice(2) : '')) + '</th>';
@@ -4027,14 +4039,16 @@ function transformHTML() {
   var leg = '<div class="' + P + '-hleg">' + (flat ? '<span><i style="background:' + heatSeq(1, 1) + '"></i>больше — темнее</span>'
     : '<span><i style="background:' + heatDiv(m, m.better === 'higher' ? 1.3 : 0.7, 1) + '"></i>лучше, чем «Всего»</span><span><i style="background:' + heatDiv(m, m.better === 'higher' ? 0.7 : 1.3, 1) + '"></i>хуже</span><span><i></i>±5% или мало людей</span>')
     + '<span class="' + P + '-us">Клик по строке — её линия на графике и доля на кольце.</span></div>';
-  var nv = trCount(axis), sel = pick > -1 ? list[pick] : null;
+  var sel = pick > -1 ? list[pick] : null;
+  var lg = '<span class="' + P + '-lgd">' + (sel ? '<span class="' + P + '-lg"><i class="' + P + '-lgk" style="border-top-color:' + C0.cur + '"></i>' + esc(trName(sel)) + '</span>' : '')
+    + '<span class="' + P + '-lg"><i class="' + P + '-lgk" style="border-top-color:' + (sel ? C0.prev : C0.cur) + '"></i>Всего</span></span>';
   return s + '<div class="' + P + '-trbox" data-trbox="1"><div class="' + P + '-trtop">'
-    + hPanel({ cls: P + '-trln', title: 'Динамика · ' + (sel ? trName(sel) + ' и всего' : 'всего по юниту'), sub: sel ? 'серая — всего по юниту' : 'выберите строку таблицы, чтобы сравнить',
-        body: trLineBlock(m, sel, months), tabs: sel ? '<span class="' + P + '-pbtn"><button type="button" class="' + P + '-btn ' + P + '-ghost" data-action="trpick" data-key="-1">Сбросить</button></span>' : '' })
-    + hPanel({ cls: P + '-trpie', title: 'Структура · ' + axisLabel(axis), sub: monthFull(L), body: trPieHTML(m, list, pick), tabs: trPieSw(m) })
-    + '</div><div class="' + P + '-gap">' + hPanel({ title: m.name + ' · ' + axisLabel(axis),
-    sub: 'последний месяц выделен · ' + nv + ' ' + plural(nv, 'значение', 'значения', 'значений'),
-    body: th + leg, tbl: true, tabs: '<span class="' + P + '-pbtn">' + copyBtn('tr') + '</span>' }) + '</div></div>';
+    + hPanel({ cls: P + '-trpie', title: 'Структура', sub: axisLabel(axis) + ' · ' + monthLow(L), body: trPieHTML(m, list, pick), tabs: trPieSw(m) })
+    + hPanel({ cls: P + '-trln', title: m.name + ' · ' + axisLabel(axis),
+      sub: sel ? 'синяя — «' + trName(sel) + '», серая — всего по юниту' : 'сверху — всего по юниту · клик по строке — её линия',
+      body: th + leg, tbl: true, tabs: '<span class="' + P + '-pbtn">' + lg
+        + (sel ? '<button type="button" class="' + P + '-btn ' + P + '-ghost" data-action="trpick" data-key="-1">Сбросить</button>' : '') + copyBtn('tr') + '</span>' })
+    + '</div></div>';
 }
 // Цвет ячейки хитмапа: два полюса (лучше — зелёный, хуже — красный) от «Всего» того же месяца, серая середина ±5 %;
 // насыщенность — по отклонению до 30 %. Текст ячейки — всегда чернилами (цвет — только фон).
@@ -4051,8 +4065,10 @@ function heatTxt(m, v, t) {
   if (Math.abs(d) <= CFG.deadZone) return 'Как «Всего» (±5%).';
   return ((m.better === 'higher') === (d > 0) ? 'Лучше' : 'Хуже') + ', чем «Всего»: ' + fmtDelta(m, deltaOf(m, v, t)) + '.';
 }
-// График над таблицей: «Всего» по юниту за 12 месяцев; выбрана строка — её линия акцентом, «Всего» — серая.
-function trLineBlock(m, sel, months) {
+// График в шапке таблицы (владелец 14.10): «Всего» по юниту за 12 месяцев, точки — над колонками месяцев; выбрана
+// строка — её линия акцентом, «Всего» — серая.
+var TR_NAMEW = 210;
+function trLineSlot(m, sel, months) {
   var M = MODEL, yt = m.ytd && ytdOn(m), cur = [], prev = [], labels = [], heads = [];
   function cv(ser, k) { return yt && k < 12 ? null : mval(ser, 'm', m, k); }
   for (var i = 0; i < months.length; i++) {
@@ -4065,7 +4081,8 @@ function trLineBlock(m, sel, months) {
   var nm = sel ? trName(sel) : 'Всего';
   var spec = { m: m, ytd: yt, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: null, refKind: 'none', boldIdx: months.length - 1, heads: heads, prevHeads: null,
                curName: nm.length > 24 ? nm.slice(0, 23) + '…' : nm, prevName: 'Всего', noPrev: !sel, tips: { cur: sel ? 'Значение «' + nm + '» по месяцам.' : 'Весь юнит по месяцам.', prev: 'Весь юнит по месяцам.' } };
-  return chartBlock('story', 'tr:' + m.key + ':' + wantAxis() + ':' + (sel ? sel.v : ''), 'Помесячно, 12 месяцев', spec, CFG.chart.story - 40);
+  spec.colL = TR_NAMEW;
+  return chartSlot('trc', 'tr:' + m.key + ':' + wantAxis() + ':' + (sel ? sel.v : ''), function (w, ctx) { return svgLine(spec, w, 168, ctx); });
 }
 // Кольцо: доли значений в людях (или в числителе метрики: уходы, новички, джуны…) на последний месяц — пять
 // крупнейших и «Остальные» серым (не больше 6 сегментов). Цвета — категориальные по порядку, рядом список
