@@ -8,7 +8,9 @@
 --   rg, nrg (regrettable / non-regrettable увольнения), hcw (Σ численности за окно,
 --   знаменатель текучести; средняя = hcw / 12 или / 52) — 12 мес / 52 нед;
 --   nr (незаполненные причины) — 3 мес / 13 нед;
---   r3*/r6* (созревшие новички и дожившие) — 3 мес / 13 нед.
+--   r3*/r6* (созревшие новички и дожившие) — когорта найма за последние 12 мес (52 нед), у которой уже
+--          исполнилось 3 (6) мес стажа (HRBP 13.10): созревание лежит в слоте даты «найм + 3 (6) мес»,
+--          поэтому это окно по слотам созревания — 9 и 6 мес (39 и 26 нед). Числитель — дожившие до отметки.
 --   hc, jun, hire, fire — без окна (запас на конец слота и поток слота).
 --   rgs, nrgs — те же regrettable / non-regrettable увольнения БЕЗ окна (поток слота): по ним чарт
 --               считает текучесть нарастающим итогом с начала года (владелец 12.10).
@@ -49,14 +51,14 @@ select x.kid, x.grain, x.idx,
        x.nrg as nrgs,
        case when x.grain = 'm' then sum(x.hc) over w12 else sum(x.hc) over w52 end as hcw,
        case when x.grain = 'm' then sum(x.nr) over w3 else sum(x.nr) over w13 end as nr,
-       case when x.grain = 'm' then sum(x.r3n) over w3 else sum(x.r3n) over w13 end as r3n,
-       case when x.grain = 'm' then sum(x.r3d) over w3 else sum(x.r3d) over w13 end as r3d,
-       case when x.grain = 'm' then sum(x.r6n) over w3 else sum(x.r6n) over w13 end as r6n,
-       case when x.grain = 'm' then sum(x.r6d) over w3 else sum(x.r6d) over w13 end as r6d,
-       case when x.grain = 'm' then sum(x.r3an) over w3 else sum(x.r3an) over w13 end as r3an,
-       case when x.grain = 'm' then sum(x.r3ad) over w3 else sum(x.r3ad) over w13 end as r3ad,
-       case when x.grain = 'm' then sum(x.r6an) over w3 else sum(x.r6an) over w13 end as r6an,
-       case when x.grain = 'm' then sum(x.r6ad) over w3 else sum(x.r6ad) over w13 end as r6ad,
+       case when x.grain = 'm' then sum(x.r3n) over w9 else sum(x.r3n) over w39 end as r3n,
+       case when x.grain = 'm' then sum(x.r3d) over w9 else sum(x.r3d) over w39 end as r3d,
+       case when x.grain = 'm' then sum(x.r6n) over w6 else sum(x.r6n) over w26 end as r6n,
+       case when x.grain = 'm' then sum(x.r6d) over w6 else sum(x.r6d) over w26 end as r6d,
+       case when x.grain = 'm' then sum(x.r3an) over w9 else sum(x.r3an) over w39 end as r3an,
+       case when x.grain = 'm' then sum(x.r3ad) over w9 else sum(x.r3ad) over w39 end as r3ad,
+       case when x.grain = 'm' then sum(x.r6an) over w6 else sum(x.r6an) over w26 end as r6an,
+       case when x.grain = 'm' then sum(x.r6ad) over w6 else sum(x.r6ad) over w26 end as r6ad,
        x.hire,
        x.fire
 from (
@@ -85,7 +87,11 @@ from (
 window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
        w52 as (partition by x.kid, x.grain order by x.idx rows between 51 preceding and current row),
        w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
-       w13 as (partition by x.kid, x.grain order by x.idx rows between 12 preceding and current row)
+       w13 as (partition by x.kid, x.grain order by x.idx rows between 12 preceding and current row),
+       w9 as (partition by x.kid, x.grain order by x.idx rows between 8 preceding and current row),
+       w6 as (partition by x.kid, x.grain order by x.idx rows between 5 preceding and current row),
+       w39 as (partition by x.kid, x.grain order by x.idx rows between 38 preceding and current row),
+       w26 as (partition by x.kid, x.grain order by x.idx rows between 25 preceding and current row)
 distributed by (kid);
 
 drop table if exists hrbp_hub_cube;

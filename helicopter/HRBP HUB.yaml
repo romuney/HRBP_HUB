@@ -725,7 +725,9 @@ paragraphs:
       --   rg, nrg (regrettable / non-regrettable увольнения), hcw (Σ численности за окно,
       --   знаменатель текучести; средняя = hcw / 12 или / 52) — 12 мес / 52 нед;
       --   nr (незаполненные причины) — 3 мес / 13 нед;
-      --   r3*/r6* (созревшие новички и дожившие) — 3 мес / 13 нед.
+      --   r3*/r6* (созревшие новички и дожившие) — когорта найма за последние 12 мес (52 нед), у которой уже
+      --          исполнилось 3 (6) мес стажа (HRBP 13.10): созревание лежит в слоте даты «найм + 3 (6) мес»,
+      --          поэтому это окно по слотам созревания — 9 и 6 мес (39 и 26 нед). Числитель — дожившие до отметки.
       --   hc, jun, hire, fire — без окна (запас на конец слота и поток слота).
       --   rgs, nrgs — те же regrettable / non-regrettable увольнения БЕЗ окна (поток слота): по ним чарт
       --               считает текучесть нарастающим итогом с начала года (владелец 12.10).
@@ -766,14 +768,14 @@ paragraphs:
              x.nrg as nrgs,
              case when x.grain = 'm' then sum(x.hc) over w12 else sum(x.hc) over w52 end as hcw,
              case when x.grain = 'm' then sum(x.nr) over w3 else sum(x.nr) over w13 end as nr,
-             case when x.grain = 'm' then sum(x.r3n) over w3 else sum(x.r3n) over w13 end as r3n,
-             case when x.grain = 'm' then sum(x.r3d) over w3 else sum(x.r3d) over w13 end as r3d,
-             case when x.grain = 'm' then sum(x.r6n) over w3 else sum(x.r6n) over w13 end as r6n,
-             case when x.grain = 'm' then sum(x.r6d) over w3 else sum(x.r6d) over w13 end as r6d,
-             case when x.grain = 'm' then sum(x.r3an) over w3 else sum(x.r3an) over w13 end as r3an,
-             case when x.grain = 'm' then sum(x.r3ad) over w3 else sum(x.r3ad) over w13 end as r3ad,
-             case when x.grain = 'm' then sum(x.r6an) over w3 else sum(x.r6an) over w13 end as r6an,
-             case when x.grain = 'm' then sum(x.r6ad) over w3 else sum(x.r6ad) over w13 end as r6ad,
+             case when x.grain = 'm' then sum(x.r3n) over w9 else sum(x.r3n) over w39 end as r3n,
+             case when x.grain = 'm' then sum(x.r3d) over w9 else sum(x.r3d) over w39 end as r3d,
+             case when x.grain = 'm' then sum(x.r6n) over w6 else sum(x.r6n) over w26 end as r6n,
+             case when x.grain = 'm' then sum(x.r6d) over w6 else sum(x.r6d) over w26 end as r6d,
+             case when x.grain = 'm' then sum(x.r3an) over w9 else sum(x.r3an) over w39 end as r3an,
+             case when x.grain = 'm' then sum(x.r3ad) over w9 else sum(x.r3ad) over w39 end as r3ad,
+             case when x.grain = 'm' then sum(x.r6an) over w6 else sum(x.r6an) over w26 end as r6an,
+             case when x.grain = 'm' then sum(x.r6ad) over w6 else sum(x.r6ad) over w26 end as r6ad,
              x.hire,
              x.fire
       from (
@@ -802,7 +804,11 @@ paragraphs:
       window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
              w52 as (partition by x.kid, x.grain order by x.idx rows between 51 preceding and current row),
              w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
-             w13 as (partition by x.kid, x.grain order by x.idx rows between 12 preceding and current row)
+             w13 as (partition by x.kid, x.grain order by x.idx rows between 12 preceding and current row),
+             w9 as (partition by x.kid, x.grain order by x.idx rows between 8 preceding and current row),
+             w6 as (partition by x.kid, x.grain order by x.idx rows between 5 preceding and current row),
+             w39 as (partition by x.kid, x.grain order by x.idx rows between 38 preceding and current row),
+             w26 as (partition by x.kid, x.grain order by x.idx rows between 25 preceding and current row)
       distributed by (kid);
 
       drop table if exists hrbp_hub_cube;
@@ -1034,7 +1040,8 @@ paragraphs:
       --   gender — пол; age — возрастная группа; office — офис; work — тип работы
       --   (employee_contract_type_desc); head — руководитель / нет; legal — юрлицо
       --   (lvl1_legal_unit_nm); macro — макрорегион; city — город (mdm_employee_residence).
-      -- Окна — как в «HH · куб по разрезам» (месячные: 12 / 3 / 3).
+      -- Окна — как в «HH · куб по разрезам» (месячные: текучесть 12, причины 3, закрепляемость 9 / 6 — найм за
+      -- 12 мес); rgs / nrgs — увольнения месяца без окна (текучесть с начала года, 13.10).
       --
       -- Свёртка → hrbp_hub_attr_top: юнит открывают — трансформер должен приехать сразу, а
       -- листовой куб всей компании — сотни тысяч строк на каждый ответ. Поэтому юнитам, которые
@@ -1116,16 +1123,18 @@ paragraphs:
              x.jun,
              sum(x.rg) over w12 as rg,
              sum(x.nrg) over w12 as nrg,
+             x.rg as rgs,
+             x.nrg as nrgs,
              sum(x.hc) over w12 as hcw,
              sum(x.nr) over w3 as nr,
-             sum(x.r3n) over w3 as r3n,
-             sum(x.r3d) over w3 as r3d,
-             sum(x.r6n) over w3 as r6n,
-             sum(x.r6d) over w3 as r6d,
-             sum(x.r3an) over w3 as r3an,
-             sum(x.r3ad) over w3 as r3ad,
-             sum(x.r6an) over w3 as r6an,
-             sum(x.r6ad) over w3 as r6ad,
+             sum(x.r3n) over w9 as r3n,
+             sum(x.r3d) over w9 as r3d,
+             sum(x.r6n) over w6 as r6n,
+             sum(x.r6d) over w6 as r6d,
+             sum(x.r3an) over w9 as r3an,
+             sum(x.r3ad) over w9 as r3ad,
+             sum(x.r6an) over w6 as r6an,
+             sum(x.r6ad) over w6 as r6ad,
              x.hire,
              x.fire
       from (
@@ -1153,7 +1162,9 @@ paragraphs:
               on l.kid = g.kid and l.idx = g.idx
       ) x
       window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
-             w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row)
+             w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
+             w9 as (partition by x.kid, x.grain order by x.idx rows between 8 preceding and current row),
+             w6 as (partition by x.kid, x.grain order by x.idx rows between 5 preceding and current row)
       distributed by (kid);
 
       drop table if exists hh_attr_arr;
@@ -1163,6 +1174,8 @@ paragraphs:
              array_agg(jun::int order by idx) as jun,
              array_agg(rg::int order by idx) as rg,
              array_agg(nrg::int order by idx) as nrg,
+             array_agg(rgs::int order by idx) as rgs,
+             array_agg(nrgs::int order by idx) as nrgs,
              array_agg(hcw::int order by idx) as hcw,
              array_agg(nr::int order by idx) as nr,
              array_agg(r3n::int order by idx) as r3n,
@@ -1202,7 +1215,9 @@ paragraphs:
              m.r6an as m_r6an,
              m.r6ad as m_r6ad,
              m.hire as m_hire,
-             m.fire as m_fire
+             m.fire as m_fire,
+             m.rgs as m_rgs,
+             m.nrgs as m_nrgs
       from (select distinct kid, path_s, paint, it, stream, spec, staff, hct, attr_k, attr_v
             from hh_attr_long
             where path_s not like 'T:%') k
@@ -1230,7 +1245,9 @@ paragraphs:
              m.r6an as m_r6an,
              m.r6ad as m_r6ad,
              m.hire as m_hire,
-             m.fire as m_fire
+             m.fire as m_fire,
+             m.rgs as m_rgs,
+             m.nrgs as m_nrgs
       from (select distinct kid, path_s, attr_k, attr_v
             from hh_attr_long
             where path_s like 'T:%') k

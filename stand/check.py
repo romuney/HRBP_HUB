@@ -39,7 +39,7 @@ import expect as X  # noqa: E402
 import world as W  # noqa: E402
 
 COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs']
-COMP_TR = COMP[:12]  # трансформеры везут первые 12 (rgs / nrgs у них пустые)
+COMP_TR = COMP  # с 13.10 трансформеры везут все 14 (rgs / nrgs — текучесть с начала года и в «Трансформерах»)
 CARRIER = {'paint': 'paint_f', 'it': 'it_f', 'stream': 'stream_f', 'spec': 'spec_f', 'staff': 'staff_f', 'hct': 'hct_f'}
 bad = 0
 cases = 0
@@ -111,7 +111,7 @@ def tr_ok(rows, axes, label):
         vs = [r for r in tr if r['pid'] == ax]
         s12 = {c: [x if last - 11 <= i <= last else 0 for i, x in enumerate(sc[c])] for c in COMP_TR}
         vs_m = vsum(vs, 'm')
-        good = len(vs) > 0 and {c: vs_m[c] for c in COMP_TR} == s12 and all(not r['m_rgs'] and not r['m_nrgs'] for r in vs)
+        good = len(vs) > 0 and {c: vs_m[c] for c in COMP_TR} == s12
         ok(good, 'Σ трансформера «%s» == область за 12 мес [%s]' % (ax, label))
     ok(all(not r['w_hc'] for r in tr), 'у трансформера нет недель [%s]' % label)
 

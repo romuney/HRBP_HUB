@@ -10,7 +10,8 @@
   rgs, nrgs  те же увольнения без окна (поток слота)
   hcw        Σ hc за то же окно
   nr         увольнения за 3 мес / 13 нед без причины, legal_fire_dt не пуст, прошло 30+ дней
-  r3*, r6*   новички, созревшие (найм + 3/6 мес или + 91/182 дня) в окне 3 мес / 13 нед
+  r3*, r6*   новички, созревшие (найм + 3/6 мес или + 91/182 дня): найм за последние 12 мес / 52 нед и уже
+             исполнилось 3/6 мес — окно по слотам созревания 9/6 мес, 39/26 нед (HRBP 13.10)
   hire, fire поток слота
 """
 import datetime as dt
@@ -23,7 +24,7 @@ import world as W  # noqa: E402
 LM = W.month_end(W.D) if W.D == W.month_end(W.D) else W.month_end(W.D.replace(day=1) - dt.timedelta(days=1))
 YEAR = LM.year
 LW = W.D - dt.timedelta(days=W.D.isoweekday() % 7)
-WIN = {'m': {'rg': 12, 'nr': 3, 'ret': 3}, 'w': {'rg': 52, 'nr': 13, 'ret': 13}}
+WIN = {'m': {'rg': 12, 'nr': 3, 'r3': 9, 'r6': 6}, 'w': {'rg': 52, 'nr': 13, 'r3': 39, 'r6': 26}}
 
 
 def slot(grain, idx):
@@ -174,5 +175,5 @@ def component_series(grain, pred, flt, active_base=False):
     out['nrgs'] = [raw['nrg'][i] for i in range(24)]
     out['nr'] = [sum(raw['nr'][j] for j in range(i - win['nr'] + 1, i + 1)) for i in range(24)]
     for k in ('r3n', 'r3d', 'r6n', 'r6d'):
-        out[k] = [sum(raw[k][j] for j in range(max(i - win['ret'] + 1, lo), i + 1)) for i in range(24)]
+        out[k] = [sum(raw[k][j] for j in range(max(i - win[k[:2]] + 1, lo), i + 1)) for i in range(24)]
     return out

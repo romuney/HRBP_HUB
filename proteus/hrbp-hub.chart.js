@@ -79,25 +79,27 @@ var CFG = {
   metrics: [
     { key: 'retention_new_3', block: 'retention', name: 'Закрепляемость новичков · 3 мес', short: 'Закрепл. 3 мес',
       fmt: 'pct', better: 'higher', share: true, num: 'r3n', den: 'r3d',
-      hint: 'Доля новичков, которые работают в компании через 3 месяца после найма.',
-      calc: 'Когорта — новички, у кого 3 месяца от найма исполнились в окне; дожившие / когорта. Окно созревания 3 мес (13 нед). База отсчёта — company_hire_dt, при типе численности «Активная» — active_hire_dt.',
-      numL: 'продолжают работать', denL: 'новичков в когорте', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
+      hint: 'Доля новичков, которые работают в компании через 3 месяца после найма. В расчёт попадают только новички, у которых уже прошёл указанный период стажа.',
+      calc: 'Знаменатель — пришедшие в компанию за последние 12 месяцев (52 нед), у кого с даты найма уже исполнилось 3 месяца (91 день); числитель — кто из них не уволился до этой отметки. База отсчёта — company_hire_dt, при типе численности «Активная» — active_hire_dt.',
+      numL: 'продолжают работать', denL: 'новичков (найм за 12 мес, стаж от 3 мес)', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
     { key: 'retention_new_6', block: 'retention', name: 'Закрепляемость новичков · 6 мес', short: 'Закрепл. 6 мес',
       fmt: 'pct', better: 'higher', share: true, num: 'r6n', den: 'r6d',
-      hint: 'Доля новичков, которые работают в компании через 6 месяцев после найма.',
-      calc: 'Как на 3 месяцах, горизонт 6 мес (26 нед).',
-      numL: 'продолжают работать', denL: 'новичков в когорте', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
+      hint: 'Доля новичков, которые работают в компании через 6 месяцев после найма. В расчёт попадают только новички, у которых уже прошёл указанный период стажа.',
+      calc: 'Как на 3 месяцах: пришедшие за последние 12 месяцев, у кого исполнилось 6 месяцев (182 дня); числитель — не уволившиеся до этой отметки.',
+      numL: 'продолжают работать', denL: 'новичков (найм за 12 мес, стаж от 6 мес)', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
     { key: 'regret', block: 'turnover', name: 'Regrettable текучесть', short: 'Regret',
-      fmt: 'pct', better: 'lower', num: 'rg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'rgs',
-      hint: 'Годовой темп уходов ценных сотрудников (нежелательные увольнения).',
-      calc: 'Regrettable-увольнения за 12 мес (52 нед) / средняя списочная численность за то же окно. Разметка — usr_cross_data.regrettable_n_non_regrettable_base.',
+      fmt: 'pct', better: 'lower', num: 'rg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'rgs', minHc: 50, hq: true,
+      hint: 'Уходы ценных сотрудников (нежелательные увольнения) накопительным итогом с начала года. Применима только для активной численности HQ; не оценивается при численности меньше 50.',
+      calc: 'С начала года — сумма помесячных значений: regrettable-увольнения месяца / средняя численность месяца (на начало и конец), с января по месяц отчёта; цель сравнивается в доле года (к марту — 3/12). «12 мес» в «Динамике» — увольнения за 12 мес / средняя численность за них. Разметка — usr_cross_data.regrettable_n_non_regrettable_base.',
       numL: 'regrettable-уходов за 12 мес', denL: 'средняя численность за 12 мес', cnt: { n: ['уход', 'ухода', 'уходов'], tail: 'за год' },
+      numLy: 'regrettable-уходов с начала года', denLy: 'средняя численность с начала года', tailY: 'с начала года',
       exL: 'уходов сверх ориентира', exA: 'сверх ориентира' },
     { key: 'nonregret', block: 'turnover', name: 'Non regrettable текучесть', short: 'Non-reg.',
-      fmt: 'pct', better: 'flat', num: 'nrg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'nrgs',
-      hint: 'Текучесть без сожаления (управляемые уходы). Нейтральная: больше не значит лучше.',
-      calc: 'Non-regrettable-увольнения за 12 мес (52 нед) / средняя численность за окно.',
-      numL: 'non-regrettable-уходов за 12 мес', denL: 'средняя численность за 12 мес', cnt: { n: ['уход', 'ухода', 'уходов'], tail: 'за год' } },
+      fmt: 'pct', better: 'flat', num: 'nrg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'nrgs', minHc: 100, hq: true,
+      hint: 'Текучесть без сожаления (управляемые уходы) накопительным итогом с начала года. Нейтральная: больше не значит лучше. Применима только для активной численности HQ; не оценивается при численности меньше 100.',
+      calc: 'С начала года — сумма помесячных значений: non-regrettable-увольнения месяца / средняя численность месяца, с января по месяц отчёта. «12 мес» — за скользящие 12 мес.',
+      numL: 'non-regrettable-уходов за 12 мес', denL: 'средняя численность за 12 мес', cnt: { n: ['уход', 'ухода', 'уходов'], tail: 'за год' },
+      numLy: 'non-regrettable-уходов с начала года', denLy: 'средняя численность с начала года', tailY: 'с начала года' },
     { key: 'exit_reasons', block: 'turnover', name: 'Незаполненные причины увольнений', short: 'Без причины',
       fmt: 'pct', better: 'lower', num: 'nr', den: 'hc',
       hint: 'Уволенные без проставленной причины (30+ дней после увольнения) от численности юнита. В бизнес-контексте — «Заполнение причин увольнений».',
@@ -143,7 +145,10 @@ var CFG = {
   // разрезы не выбраны, одно значение «популяционного» разреза — share и больше людей области → предложить
   // сравнить с ним. Тип численности и штат — не популяции: «Активная» и «Штат» почти везде большинство.
   pop: { share: 0.6, cuts: ['paint', 'it', 'stream', 'spec'] },
+  // min — порог численности по умолчанию; у метрики свой minHc (HRBP 13.10: regrettable 50, non-regrettable 100).
   small: { min: 30, blocks: ['retention', 'turnover'] },
+  // Норматив текучести — активная численность HQ (HRBP 13.10): кнопка на «Сводке» ставит оба разреза.
+  hq: { hct: 'Активная', paint: 'HQ' },
   // «Что видно в данных» на «Сводке» (как Proteus Adoption, ДС §4.10) — факты по порогам, не шаблон:
   // dev — отклонение от ориентира (доля ориентира); minPeople — «сверх ориентира» у юнита в людях,
   // teamMin — у команды; conc — доля «лишних» людей в одной команде («больше половины — там»);
@@ -334,6 +339,7 @@ function parseArr(s) {
   if (at > 0) {
     var off = parseInt(str.slice(0, at), 10) || 0;
     for (var z = 0; z < off; z++) out.push(0);
+    out.from = off;  // трансформер: слоты до off не приехали (не нули) — текучесть с начала года их не берёт
     str = str.slice(at + 1);
   }
   var parts = str.split(',');
@@ -568,6 +574,7 @@ function parts(ser, g, m, i) {
 }
 function mval(ser, g, m, i) {
   if (i < 0 || i > 23 || !slotClosed(g, i)) return null;
+  if (g === 'm' && m.ytd && ytdOn(m)) return ytdVal(ser, m, i);
   var p = parts(ser, g, m, i);
   if (!p) return null;
   if (m.fmt === 'int') return p.num;
@@ -578,14 +585,22 @@ function mval(ser, g, m, i) {
 // Текучесть нарастающим итогом с начала года (владелец 12.10): Σ увольнений без окна с января по месяц i /
 // средняя численность за те же месяцы, без пересчёта в годовой темп — к декабрю это годовая текучесть.
 function ytdOn(m) { return !!(m && m.ytd && MODEL.ytdOk && state.ytd !== false); }
-function ytdVal(ser, m, i) {
+// HRBP 13.10: «считаем накопительным итогом в рамках года, т. е. суммируем помесячные значения» — Σ по месяцам
+// с января: увольнения месяца / средняя численность месяца (на начало и конец). Действует ВЕЗДЕ (mval): «Сводка»,
+// «Команды», «Трансформеры», «Динамика»; переключатель «12 мес» (state.ytd = false) возвращает скользящие 12 мес.
+function ytdParts(ser, m, i) {
   if (!ser || !ser.m || i < 0 || i > 23 || !slotClosed('m', i)) return null;
-  var a = ser.m[m.ytd], h = ser.m.hc, y0 = i < 12 ? 0 : 12, num = 0, hc = 0;
+  var a = ser.m[m.ytd], h = ser.m.hc, y0 = i < 12 ? 0 : 12, r = 0, num = 0, hs = 0, n = 0;
   if (!a || !h) return null;
-  for (var j = y0; j <= i; j++) { num += a[j] || 0; hc += h[j] || 0; }
-  hc = hc / (i - y0 + 1);
-  return hc > 0 ? 100 * num / hc : null;
+  if (Math.max(a.from || 0, h.from || 0) > Math.max(y0 - 1, 0)) return null;  // январь (и декабрь до него) не приехал
+  for (var j = y0; j <= i; j++) {
+    var hm = ((j > 0 ? h[j - 1] : h[j]) + h[j]) / 2;
+    num += a[j] || 0;
+    if (hm > 0) { r += (a[j] || 0) / hm; hs += hm; n++; }
+  }
+  return n ? { v: 100 * r, num: num, avg: hs / n } : null;
 }
+function ytdVal(ser, m, i) { var q = ytdParts(ser, m, i); return q ? q.v : null; }
 function mseries(ser, g, m) {
   var out = [];
   for (var i = 0; i < 24; i++) out.push(mval(ser, g, m, i));
@@ -672,7 +687,9 @@ function compareState(m, v, b) {
 function baseline(unitId, m, v, g, i) {
   var day = MODEL.cal[g][i] ? MODEL.cal[g][i].e : '';
   var k = resolveKpi(unitId, m.key, day);
-  if (k) return { kind: 'kpi', ref: k.rule.target, rule: k.rule, owner: k.owner, inherited: k.inherited, state: stateForKpi(m, v, k.rule.target) };
+  // Текучесть с начала года сравнивается с долей годовой цели: к марту — 3/12 (HRBP 13.10).
+  if (k) { var tg = g === 'm' && m.ytd && ytdOn(m) ? k.rule.target * ((i % 12) + 1) / 12 : k.rule.target;
+           return { kind: 'kpi', ref: tg, rule: k.rule, owner: k.owner, inherited: k.inherited, state: stateForKpi(m, v, tg) }; }
   if (comparable(m)) {
     var b = mval(MODEL.base, g, m, i);
     if (b !== null) return { kind: 'bench', ref: b, state: compareState(m, v, b) };
@@ -692,10 +709,15 @@ function statesOver(unitId, ser, g, m, idxs) {
 // по ней не оцениваются — на такой команде один человек сдвигает процент на несколько пунктов.
 function smallGate(m) { return CFG.small.blocks.indexOf(m.block) > -1; }
 function isSmall(ser) { return hcOf(ser) < CFG.small.min; }
-function smallHide(ser, m) { return smallGate(m) && isSmall(ser); }
+function smallMin(m) { return m && m.minHc ? m.minHc : CFG.small.min; }
+function smallHide(ser, m) { return smallGate(m) && hcOf(ser) < smallMin(m); }
 // Числитель и знаменатель метрики в людях (знаменатель-окно → средняя численность).
 function absParts(m, ser, i) {
   if (m.fmt === 'int') return null;
+  if (m.ytd && ytdOn(m)) {  // с начала года: уходы с января, знаменатель — тот, что даёт значение метрики
+    var q = ytdParts(ser, m, i);
+    return q ? { num: q.num, den: q.v > 0 ? 100 * q.num / q.v : q.avg } : null;
+  }
   var p = parts(ser, 'm', m, i);
   if (!p || p.den === null || p.den === undefined) return null;
   return { num: p.num, den: m.denDiv ? p.den / m.denDiv.m : p.den };
@@ -703,14 +725,16 @@ function absParts(m, ser, i) {
 function absRows(m, ser, i) {
   var a = absParts(m, ser, i);
   if (!a || !m.numL) return [];
-  return [{ label: m.numL, value: fmtInt(a.num) }, { label: m.denL, value: fmtInt(a.den) }];
+  var y = m.ytd && ytdOn(m);
+  return [{ label: y ? m.numLy : m.numL, value: fmtInt(a.num) }, { label: y ? m.denLy : m.denL, value: fmtInt(a.den) }];
 }
 // Коротко под значением: «16 из 17 новичков», «9 уходов за год».
 function absText(m, ser, i) {
   var a = absParts(m, ser, i), c = m.cnt;
   if (!a || !c) return '';
   if (c.of) { var d = Math.round(a.den); return fmtInt(a.num) + ' из ' + fmtInt(d) + ' ' + plural(d, c.of[0], c.of[1], c.of[2]); }
-  return fmtInt(a.num) + ' ' + plural(a.num, c.n[0], c.n[1], c.n[2]) + (c.tail ? ' ' + c.tail : '');
+  var tail = m.ytd && ytdOn(m) ? m.tailY : c.tail;
+  return fmtInt(a.num) + ' ' + plural(a.num, c.n[0], c.n[1], c.n[2]) + (tail ? ' ' + tail : '');
 }
 // Сколько людей «сверх ориентира» (уходов, ушедших новичков, увольнений без причины):
 // > 0 — хуже ориентира; у метрик без направления — 0.
@@ -1565,6 +1589,7 @@ function buildCSS() {
 
     // ---- уведомления и загрузка ----
     P + '-notes{padding:8px 0 0;}',
+    P + '-hqn{margin:2px 0 8px;}',
     P + '-note{font-size:' + F.note + 'px;color:' + C.ink2 + ';background:' + C.card + ';border:1px dashed ' + C.line + ';border-radius:9px;padding:10px 14px;margin-top:12px;line-height:1.5;}',
     P + '-note b{color:' + C.ink + ';}',
     P + '-note' + P + '-warn{border-style:solid;border-color:#f3d58f;background:#fff8e6;color:' + C.warnTx + ';}',
@@ -2067,9 +2092,9 @@ function legendHTML(right, small, short) {
     + '><span class="' + P + '-dot" style="background:' + C.red + '"></span> ' + (short ? 'хуже' : 'хуже ориентира') + '</span>'
     + '<span class="' + P + '-sw"' + tip({ title: 'Серый — мёртвая зона ±5%', text: dz, note: 'Серым красится и метрика без ориентира: у «больше не значит лучше» цвета быть не может.' })
     + '><span class="' + P + '-dot" style="background:' + C.neutral + '"></span> ' + (short ? '±5% или без ориентира' : 'в пределах ±5% или без ориентира') + '</span>'
-    + (small ? '<span class="' + P + '-sw"' + tip({ title: 'Прочерк — меньше ' + CFG.small.min + ' человек',
-        text: 'Закрепляемость и текучесть команды меньше ' + CFG.small.min + ' человек не оцениваются: один человек сдвигает процент на несколько пунктов.',
-        note: 'Сколько это людей — в подсказке ячейки.' }) + '><b class="' + P + '-dash0">—</b> ' + (short ? '< ' + CFG.small.min + ' чел.' : 'меньше ' + CFG.small.min + ' чел.: без оценки') + '</span>' : '')
+    + (small ? '<span class="' + P + '-sw"' + tip({ title: 'Прочерк — мало людей',
+        text: 'Метрика не оценивается, если численность ниже порога: ' + smallRule() + '. Один человек сдвигает процент на несколько пунктов.',
+        note: 'Сколько это людей — в подсказке ячейки.' }) + '><b class="' + P + '-dash0">—</b> ' + (short ? 'мало людей' : 'мало людей: без оценки') + '</span>' : '')
     + '</div>';
 }
 // Ячейка ориентира: подпись и значение одной строкой («Цель ≤ 2,0%», «База 92,0%»), под ней —
@@ -2083,7 +2108,9 @@ function cmpTd(m, v, bl) {
         text: 'У метрики есть утверждённая цель — сравнение идёт с ней, а не с базой.',
         rows: [{ label: 'факт', value: fmtVal(m, v) }, { label: 'цель', value: fmtVal(m, bl.ref), color: CFG.colors.kpi, dash: true },
                { label: 'отклонение', value: fmtDelta(m, dk) }],
-        note: [(bl.inherited ? 'Цель унаследована с уровня «' : 'Цель стоит на юните «') + unitName(MODEL, bl.owner) + '».', STATE_TXT[bl.state]] }) + '>'
+        note: [(bl.inherited ? 'Цель унаследована с уровня «' : 'Цель стоит на юните «') + unitName(MODEL, bl.owner) + '».',
+               m.ytd && ytdOn(m) && bl.rule ? 'Текучесть с начала года сравнивается с долей годовой цели ' + fmtVal(m, bl.rule.target) + ': ' + ((MODEL.L % 12) + 1) + '/12 к ' + monthDat(MODEL.L) + '.' : null,
+               STATE_TXT[bl.state]] }) + '>'
       + '<div class="' + P + '-tgt"><span class="' + P + '-tgl">Цель ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</div>'
       + hPill(bl.state, fmtDelta(m, dk)) + '</td>';
   }
@@ -2884,6 +2911,7 @@ function badTeams(m, teams) {
 }
 // Ухудшение trend месяцев подряд и на dev за них: {a, b} — значение в начале и сейчас, иначе null.
 function worsening(m, ser) {
+  if (m.ytd && ytdOn(m)) return null;  // с начала года значение растёт каждый месяц — «рост подряд» ничего не значит
   var L = MODEL.L, n = CFG.obs.trend, v0 = mval(ser, 'm', m, L - n), prev = v0;
   if (v0 === null) return null;
   for (var i = L - n + 1; i <= L; i++) {
@@ -2968,11 +2996,14 @@ function exitSpike(ser) {
 function obsFacts() {
   var M = MODEL, L = M.L, O = CFG.obs, all = teamRows(true), teams = [], leaves = [], out = [], i;
   for (i = 0; i < all.length; i++) {
-    if (!isSmall(all[i].ser)) teams.push(all[i]);
+    if (!isSmall(all[i].ser)) teams.push(all[i]);  // порог метрики (50 / 100 у текучести) — ниже, в metricFact
     if (all[i].id === '·' || !rowCanExp(all[i])) leaves.push(all[i]);
   }
   var mets = selMetrics('');
-  for (i = 0; i < mets.length; i++) if (mets[i].exL) { var f = metricFact(mets[i], teams); if (f) out.push(f); }
+  for (i = 0; i < mets.length; i++) if (mets[i].exL) {
+    var mi = mets[i], tm = teams.filter(function (t) { return !smallHide(t.ser, mi); }), f = metricFact(mi, tm);
+    if (f) out.push(f);
+  }
   function topLeaves(get, k) {
     var t = [], segs = [];
     for (var j = 0; j < leaves.length; j++) { var c = get(leaves[j]); if (c > 0) t.push({ r: leaves[j], n: c }); }
@@ -3056,6 +3087,21 @@ function popHint() {
   }
   return best;
 }
+// Текучесть нормативна только для активной численности HQ (HRBP 13.10): пометка над таблицей «Текучести» и кнопка,
+// которая ставит оба разреза. Уже выбраны ровно они — пометки нет. Значений нет в зоне — без кнопки.
+function hqOn() {
+  var s = MODEL.sel || {}, h = CFG.hq;
+  return (s.hct || []).length === 1 && s.hct[0] === h.hct && (s.paint || []).length === 1 && s.paint[0] === h.paint;
+}
+function hasVal(key, v) { var f = MODEL.facets[key] || []; for (var i = 0; i < f.length; i++) if (f[i].v === v) return true; return false; }
+function hqNoteHTML() {
+  var P = CFG.ns, h = CFG.hq;
+  if (hqOn()) return '';
+  var can = hasVal('hct', h.hct) && hasVal('paint', h.paint);
+  return '<div class="' + P + '-note ' + P + '-ninfo ' + P + '-hqn" data-hqnote="1">Текучесть применима только для активной численности HQ, сейчас — ' + esc(selLabel()) + '. '
+    + 'Не оценивается при численности меньше 50 (regrettable) и 100 (non-regrettable).'
+    + (can ? ' <button type="button" class="' + P + '-lnk" data-action="hqact">Показать по активной HQ</button>' : '') + '</div>';
+}
 function popHintHTML() {
   var P = CFG.ns, h = popHint(), sig = sigOf(reqNow());
   if (!h || state.popOff === sig) return '';
@@ -3075,11 +3121,12 @@ function onepagerHTML() {
   var s = '';
   if (!M.scope) return s + hEmpty('Нет данных по выбранным разрезам', 'Под текущими разрезами в выбранном юните нет сотрудников за два года. Снимите один из разрезов: × у его чипа над отчётом.');
   if (!selMetrics('').length) return s + hEmpty('Не выбрано ни одной метрики', 'Включите метрики: «Фильтры» → «Что показывать».');
-  var smallScope = isSmall(M.scope), gatedOn = false;
+  var smallScope = false, gatedOn = false, sm0 = selMetrics('');
+  for (var s0 = 0; s0 < sm0.length; s0++) if (smallHide(M.scope, sm0[s0])) smallScope = true;
   for (var g0 = 0; g0 < CFG.small.blocks.length; g0++) if (selMetrics(CFG.small.blocks[g0]).length) gatedOn = true;
   s += kpiCardsHTML() + popHintHTML() + obsHTML()
     + (smallScope && gatedOn ? '<div class="' + P + '-note ' + P + '-ninfo ' + P + '-gap">В юните ' + fmtInt(hcOf(M.scope)) + ' ' + plural(hcOf(M.scope), 'человек', 'человека', 'человек')
-      + ' — меньше ' + CFG.small.min + ': закрепляемость и текучесть не оцениваются, под прочерком — сколько это людей. Оценка — у юнита уровнем выше.</div>' : '')
+      + ': часть метрик не оценивается (' + esc(smallRule()) + '), под прочерком — сколько это людей. Оценка — у юнита уровнем выше.</div>' : '')
     + legendHTML(true, smallScope && gatedOn);
   var any = false;
   for (var b = 0; b < CFG.blocks.length; b++) {
@@ -3110,7 +3157,7 @@ function onepagerHTML() {
       var ab = absText(it.m, M.scope, L), abH = ab ? '<span class="' + P + '-us ' + P + '-abs">' + esc(ab) + '</span>' : '';
       // Юнит меньше CFG.small.min человек: процента, цвета, динамики нет — только сколько это людей.
       if (sm) {
-        var why = tip({ title: it.m.name, text: smallWhy(M.scope), rows: absRows(it.m, M.scope, L) });
+        var why = tip({ title: it.m.name, text: smallWhy(M.scope, it.m), rows: absRows(it.m, M.scope, L) });
         rows += '<tr class="' + P + '-row ' + P + '-smr" data-key="' + mk + '">'
           + '<td class="' + P + '-l"><span class="' + P + '-rl"><span class="' + P + '-cars"></span>' + name + '</span></td>'
           + '<td class="' + P + '-lead ' + P + '-muted"' + why + '>—' + abH + '</td>'
@@ -3124,7 +3171,8 @@ function onepagerHTML() {
         + name + '</span></td>'
         + '<td class="' + P + '-lead">' + esc(fmtVal(it.m, it.v)) + abH + '</td>'
         + cmpTd(it.m, it.v, it.bl)
-        + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 1)), 'Сравнение с предыдущим месяцем (' + monthLow(L - 1) + ').', null, mval(M.scope, 'm', it.m, L - 1))
+        + (it.m.ytd && ytdOn(it.m) ? '<td' + tip({ title: 'Изменение', text: 'С начала года значение копится каждый месяц — сравнение с прошлым месяцем не показательно. Смотрите «Год к году»: тот же месяц прошлого года.' }) + '>' + hPill('flat', '—') + '</td>'
+          : deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 1)), 'Сравнение с предыдущим месяцем (' + monthLow(L - 1) + ').', null, mval(M.scope, 'm', it.m, L - 1)))
         + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 12)), 'Сравнение с тем же месяцем прошлого года (' + monthLow(L - 12) + ').', null, mval(M.scope, 'm', it.m, L - 12))
         + '<td class="' + P + '-spk">' + sparkHTML(u, M.scope, it.m) + '</td></tr>';
       if (open) {
@@ -3144,7 +3192,7 @@ function onepagerHTML() {
       + '<th>Изменение<span class="' + P + '-hc">к ' + esc(monthDat(L - 1)) + '</span></th>'
       + '<th>Год к году<span class="' + P + '-hc">к ' + esc(monthDat(L - 12)) + '</span></th>'
       + '<th class="' + P + '-c">12 мес<span class="' + P + '-hc">точка — к ориентиру месяца</span></th></tr></thead><tbody>' + rows + '</tbody></table>';
-    s += '<div class="' + P + '-gap">' + hPanel({ title: blk.name, sub: blk.hint, body: tbl, tbl: true }) + '</div>';
+    s += '<div class="' + P + '-gap">' + hPanel({ title: blk.name, sub: blk.hint, body: (blk.key === 'turnover' ? hqNoteHTML() : '') + tbl, tbl: true }) + '</div>';
   }
   if (!any) s += hEmpty('Под фильтром «Только фокусные» метрик не осталось', 'На этом юните и выше по ветке целей по выбранным метрикам нет. Выключите тумблер «Только фокусные» в окне «Фильтры».');
   return s;
@@ -3252,14 +3300,15 @@ function unitCell(unitId, ser, m, selected, cls) {
     + (selected ? '<span class="' + P + '-cref">' + (bl.kind === 'kpi' ? 'цель ' : 'база ') + esc(fmtVal(m, bl.ref)) + '</span>' : '') + '</td>';
 }
 // Маленькая команда: прочерк без цвета, в подсказке — почему и сколько это людей.
-function smallWhy(ser) {
+function smallWhy(ser, m) {
   var n = hcOf(ser);
-  return 'Не оценивается: в команде ' + fmtInt(n) + ' ' + plural(n, 'человек', 'человека', 'человек') + ' — меньше ' + CFG.small.min
-    + '. На такой команде один человек сдвигает процент на несколько пунктов.';
+  return 'Не оценивается: в команде ' + fmtInt(n) + ' ' + plural(n, 'человек', 'человека', 'человек') + ' — меньше ' + smallMin(m)
+    + '. На такой численности один человек сдвигает процент на несколько пунктов.';
 }
+function smallRule() { return 'закрепляемость и причины — от ' + CFG.small.min + ' человек, regrettable-текучесть — от 50, non-regrettable — от 100'; }
 function smallTd(m, ser, cls) {
   var P = CFG.ns;
-  return '<td class="' + P + '-muted ' + P + '-sm0' + (cls ? ' ' + cls : '') + '"' + tip({ title: m.name, text: smallWhy(ser), rows: absRows(m, ser, MODEL.L) }) + '>—</td>';
+  return '<td class="' + P + '-muted ' + P + '-sm0' + (cls ? ' ' + cls : '') + '"' + tip({ title: m.name, text: smallWhy(ser, m), rows: absRows(m, ser, MODEL.L) }) + '>—</td>';
 }
 function ownLive(unitId, keys) {
   var n = 0;
@@ -3454,7 +3503,7 @@ function teamsHTML() {
     charts += chartBlock('side', 'tm:' + mets[cm].key + ':' + dyn + ':' + cu + ':' + cur.key, mets[cm].name, spec, -1);
   }
   var right = '<div class="' + P + '-dyn">'
-    + (gated ? '<div class="' + P + '-snote">' + esc(smallWhy(cur.ser)) + ' Графиков закрепляемости и текучести по ней нет.</div>' : '') + charts + '</div>';
+    + (gated ? '<div class="' + P + '-snote">' + 'Не оцениваются ' + gated + ' ' + plural(gated, 'метрика', 'метрики', 'метрик') + ': в строке ' + fmtInt(hcOf(cur.ser)) + ' чел. Пороги: ' + esc(smallRule()) + '. Их графиков здесь нет.</div>' : '') + charts + '</div>';
   var info = hInfo({ title: 'Как читать таблицу', text: 'Значения — за ' + monthLow(L) + '. Цвет — к ориентиру юнита: к цели (своей или ближайшей выше по дереву), иначе к базе «' + benchLabel() + '».',
     note: ['Клик по строке — её графики справа. «Открыть юнит» у выбранной строки делает её юнитом отчёта; вернуться — «← Назад» или путь над таблицей.', 'Клик по заголовку колонки — сортировка. «Напрямую в …» — сотрудники самого юнита, а не его подразделений.'] });
   var mode = state.narrow ? 'both' : (state.splitMode || 'both');
@@ -3633,7 +3682,15 @@ function transformHTML() {
   th += '<th class="' + P + '-vs">За 12 мес<span class="' + P + '-hc">к ' + esc(monthDat(L - 11)) + '</span></th></tr></thead><tbody>';
   function prow(name, ser, cls) {
     var r = '<tr class="' + cls + '"><td class="' + P + '-l">' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел</span></td>';
-    for (var c = 0; c < months.length; c++) r += '<td' + (c === months.length - 1 ? ' class="' + P + '-now"' : '') + '>' + esc(fmtVal(m, mval(ser, 'm', m, months[c]))) + '</td>';
+    // Меньше порога численности (30 / 50 / 100) — не оценивается и здесь; с начала года — только месяцы этого года.
+    var sh = smallHide(ser, m), yt = m.ytd && ytdOn(m);
+    if (sh) {
+      r = r.replace('<td class="' + P + '-l">', '<td class="' + P + '-l"' + tip({ title: m.name, text: smallWhy(ser, m) }) + '>');
+      for (var c0 = 0; c0 < months.length; c0++) r += '<td class="' + P + '-muted' + (c0 === months.length - 1 ? ' ' + P + '-now' : '') + '">—</td>';
+      return r + '<td class="' + P + '-vs ' + P + '-muted">—</td></tr>';
+    }
+    for (var c = 0; c < months.length; c++) r += '<td' + (c === months.length - 1 ? ' class="' + P + '-now"' : '') + '>' + esc(yt && months[c] < 12 ? '—' : fmtVal(m, mval(ser, 'm', m, months[c]))) + '</td>';
+    if (m.ytd && ytdOn(m)) return r + '<td class="' + P + '-vs"' + tip({ title: 'За 12 мес', text: 'С начала года значение копится каждый месяц — сравнение с ' + monthDat(L - 11) + ' прошлого года не показательно.' }) + '>' + hPill('flat', '—') + '</td></tr>';
     return r + deltaTd(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.', P + '-vs', mval(ser, 'm', m, L - 11)) + '</tr>';
   }
   th += prow('ИТОГО · ' + scopeLabel(), M.scope, P + '-tot');
@@ -3813,6 +3870,8 @@ function tourSteps(view) {
       html: 'Численность на конец месяца и как она менялась за год: найм в компанию, увольнения из компании, переводы между подразделениями. Помесячно — в ⓘ.' });
     add({ sel: '[data-pophint]', lock: true, need: !!popHint(), title: 'С кем сравнивать',
       html: 'Большинство людей области — одна популяция (например, HQ), а база сравнения — вся компания. Нажмите «Сравнить с …» — разрез применится, и база станет той же популяцией по всей компании. «Скрыть» убирает подсказку для этого выбора.' });
+    add({ sel: '[data-hqnote]', lock: true, need: !hqOn(), title: 'Норматив текучести',
+      html: 'Текучесть применима только для активной численности HQ. «Показать по активной HQ» ставит оба разреза — тип численности «Активная» и покраску «HQ». Ниже 50 человек regrettable и ниже 100 non-regrettable не оцениваются.' });
     add({ sel: P + '-obs', title: 'Что видно в данных',
       html: 'Короткая сводка: только факты, которые прошли пороги, — хуже или лучше цели и базы на 10% и больше (в людях), в какой команде сидит отклонение, ухудшение 3 месяца подряд, всплеск уходов, незаполненные причины. <b>«Ещё N»</b> раскрывает список, имя команды в нём открывает её в «Командах». Команды меньше ' + CFG.small.min + ' человек не оцениваются.' });
     add({ sel: function (R) { var t = firstOp(R); return t ? t.querySelectorAll(P + '-row>' + P + '-lead') : null; }, all: true, title: 'Значение',
@@ -5145,6 +5204,13 @@ function buildHTML() {
         var np = reqNow();
         np.cuts[key] = [a.getAttribute('data-val') || ''];
         emit(np);
+        return;
+      }
+      if (act === 'hqact') {
+        var nq = reqNow();
+        nq.cuts.hct = [CFG.hq.hct];
+        nq.cuts.paint = [CFG.hq.paint];
+        emit(nq);
         return;
       }
       if (act === 'ytd') { state.ytd = key !== 'off'; state.drawn = {}; render(); return; }

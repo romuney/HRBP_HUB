@@ -7,7 +7,8 @@
 --   gender — пол; age — возрастная группа; office — офис; work — тип работы
 --   (employee_contract_type_desc); head — руководитель / нет; legal — юрлицо
 --   (lvl1_legal_unit_nm); macro — макрорегион; city — город (mdm_employee_residence).
--- Окна — как в «HH · куб по разрезам» (месячные: 12 / 3 / 3).
+-- Окна — как в «HH · куб по разрезам» (месячные: текучесть 12, причины 3, закрепляемость 9 / 6 — найм за
+-- 12 мес); rgs / nrgs — увольнения месяца без окна (текучесть с начала года, 13.10).
 --
 -- Свёртка → hrbp_hub_attr_top: юнит открывают — трансформер должен приехать сразу, а
 -- листовой куб всей компании — сотни тысяч строк на каждый ответ. Поэтому юнитам, которые
@@ -89,16 +90,18 @@ select x.kid, x.grain, x.idx,
        x.jun,
        sum(x.rg) over w12 as rg,
        sum(x.nrg) over w12 as nrg,
+       x.rg as rgs,
+       x.nrg as nrgs,
        sum(x.hc) over w12 as hcw,
        sum(x.nr) over w3 as nr,
-       sum(x.r3n) over w3 as r3n,
-       sum(x.r3d) over w3 as r3d,
-       sum(x.r6n) over w3 as r6n,
-       sum(x.r6d) over w3 as r6d,
-       sum(x.r3an) over w3 as r3an,
-       sum(x.r3ad) over w3 as r3ad,
-       sum(x.r6an) over w3 as r6an,
-       sum(x.r6ad) over w3 as r6ad,
+       sum(x.r3n) over w9 as r3n,
+       sum(x.r3d) over w9 as r3d,
+       sum(x.r6n) over w6 as r6n,
+       sum(x.r6d) over w6 as r6d,
+       sum(x.r3an) over w9 as r3an,
+       sum(x.r3ad) over w9 as r3ad,
+       sum(x.r6an) over w6 as r6an,
+       sum(x.r6ad) over w6 as r6ad,
        x.hire,
        x.fire
 from (
@@ -126,7 +129,9 @@ from (
         on l.kid = g.kid and l.idx = g.idx
 ) x
 window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
-       w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row)
+       w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
+       w9 as (partition by x.kid, x.grain order by x.idx rows between 8 preceding and current row),
+       w6 as (partition by x.kid, x.grain order by x.idx rows between 5 preceding and current row)
 distributed by (kid);
 
 drop table if exists hh_attr_arr;
@@ -136,6 +141,8 @@ select kid,
        array_agg(jun::int order by idx) as jun,
        array_agg(rg::int order by idx) as rg,
        array_agg(nrg::int order by idx) as nrg,
+       array_agg(rgs::int order by idx) as rgs,
+       array_agg(nrgs::int order by idx) as nrgs,
        array_agg(hcw::int order by idx) as hcw,
        array_agg(nr::int order by idx) as nr,
        array_agg(r3n::int order by idx) as r3n,
@@ -175,7 +182,9 @@ select k.path_s,
        m.r6an as m_r6an,
        m.r6ad as m_r6ad,
        m.hire as m_hire,
-       m.fire as m_fire
+       m.fire as m_fire,
+       m.rgs as m_rgs,
+       m.nrgs as m_nrgs
 from (select distinct kid, path_s, paint, it, stream, spec, staff, hct, attr_k, attr_v
       from hh_attr_long
       where path_s not like 'T:%') k
@@ -203,7 +212,9 @@ select substr(k.path_s, 3) as unit_id, k.attr_k, k.attr_v,
        m.r6an as m_r6an,
        m.r6ad as m_r6ad,
        m.hire as m_hire,
-       m.fire as m_fire
+       m.fire as m_fire,
+       m.rgs as m_rgs,
+       m.nrgs as m_nrgs
 from (select distinct kid, path_s, attr_k, attr_v
       from hh_attr_long
       where path_s like 'T:%') k

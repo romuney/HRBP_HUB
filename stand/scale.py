@@ -119,7 +119,7 @@ def main():
             'stream String, spec String, staff String, hct String, w Float64) ENGINE = MergeTree ORDER BY path_s')
     S.query('INSERT INTO prod_proteus.cube_keys FORMAT JSONEachRow\n' + '\n'.join(json.dumps(k, ensure_ascii=False) for k in keys))
     comp = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'r3an', 'r3ad', 'r6an', 'r6ad', 'hire', 'fire']
-    ccomp = comp + ['rgs', 'nrgs']   # у куба и базы — ещё увольнения без окна (12.10); у куба атрибутов их нет
+    ccomp = comp + ['rgs', 'nrgs']   # увольнения без окна (12.10): куб, база и (с 13.10) куб атрибутов
     scale = dict(hc=1.0, jun=.15, rg=.03, nrg=.05, hcw=12.0, nr=.01, r3n=.06, r3d=.07, r6n=.05, r6d=.07,
                  r3an=.06, r3ad=.07, r6an=.05, r6ad=.07, hire=.03, fire=.02, rgs=.003, nrgs=.005)
 
@@ -132,7 +132,7 @@ def main():
     # куб атрибутов: каждая строка куба делится между n значениями атрибута (значение — по хешу ключа)
     pools = [('grade', 16, 4), ('seniority', 7, 2), ('exp', 6, 3), ('gender', 2, 2), ('age', 6, 3), ('office', 60, 2),
              ('work', 4, 1), ('head', 2, 2), ('legal', 5, 1), ('macro', 8, 1), ('city', 300, 2)]
-    acols = ['m_' + c for c in comp]
+    acols = ['m_' + c for c in ccomp]  # с 13.10 и у куба атрибутов — увольнения без окна (rgs, nrgs)
     S.query('INSERT INTO prod_proteus.hrbp_hub_attr (path_s, path, leaf, paint, it, stream, spec, staff, hct, attr_k, attr_v, %s) '
             'SELECT path_s, path, leaf, paint, it, stream, spec, staff, hct, ak, '
             "concat(ak, ' ', toString((cityHash64(path_s, paint, it, stream, spec, staff, hct, ak) + j * 7919) %% pool)), %s "

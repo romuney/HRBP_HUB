@@ -71,8 +71,8 @@
 {% set CUT_COLS = ['paint', 'it', 'stream', 'spec', 'staff', 'hct'] %}
 {% set ATTRS = ['grade', 'seniority', 'exp', 'gender', 'age', 'office', 'work', 'head', 'legal', 'macro', 'city'] %}
 {#- rgs, nrgs — regrettable / non-regrettable увольнения без окна (поток слота): текучесть нарастающим итогом с
-    начала года (владелец 12.10). Новые компоненты — только в конец списка: трансформеры везут первые 12 (MT), у них
-    колонки rgs / nrgs пустые. -#}
+    начала года (владелец 12.10). Новые компоненты — только в конец списка. С 13.10 трансформеры везут все 14 (MT):
+    текучесть с начала года — и в «Трансформерах» (куб атрибутов тоже с rgs / nrgs). -#}
 {% set COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs'] %}
 {% set NC = COMP|length %}
 {% set ROLES = ['meta', 'f', 'scope', 'base', 'kpi', 'hrbps', 'dict', 'c', 'g', 'tr', 'x', 'end'] %}
@@ -126,11 +126,11 @@
 {#- Закрепляемость от active_hire_dt — только когда «Тип численности» = ровно «Активная». -#}
 {% set RA = 'a' if (F['hct']|length == 1 and F['hct'][0] == 'Активная') else '' %}
 {#- Колонки компонентов (закрепляемость — с подменой RA): MM — месячные, MW — они же и недельные, MT — месячные
-    трансформеров (первые 12: в кубе атрибутов rgs / nrgs нет). -#}
+    трансформеров (все 14, с 13.10). -#}
 {% set MM = [] %}{% set WW = [] %}
 {% for c in COMP %}{% set s = c[:2] ~ RA ~ c[2:] if c in ['r3n', 'r3d', 'r6n', 'r6d'] else c %}{% set _ = MM.append('m_' ~ s) %}{% set _ = WW.append('w_' ~ s) %}{% endfor %}
 {% set MW = (MM + WW)|join(', ') %}
-{% set MT = MM[:12]|join(', ') %}
+{% set MT = MM|join(', ') %}
 {#- Условие «строка проходит разрезы», кроме разреза skip (для фасетов). -#}
 {% macro cond(skip) -%}
 {%- set parts = [] -%}
