@@ -14,6 +14,7 @@ applyCrossFilter(mask). Маска превращается в фильтры д
 ?limit=N — лимит строк чарта, как его применяет Proteus 2.1 (09.10): SELECT … FROM (датасет) AS virtual_table
            GROUP BY <все колонки> LIMIT N — порядок не держится, режутся случайные строки
            HH_DIST=1 — чарт из файла 3 поставки (сжатая сборка), датасет из файла 2
+           HH_CHART=<путь> — другой файл чарта (черновик: сравнить «было / будет» до правки)
 (хвост ответа молча отрезается — проверка плашки «ответ обрезан» и того, что фильтры целы).
 
 /board — тот же чарт так, как его кладёт Proteus: <iframe sandbox="allow-scripts"> высотой с ячейку
@@ -37,6 +38,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CHART = os.path.join(HERE, '..', 'proteus', 'hrbp-hub.chart.js')
 if os.environ.get('HH_DIST') == '1':
     CHART = os.path.join(HERE, '..', 'Поставка — HRBP HUB v2', '3. Proteus — чарт HRBP HUB.js')
+if os.environ.get('HH_CHART'):  # черновик чарта для сравнения «было / будет» (рендеры до правки)
+    CHART = os.environ['HH_CHART']
 COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs']
 COLS = ', '.join(['role', 'id', 'pid', 'n', 'j'] + ['m_' + c for c in COMP] + ['w_' + c for c in COMP])
 
