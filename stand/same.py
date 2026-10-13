@@ -49,6 +49,25 @@ def cases():
     return out
 
 
+def dropnew(r, a):
+    if r.get('role') != 'meta':
+        return r
+    old = next((x for x in a if x.get('role') == 'meta'), None)
+    if not old:
+        return r
+    try:
+        jo, jn = json.loads(old['j']), json.loads(r['j'])
+    except ValueError:
+        return r
+    if not set(jn) - set(jo):
+        return r
+    r = dict(r)
+    r['j'] = json.dumps(dict((k, v) for k, v in jn.items() if k in jo), ensure_ascii=False, separators=(',', ':'))
+    if r['j'] != old['j'] and json.loads(r['j']) == jo:
+        r['j'] = old['j']
+    return r
+
+
 def main():
     modes = [dict(), dict(tr_all_max=5), dict(tr_top=2), dict(attr_top=False)]
     key = lambda r: (r['role'], r['id'], r['pid'], r['j'][:50])  # noqa: E731
@@ -62,6 +81,7 @@ def main():
                 b, _ = ch.run(ch.render(flt, user, **m), SETTINGS)
                 if a and b and set(b[0]) - set(a[0]):  # новые колонки (12.10: m_rgs …) — сверка по колонкам старой версии
                     b = [dict((c, r[c]) for c in a[0]) for r in b]
+                b = [dropnew(r, a) for r in b]  # новые ключи meta (13.10: ytd) — сверка по ключам старой версии
                 n += 1
                 ra = [k for k, _ in itertools.groupby(r['role'] for r in a)]
                 rb = [k for k, _ in itertools.groupby(r['role'] for r in b)]
