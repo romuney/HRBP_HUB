@@ -2929,8 +2929,16 @@ function kpiCardsHTML() {
     var ru = M.rules[r];
     if (M.single ? ru.unit === M.scopeIds[0] : (ru.unit !== u && inScope(ru.unit))) own.push(ru);
   }
-  var live = 0;
-  for (var o = 0; o < own.length; o++) if (ruleMatches(own[o]) && ruleActive(own[o], day)) live++;
+  // Почему цель не в фокусе — по-настоящему (14.10: «пишет, что не подходит», а цель просто начинается позже данных):
+  // срок не начался → ждёт срока; истёк → истёк; иначе разрез не выбран.
+  var live = 0, soon = null, cutw = 0, gone = 0;
+  for (var o = 0; o < own.length; o++) {
+    var ro = own[o];
+    if (!ruleActive(ro, day)) { if (ro.from > day) { if (!soon || ro.from < soon) soon = ro.from; } else gone++; }
+    else if (ruleMatches(ro)) live++;
+    else cutw++;
+  }
+  var whyNot = soon ? 'начнёт действовать с ' + fmtDay(soon) : (cutw ? 'ждёт разреза — выберите его в «Фильтрах»' : (gone ? 'срок истёк' : ''));
   var inh = 0, from = [];
   var mets = selMetrics('');
   for (var k = 0; k < mets.length; k++) {
@@ -2951,7 +2959,7 @@ function kpiCardsHTML() {
           : '<span class="' + P + '-ks">разрез: ' + esc(selLabel()) + '</span>' })
     + kpiCard({ label: M.single ? 'Целей на юните' : 'Целей внутри зоны', value: String(own.length),
         q: hInfo({ title: 'Свои цели', text: 'Цели, поставленные на этот юнит. Цель с разрезом работает, когда этот разрез выбран в «Фильтрах».' }),
-        row1: live ? '<span class="' + P + '-tag ' + P + '-own">' + live + ' в фокусе сейчас</span>' : '<span class="' + P + '-ks">' + (own.length ? 'ни одна не подходит под разрезы' : 'своих целей нет') + '</span>',
+        row1: live ? '<span class="' + P + '-tag ' + P + '-own">' + live + ' в фокусе сейчас</span>' : '<span class="' + P + '-ks"' + (soon ? tip({ title: 'Почему цель не видна', text: dataTill() }) : '') + '>' + esc(own.length ? whyNot : 'своих целей нет') + '</span>',
         row2: '<button type="button" class="' + P + '-lnk" data-view="goals">задать во вкладке «KPI»</button>' })
     + kpiCard({ label: 'Наследуемых целей', value: String(inh),
         q: hInfo({ title: 'Наследуемые цели', text: 'Цели юнитов выше: они действуют, пока у юнита нет своей.' }),
@@ -4181,14 +4189,20 @@ function kdLink(d) {
   put(K.login, MODEL.meta && MODEL.meta.me || '');
   return K.url + '?' + q.join('&');
 }
+// Данные отчёта — по концу последнего закрытого месяца: цель, которая начинается позже, на графиках появится,
+// когда закроется её первый месяц (данные за октябрь — в начале ноября).
+function dataTill() {
+  var d = MODEL.cal.m[MODEL.L] ? MODEL.cal.m[MODEL.L].e : '';
+  return 'Отчёт показывает данные по ' + fmtDay(d) + ' — последний закрытый месяц. Цель со сроком позже появится в отчёте, когда закроется её первый месяц. Чтобы видеть её сейчас, поставьте «Действует с» раньше — например, с начала года.';
+}
 function ruleStatus(r, day) {
-  if (!ruleActive(r, day)) return r.from > day ? ['neutral', 'с ' + fmtDay(r.from)] : ['neutral', 'истекла'];
+  if (!ruleActive(r, day)) return r.from > day ? ['soon', 'с ' + fmtDay(r.from)] : ['neutral', 'истекла'];
   if (!ruleMatches(r)) return ['wait', 'ждёт разреза'];
   return ['good', 'в фокусе'];
 }
 function ruleSpan(r) {
   var a = r.from > '2000-01-01' ? 'с ' + fmtDay(r.from) : '';
-  var b = r.open ? 'по актуальную дату (' + fmtDay(r.to) + ')' : 'по ' + fmtDay(r.to);
+  var b = r.open ? (r.from > r.to ? 'без даты окончания' : 'по актуальную дату (' + fmtDay(r.to) + ')') : 'по ' + fmtDay(r.to);
   return a ? a + ' ' + b : b;
 }
 // Значения разреза для формы — словари всей компании (meta.fdv), иначе фасеты ответа.
@@ -4203,7 +4217,9 @@ function kdNow(d) {
   var M = MODEL, m = METRIC[d.metric];
   if (!m || !M.scope || !(M.single && M.scopeIds[0] === d.unit)) return '';
   var v = mval(M.scope, 'm', m, M.L), b = comparable(m) ? mval(M.base, 'm', m, M.L) : null;
-  return 'Сейчас у юнита — ' + fmtVal(m, v) + (b !== null ? ', база — ' + fmtVal(m, b) : '') + (m.ytd ? ' (с начала года; цель — годовая)' : '') + '.';
+  var last = M.cal.m[M.L] ? M.cal.m[M.L].e : '';
+  return 'Сейчас у юнита — ' + fmtVal(m, v) + (b !== null ? ', база — ' + fmtVal(m, b) : '') + (m.ytd ? ' (с начала года; цель — годовая)' : '') + '.'
+    + (isoOk(d.from) && last && d.from > last ? ' Данные отчёта — по ' + fmtDay(last) + ': цель с ' + fmtDay(d.from) + ' появится, когда закроется её первый месяц. Видеть сейчас — «Действует с» раньше.' : '');
 }
 function kdEditorHTML() {
   var P = CFG.ns, M = MODEL, d = kdDraft(), K = CFG.kpiForm, m = METRIC[d.metric], err = kdErrors(d), del = d.mode === 'del';
@@ -4273,7 +4289,7 @@ function goalsHTML() {
       + '<td>' + esc(m ? (m.better === 'higher' ? '≥ ' : '≤ ') + fmtVal(m, r.target) : String(r.target)) + '</td>'
       + '<td class="' + P + '-l">' + (chips || '<span class="' + P + '-muted">вся численность</span>') + '</td>'
       + '<td class="' + P + '-l"><span class="' + P + '-muted">' + esc(ruleSpan(r)) + '</span></td>'
-      + '<td class="' + P + '-l"><span class="' + P + '-st ' + P + '-' + st[0] + '"' + tip({ title: st[1], text: st[0] === 'wait' ? 'Цель задана для разреза — выберите его в «Фильтрах» или нажмите «Показать».' : (st[0] === 'good' ? 'Цель действует при текущих фильтрах.' : 'Цель не действует на дату данных.'), note: cuts.length ? cuts.join('; ') : null }) + '>' + esc(st[1]) + '</span></td>'
+      + '<td class="' + P + '-l"><span class="' + P + '-st ' + P + '-' + (st[0] === 'soon' ? 'neutral' : st[0]) + '"' + tip({ title: st[1], text: st[0] === 'wait' ? 'Цель задана для разреза — выберите его в «Фильтрах» или нажмите «Показать».' : (st[0] === 'good' ? 'Цель действует при текущих фильтрах.' : (st[0] === 'soon' ? dataTill() : 'Срок цели закончился до последнего закрытого месяца.')), note: cuts.length ? cuts.join('; ') : null }) + '>' + esc(st[1]) + '</span></td>'
       + '<td class="' + P + '-l"><span class="' + P + '-muted">' + esc((r.author || '—') + (r.note ? ' · ' + r.note : '')) + '</span></td>'
       + '<td class="' + P + '-kact">' + (above ? '' : '<button class="' + P + '-lnk" data-action="gorule" data-key="' + esc(r.id) + '"' + tip({ title: 'Показать в отчёте', text: 'Открыть юнит цели с её разрезами.' }) + '>Показать</button>'
         + '<button class="' + P + '-lnk" data-action="kedit" data-key="' + esc(r.id) + '">Изменить</button>'
