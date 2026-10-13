@@ -312,6 +312,9 @@ var STATE0 = {
   unitBack: [],          // «← Назад»: юниты отчёта до переходов (стек, до 10)
   openRows: {},          // раскрытые узлы «Команд»: ключ — путь узла от −1 через '/'
   tfMetric: 'regret', tfAxis: '',
+  trPick: '',            // «Трансформеры»: выбранное значение разбивки (линия на графике, доля на кольце)
+  trPie: 'hc',           // кольцо «Трансформеров»: доли в людях (hc) или в числителе метрики (num)
+  dsel: '',              // открытый выпадающий список (hSel)
   axisTried: {},         // оси трансформеров, которые уже запрашивались
   kd: null,              // черновик формы KPI (вкладка «KPI»): add | update | del
   kdOpen: false,         // форма KPI открыта над списком
@@ -392,8 +395,6 @@ function splitRecords(s) {
   for (var i = 0; i < lines.length; i++) if (lines[i] !== '') out.push(lines[i].split('\t'));
   return out;
 }
-function pad2(n) { return (n < 10 ? '0' : '') + n; }
-function isoOf(p) { return p ? p.y + '-' + pad2(p.m + 1) + '-' + pad2(p.d) : ''; }
 
 // ---------- БЛОК 3: ТРАНСФОРМАЦИЯ ДАННЫХ ----------
 // rawData → MODEL. SQL отдаёт числители и знаменатели по слотам; проценты, окна
@@ -608,12 +609,6 @@ function commonAncestor(ids) {
 
 // ---- календарь ----
 function slotClosed(g, i) { var s = MODEL.cal[g][i]; return !!(s && s.closed); }
-function lastIdx(g) {
-  if (g === 'm') return MODEL.L;
-  var L = -1;
-  for (var i = 0; i < 24; i++) if (slotClosed('w', i)) L = i;
-  return L;
-}
 
 // ---- значения метрик ----
 function parts(ser, g, m, i) {
@@ -661,11 +656,6 @@ function ytdParts(ser, m, i) {
   return n ? { v: 100 * r, num: num, avg: hs / n } : null;
 }
 function ytdVal(ser, m, i) { var q = ytdParts(ser, m, i); return q ? q.v : null; }
-function mseries(ser, g, m) {
-  var out = [];
-  for (var i = 0; i < 24; i++) out.push(mval(ser, g, m, i));
-  return out;
-}
 function comparable(m) { return m.fmt !== 'int' && m.better !== 'flat'; }
 function targetable(m) { return m.better !== 'flat' && m.fmt !== 'int'; }
 
@@ -731,12 +721,17 @@ function ownRules(unitId, mk) {
 }
 
 // ---- оценка: мёртвая зона ±5%, два сигнала ----
+// Маленький юнит (HRBP 13.10: «ограничений по численности для показа нет, меньше порога — без цвета»): пока
+// рисуется его метрика, NOCOL = true — оценки нейтральные, пилюли и точки серые, значения и графики на месте.
+var NOCOL = false;
 function stateForKpi(m, v, t) {
+  if (NOCOL) return 'neutral';
   if (v === null || t === null || m.better === 'flat') return 'neutral';
   if (m.better === 'higher') return v >= t ? 'good' : (v >= t * (1 - CFG.deadZone) ? 'warn' : 'bad');
   return v <= t ? 'good' : (v <= t * (1 + CFG.deadZone) ? 'warn' : 'bad');
 }
 function compareState(m, v, b) {
+  if (NOCOL) return 'neutral';
   if (v === null || b === null || m.better === 'flat') return 'neutral';
   var d = v - b;
   if (Math.abs(d) <= Math.abs(b) * CFG.deadZone) return 'neutral';
@@ -807,7 +802,6 @@ function excessPeople(m, ser, i, ref) {
   return (m.better === 'higher' ? ref - v : v - ref) / 100 * a.den;
 }
 // «≈ 0,9» / «≈ 12»: дробь — пока меньше 10 человек.
-function fmtPeople(x) { return '≈' + NBSP + (Math.abs(x) < 10 ? fmtNum1(x) : fmtInt(x)); }
 function benchLabel() {
   var parts0 = [];
   for (var i = 0; i < CFG.cuts.length; i++) {
@@ -1089,7 +1083,7 @@ function fmtDelta(m, d) {
   return (d > 0 ? '+' : MINUS) + body + suf;
 }
 function deltaClass(m, d) {
-  if (d === null || d === 0) return 'flat';
+  if (d === null || d === 0 || NOCOL) return 'flat';
   if (m.better === 'flat') return 'neu';
   var good = (m.better === 'lower' && d < 0) || (m.better === 'higher' && d > 0);
   return good ? 'up' : 'down';
@@ -1134,13 +1128,8 @@ function tipHtml(o) {
   return s;
 }
 function tip(o) { return ' data-tip="' + esc(tipHtml(o)) + '"'; }
-function cssColor(c) {
-  if (!c) return '#000';
-  if (typeof c === 'string') return c;
-  var a = (c.length >= 4) ? c[3] : 1;
-  return 'rgba(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ',' + a + ')';
-}
 var STATE_TXT = { good: 'лучше ориентира', bad: 'хуже ориентира', warn: 'в пределах ±5% от цели', neutral: 'в пределах ±5% или без оценки' };
+function stTxt(st) { return NOCOL ? 'Без цвета: в юните мало людей, чтобы оценивать.' : STATE_TXT[st]; }
 
 // ---- шкала для линий: подобрана по данным (у линии читают наклон), ось Y обязательна ----
 function niceStep(raw) {
@@ -1199,9 +1188,14 @@ function runs(arr, X, Y) {
   return out;
 }
 function svgLine(spec, W, H, ctx) {
+  var nc0 = NOCOL;
+  NOCOL = !!spec.nocol;
+  try { return svgLine0(spec, W, H, ctx); } finally { NOCOL = nc0; }
+}
+function svgLine0(spec, W, H, ctx) {
   var P = CFG.ns, C = CFG.colors, G = CFG.chart, F = CFG.fonts, m = spec.m, n = spec.labels.length;
   var anim = !!(ctx && ctx.anim);
-  var on = { cur: true, prev: !cmpRef(spec), ref: cmpRef(spec) };
+  var on = { cur: true, prev: !cmpRef(spec) && !spec.noPrev, ref: cmpRef(spec) };
   var refC = spec.refKind === 'kpi' ? C.kpi : C.bench;
   var all = [];
   for (var i = 0; i < n; i++) {
@@ -1347,7 +1341,7 @@ function svgLine(spec, W, H, ctx) {
     if (on.prev && spec.prev[hi] !== null) rows.push({ label: spec.prevName + (spec.prevHeads ? ' · ' + spec.prevHeads[hi] : ''), value: fmtVal(m, spec.prev[hi]), color: C.prev, line: true, dim: true });
     if (on.ref && spec.ref[hi] !== null && spec.ref[hi] !== undefined) rows.push({ label: spec.refName, value: fmtVal(m, spec.ref[hi]), color: refC, dash: true, dim: true });
     if (!rows.length) rows.push({ label: 'нет данных', value: '—' });
-    tips.push(tipHtml({ title: spec.heads[hi], rows: rows, note: st && on.cur && on.ref ? STATE_TXT[st] : null }));
+    tips.push(tipHtml({ title: spec.heads[hi], rows: rows, note: st && on.cur && on.ref ? stTxt(st) : null }));
   }
   if (ctx && CHARTS[ctx.ci]) CHARTS[ctx.ci].hz = { xs: xs, ys: ys, tips: tips, mk: mkHz };
   s += '<rect class="' + P + '-hz" x="' + (gl - 8) + '" y="' + (gt - 6) + '" width="' + (pw + 16) + '" height="' + (ph + 6) + '" fill="transparent" data-hz="line" data-kind="pt" data-hc="' + (ctx ? ctx.ci : 0) + '"/>';
@@ -1480,7 +1474,6 @@ function buildCSS() {
     // ---- строка фильтров: контролы 34 px ----
     P + '-fbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0 0;min-height:44px;}',
     P + '-ctx{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;margin-right:6px;font-size:' + F.body + 'px;color:' + C.ink2 + ';}',
-    P + '-dd{position:relative;display:inline-block;}',
     P + '-ddb{display:inline-flex;align-items:center;gap:6px;height:34px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:9px;padding:0 12px;font-size:' + F.control + 'px;font-weight:500;color:' + C.ink2 + ';cursor:pointer;white-space:nowrap;max-width:340px;}',
     P + '-ddb:hover{border-color:#d8dce4;}',
     P + '-ddb' + P + '-set{background:' + C.blueBg + ';color:#2b5fd0;border-color:#dbe6fd;}',
@@ -1633,8 +1626,6 @@ function buildCSS() {
     P + '-opt input{accent-color:' + C.blue + ';flex:0 0 auto;margin:0;cursor:pointer;}',
     P + '-optn{margin-left:auto;color:' + C.muted + ';font-size:' + F.note + 'px;font-variant-numeric:tabular-nums;white-space:nowrap;}',
     P + '-optt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    P + '-blk{font-size:' + F.cap + 'px;font-weight:500;color:' + C.muted + ';text-transform:uppercase;letter-spacing:.3px;margin:10px 9px 2px;}',
-    P + '-blk:first-child{margin-top:2px;}',
     P + '-popf{display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid ' + C.line2 + ';}',
     P + '-popf span{flex:1;font-size:' + F.val + 'px;color:' + C.muted + ';font-weight:400;line-height:1.35;}',
     P + '-nores{padding:14px 8px;color:' + C.muted + ';font-size:' + F.note + 'px;font-weight:400;text-align:center;}',
@@ -1647,7 +1638,6 @@ function buildCSS() {
     P + '-tsp{display:inline-block;width:20px;flex:0 0 auto;}',
     P + '-tn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
     P + '-tl{color:' + C.muted + ';font-size:' + F.cap + 'px;font-weight:400;white-space:nowrap;}',
-    P + '-th{color:' + C.muted + ';font-size:' + F.note + 'px;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:44px;text-align:right;}',
     P + '-hzc{flex:0 1 auto !important;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;letter-spacing:0;font-size:' + F.note + 'px;font-weight:500;color:#2b5fd0;background:' + C.blueBg + ';border-radius:999px;padding:2px 8px;}',
     P + '-hzt{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.blueBg + ';color:#2b5fd0;margin-left:6px;vertical-align:1px;white-space:nowrap;}',
     P + '-tpath{display:block;color:' + C.muted + ';font-size:' + F.cap + 'px;font-weight:400;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
@@ -1674,7 +1664,6 @@ function buildCSS() {
 
     // ---- уведомления и загрузка ----
     P + '-notes{padding:8px 0 0;}',
-    P + '-hqn{margin:2px 0 8px;}',
     P + '-note{font-size:' + F.note + 'px;color:' + C.ink2 + ';background:' + C.card + ';border:1px dashed ' + C.line + ';border-radius:9px;padding:10px 14px;margin-top:12px;line-height:1.5;}',
     P + '-note b{color:' + C.ink + ';}',
     P + '-note' + P + '-warn{border-style:solid;border-color:#f3d58f;background:#fff8e6;color:' + C.warnTx + ';}',
@@ -1688,7 +1677,6 @@ function buildCSS() {
     // ---- контент вкладки: шкала отступов 2…16 ----
     P + '-content{padding:2px 0 16px;min-width:0;}',
     P + '-pageh{margin:0 0 12px;}',
-    P + '-h2{font-size:' + F.title + 'px;margin:0 0 4px;font-weight:600;color:' + C.ink + ';}',
     P + '-lede{margin:0;color:' + C.muted + ';font-size:' + F.note + 'px;line-height:1.9;}',
     P + '-lede b{color:' + C.ink2 + ';}',
     P + '-gap{margin-bottom:12px;}',
@@ -1727,14 +1715,15 @@ function buildCSS() {
     P + '-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;}',
     P + '-tools>' + P + '-legend{margin:0;}',
     P + '-tools ' + P + '-lh{align-self:center;}',
-    P + '-dnote{font-size:' + F.note + 'px;color:' + C.muted + ';max-width:380px;line-height:1.4;}',
     P + '-below{color:' + C.muted + ';cursor:help;border-bottom:1px dotted ' + C.muted2 + ';}',
     P + '-ctl{display:flex;flex-direction:column;gap:4px;}',
     P + '-ctll{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.4px;color:' + C.muted + ';font-weight:500;}',
-    P + '-selw{position:relative;display:inline-block;max-width:100%;}',
-    P + '-selw select{appearance:none;-webkit-appearance:none;height:34px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:9px;padding:0 30px 0 12px;font-size:' + F.control + 'px;color:' + C.ink2 + ';font-weight:500;cursor:pointer;min-width:200px;max-width:100%;}',
-    P + '-selw select:focus{outline:none;border-color:' + C.act + ';}',
-    P + '-selc{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:' + C.muted + ';font-size:' + F.cap + 'px;pointer-events:none;}',
+    P + '-dsel{position:relative;display:inline-block;max-width:100%;}',
+    P + '-dsel>' + P + '-ddb{min-width:200px;max-width:100%;width:100%;}',
+    P + '-dsel ' + P + '-ddv{flex:1;text-align:left;}',
+    P + '-dsp{position:fixed;z-index:60;display:flex;flex-direction:column;gap:6px;padding:6px;background:' + C.card + ';border:1px solid ' + C.line + ';border-radius:10px;box-shadow:0 10px 28px rgba(16,24,40,.16);min-width:200px;}',
+    P + '-dsli{overflow-y:auto;overscroll-behavior:contain;min-height:0;}',
+    P + '-dsp ' + P + '-opt' + P + '-on{color:#2b5fd0;background:' + C.blueBg + ';font-weight:500;}',
     P + '-inp{height:34px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:9px;padding:0 12px;font-size:' + F.chart + 'px;font-weight:400;color:' + C.ink + ';width:100%;}',
     P + '-inp:focus{outline:none;border-color:' + C.act + ';}',
     P + '-sp2{flex:1;}',
@@ -1820,7 +1809,6 @@ function buildCSS() {
     P + '-t th' + P + '-sth:hover{color:' + C.ink2 + ';}',
     P + '-t th' + P + '-son{color:' + C.ink2 + ';}',
     P + '-sa{color:' + C.act + ';margin-left:4px;font-size:' + F.val + 'px;}',
-    P + '-nw{white-space:nowrap;}',
 
     // ---- пилюля — одна на отчёт: 11,5 / 500, высота 22, поля 0 8, радиус 999 ----
     // Изменение, отклонение от ориентира, значение юнита в «Командах», пилюля в подсказке.
@@ -1857,6 +1845,7 @@ function buildCSS() {
     P + '-sw{display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:help;}',
     P + '-sw:hover{color:' + C.ink + ';}',
     P + '-dot{width:10px;height:9px;border-radius:3px;display:inline-block;box-shadow:inset 0 0 0 1px rgba(31,31,31,.10);}',
+    P + '-dot0{background:#fff;box-shadow:inset 0 0 0 1px ' + C.muted2 + ';}',
     P + '-empty{background:' + C.card + ';border-radius:12px;box-shadow:' + SH + ';padding:28px;text-align:center;color:' + C.muted + ';font-size:' + F.body + 'px;line-height:1.5;}',
     P + '-empty b{display:block;color:' + C.ink + ';font-size:' + F.title + 'px;font-weight:600;margin-bottom:8px;}',
     P + '-tnote{margin-top:8px;font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;line-height:1.5;}',
@@ -1927,6 +1916,30 @@ function buildCSS() {
     P + '-ins li' + P + '-mkon{background:' + C.blueBg + ';}',
     P + '-ins li' + P + '-mkon ' + P + '-insn{background:' + C.act + ';}',
     P + '-mk{transition:opacity .15s;}',
+    // «Трансформеры» (13.10): сверху график и кольцо, ниже хитмап; строка ↔ доля подсвечиваются вместе.
+    P + '-trtop{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(300px,1fr);gap:12px;align-items:stretch;}',
+    P + '-narrow ' + P + '-trtop{grid-template-columns:minmax(0,1fr);}',
+    P + '-trtop>' + P + '-panel{min-width:0;}',
+    P + '-piew{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}',
+    P + '-pie{flex:0 0 auto;}',
+    P + '-pseg{stroke:#fff;stroke-width:2;cursor:pointer;transition:opacity .15s;}',
+    P + '-pct{font-size:' + F.title + 'px;font-weight:600;fill:' + C.ink + ';font-variant-numeric:tabular-nums;}',
+    P + '-plgs{flex:1 1 140px;min-width:0;display:flex;flex-direction:column;gap:2px;}',
+    P + '-plg{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:7px;font-size:' + F.note + 'px;color:' + C.ink2 + ';cursor:default;transition:background-color .15s;}',
+    P + '-plg[data-trv]{cursor:pointer;}',
+    P + '-plg i{flex:0 0 auto;width:10px;height:10px;border-radius:3px;}',
+    P + '-plg b{margin-left:auto;font-weight:500;color:' + C.ink + ';font-variant-numeric:tabular-nums;}',
+    P + '-plg ' + P + '-us{min-width:40px;text-align:right;}',
+    P + '-trbox[data-trh] ' + P + '-pseg:not(' + P + '-trh){opacity:.35;}',
+    P + '-plg' + P + '-trh,' + P + '-plg' + P + '-on{background:' + C.blueBg + ';}',
+    P + '-pseg' + P + '-on{stroke:' + C.ink + ';}',
+    P + '-heat td{transition:box-shadow .15s;}',
+    P + '-heat tr' + P + '-trr{cursor:pointer;}',
+    P + '-heat tr' + P + '-trh td{box-shadow:inset 0 1px 0 ' + C.act + ',inset 0 -1px 0 ' + C.act + ';}',
+    P + '-heat tr' + P + '-sel td' + P + '-l{box-shadow:inset 3px 0 0 ' + C.act + ';font-weight:500;}',
+    P + '-hleg{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px 12px;font-size:' + F.note + 'px;color:' + C.muted + ';border-top:1px solid ' + C.line2 + ';}',
+    P + '-hleg span{display:inline-flex;align-items:center;gap:6px;}',
+    P + '-hleg i{width:14px;height:10px;border-radius:3px;box-shadow:inset 0 0 0 1px ' + C.line + ';}',
     P + '-mkc{transition:fill .15s;}',
     P + '-mkh{fill:' + C.act + ';opacity:0;transition:opacity .15s;pointer-events:none;}',
     P + '-mkg{stroke:' + C.act + ';stroke-width:1.2;stroke-dasharray:2 3;opacity:0;transition:opacity .15s;pointer-events:none;}',
@@ -1937,7 +1950,6 @@ function buildCSS() {
     P + '-mk' + P + '-mkon ' + P + '-mkg{opacity:.75;}',
     P + '-insb{flex:0 0 auto;width:18px;height:18px;position:relative;}',
     P + '-insb::after{content:"";position:absolute;left:7px;top:8px;width:5px;height:5px;border-radius:50%;background:' + C.muted2 + ';}',
-    P + '-mlnk{font-size:inherit;}',
     P + '-hz{cursor:crosshair;}',
     // Заголовок графика — капитель серым (ПОЛЬЗОВАТЕЛИ ПО ПЕРИОДАМ в Adoption), легенда справа кнопками.
     P + '-chb{min-width:0;}',
@@ -1952,13 +1964,8 @@ function buildCSS() {
     P + '-lg:hover{border-color:#d8dce4;background:#fafbfc;}',
     P + '-lg:focus:not(:focus-visible){outline:none;}',
     P + '-lg:focus-visible{border-color:' + C.act + ';}',
-    P + '-lg' + P + '-off{opacity:.45;}',
-    P + '-lg' + P + '-off ' + P + '-lgk{border-top-color:#c7c8cc !important;}',
     P + '-lgk{display:inline-block;width:14px;height:0;border-top:2px solid;vertical-align:middle;}',
     P + '-lgk' + P + '-dash{border-top-style:dashed;}',
-    P + '-lgm{display:inline-block;width:14px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px;}',
-    P + '-lgm' + P + '-dash{border-top-style:dashed;}',
-    P + '-lgb{display:inline-block;width:10px;height:9px;border-radius:3px;vertical-align:middle;margin-right:5px;}',
     // Наведение на пункт легенды гасит чужие серии (ДС 6.4).
     P + '-chb [data-s]{transition:opacity .14s ease-out;}',
     P + '-chb[data-hi] [data-s]{opacity:.16;}',
@@ -2008,10 +2015,7 @@ function buildCSS() {
     // ---- числа людей, маленькие команды ----
     P + '-t td ' + P + '-abs{white-space:normal;line-height:1.25;}',
     P + '-t td' + P + '-sm0{cursor:help;}',
-    P + '-t tr' + P + '-smr{cursor:default;}',
-    P + '-t tr' + P + '-smr:hover td{background:transparent;}',
     P + '-snote{font-size:' + F.note + 'px;line-height:1.45;color:' + C.ink2 + ';background:' + C.surface2 + ';border-radius:9px;padding:10px 12px;}',
-    P + '-dash0{display:inline-block;width:10px;text-align:center;font-weight:600;color:' + C.muted + ';}',
     P + '-mvn{font-weight:600;color:' + C.ink + ';}',
     // ---- «Что видно в данных» — как Proteus Adoption (pa-area -obs): одна строка 42 px, мягкая заливка
     // по важности (жёлтый здесь разрешён — это не светофор метрики, ДС §3.3), список растёт вниз ----
@@ -2051,9 +2055,7 @@ function buildCSS() {
     P + '-cn ' + P + '-info{margin-left:0;}',
     P + '-cm{font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;line-height:1.4;}',
     P + '-cb{font-size:' + F.val + 'px;font-weight:500;padding:1px 8px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;}',
-    P + '-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:12px;}',
     P + '-root ' + P + '-code{display:block;width:100%;min-height:58px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:' + F.control + 'px;line-height:1.5;border:1px solid ' + C.line + ';border-radius:9px;padding:10px 12px;background:' + C.hover + ';color:' + C.ink + ';resize:vertical;white-space:pre-wrap;}',
-    P + '-root ' + P + '-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:' + F.val + 'px;color:' + C.muted + ';font-weight:400;}',
     P + '-steps{margin:0;padding-left:18px;color:' + C.ink2 + ';font-size:' + F.body + 'px;line-height:1.6;}',
     // Форма KPI (вкладка «KPI»): поля сеткой, юнит / разрезы / комментарий — во всю ширину; ссылка прячется,
     // пока в полях ошибка (style.display: .hidden ненадёжен, RETRO 8 скилла).
@@ -2165,12 +2167,25 @@ function hSearch(kind, placeholder) {
   return '<div class="' + P + '-psearch">' + SEARCH_SVG + '<input class="' + P + '-srch" type="text" data-psearch="' + esc(kind) + '" placeholder="'
     + esc(placeholder) + '" value="' + esc(qv(kind)) + '"></div>';
 }
+// Выпадающий список — один на весь отчёт, как разрез в «Фильтрах» (13.10): кнопка -ddb и всплывающая карточка
+// со строками -opt (выбранная — фоном, без галочки, как пилюли разрезов); открыт один (state.dsel), закрывают выбор, клик мимо, Esc и прокрутка. Карточка — fixed по
+// кнопке (placeDsel): панели режут overflow. Длинный список — с поиском (dsq, фильтр без перерисовки).
 function hSel(name, options, value, cls) {
-  var P = CFG.ns, s = '<span class="' + P + '-selw' + (cls ? ' ' + cls : '') + '"><select data-sel="' + name + '">';
-  for (var i = 0; i < options.length; i++) {
-    s += '<option value="' + esc(options[i][0]) + '"' + (options[i][0] === value ? ' selected' : '') + '>' + esc(options[i][1]) + '</option>';
+  var P = CFG.ns, open = state.dsel === name, cur = options.length ? options[0][1] : '', i;
+  for (i = 0; i < options.length; i++) if (options[i][0] === value) cur = options[i][1];
+  var s = '<span class="' + P + '-dsel' + (cls ? ' ' + cls : '') + '" data-dsel="' + esc(name) + '">'
+    + '<button type="button" class="' + P + '-ddb' + (open ? ' ' + P + '-on' : '') + '" data-action="dsel" data-key="' + esc(name) + '" aria-haspopup="listbox" aria-expanded="' + (open ? 'true' : 'false') + '">'
+    + '<span class="' + P + '-ddv">' + esc(cur) + '</span><span class="' + P + '-ddc" aria-hidden="true">' + (open ? '▴' : '▾') + '</span></button>';
+  if (open) {
+    s += '<div class="' + P + '-dsp" role="listbox">' + (options.length > 10 ? '<input class="' + P + '-inp ' + P + '-dsq" type="text" data-dsq="1" placeholder="Поиск">' : '') + '<div class="' + P + '-dsli">';
+    for (i = 0; i < options.length; i++) {
+      var on = options[i][0] === value;
+      s += '<div class="' + P + '-opt' + (on ? ' ' + P + '-on' : '') + '" role="option" tabindex="0" aria-selected="' + (on ? 'true' : 'false') + '" data-action="dselv" data-key="' + esc(name) + '" data-id="' + esc(options[i][0]) + '">'
+        + '<span class="' + P + '-optt">' + esc(options[i][1]) + '</span></div>';
+    }
+    s += '</div></div>';
   }
-  return s + '</select><i class="' + P + '-selc">▾</i></span>';
+  return s + '</span>';
 }
 // Пилюля — ОДНА на отчёт: изменение, отклонение от ориентира, значение в «Командах», пилюля
 // в подсказке. Размер у всех один (11,5 / 500, высота 22), различается только цвет.
@@ -2247,7 +2262,7 @@ function legendHTML(right, small, short) {
     + '<span class="' + P + '-sw"' + tip({ title: 'В пределах ±5%', text: dz, note: 'Серые и метрики без оценки — например, численность.' })
     + '><span class="' + P + '-dot" style="background:' + C.neutral + '"></span> ' + (short ? '±5% или без ориентира' : 'в пределах ±5% или без ориентира') + '</span>'
     + (small ? '<span class="' + P + '-sw"' + tip({ title: 'Мало людей',
-        text: 'Не оцениваем, если людей меньше порога: ' + smallRule() + '. Один человек сдвигает процент на несколько пунктов.' }) + '><b class="' + P + '-dash0">—</b> ' + (short ? 'мало людей' : 'мало людей: без оценки') + '</span>' : '')
+        text: 'Значение и график есть, цвета нет, если людей меньше порога: ' + smallRule() + '. Один человек сдвигает процент на несколько пунктов.' }) + '><span class="' + P + '-dot ' + P + '-dot0"></span> ' + (short ? 'мало людей' : 'мало людей: без цвета') + '</span>' : '')
     + '</div>';
 }
 // Ячейка ориентира: подпись и значение одной строкой («Цель ≤ 2,0%», «База 92,0%»), под ней —
@@ -2263,7 +2278,7 @@ function cmpTd(m, v, bl) {
                { label: 'отклонение', value: fmtDelta(m, dk) }],
         note: [(bl.inherited ? 'Цель унаследована с уровня «' : 'Цель стоит на юните «') + unitName(MODEL, bl.owner) + '».',
                m.ytd && ytdOn(m) && bl.rule ? 'Годовая цель — ' + fmtVal(m, bl.rule.target) + '; к ' + monthDat(MODEL.L) + ' — ' + ((MODEL.L % 12) + 1) + '/12 от неё.' : null,
-               STATE_TXT[bl.state]] }) + '>'
+               stTxt(bl.state)] }) + '>'
       + '<div class="' + P + '-tgt"><span class="' + P + '-tgl">Цель ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</div>'
       + hPill(bl.state, fmtDelta(m, dk)) + '</td>';
   }
@@ -2839,7 +2854,7 @@ function yoySpec(unitId, ser, m) {
     if (ytd) for (var t = 0; t < 12; t++) ref[t] = ref[t] === null ? null : ref[t] * (t + 1) / 12;
   } else if (rk === 'bench') { ref = []; for (var b = 0; b < 12; b++) ref.push(12 + b <= L ? val(M.base, 12 + b) : null); }
   var y = dparts(M.cal.m[L].s).y;
-  return { m: m, ytd: ytd, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: L - 12, heads: heads, prevHeads: null,
+  return { m: m, nocol: NOCOL, ytd: ytd, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: L - 12, heads: heads, prevHeads: null,
            curName: String(y), prevName: String(y - 1), refName: rk === 'kpi' ? 'цель' : 'база · ' + benchLabel(),
            tips: { cur: ytd ? y + ' год, с начала года: значение копится с января.' : y + ' год по месяцам.',
                    prev: (y - 1) + ' год — те же месяцы.',
@@ -2856,7 +2871,8 @@ function chartBlock(kind, key, title, spec, H) {
   var cur = '<span class="' + P + '-lg ' + P + '-lgs"' + tip({ title: spec.curName, text: spec.tips ? spec.tips.cur : '' }) + '>'
     + '<i class="' + P + '-lgk" style="border-top-color:' + C.cur + '"></i>' + esc(spec.curName) + '</span>';
   var sw = '';
-  if (spec.ref) {
+  if (spec.noPrev) sw = '';
+  else if (spec.ref) {
     var opts = [['prev', spec.prevName, C.prev, false], ['ref', refL, refC, true]];
     sw = '<span class="' + P + '-seg" role="group" aria-label="С чем сравнить">';
     for (var i = 0; i < opts.length; i++) {
@@ -2888,7 +2904,7 @@ function sparkHTML(unitId, ser, m) {
       rows.push({ label: b.kind === 'kpi' ? 'цель' : 'база', value: fmtVal(m, b.ref), dash: true, color: b.kind === 'kpi' ? CFG.colors.kpi : CFG.colors.bench });
       rows.push({ label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, b.ref)) });
     }
-    tips.push({ title: monthFull(idx[k]), rows: rows, note: b.ref === null || b.ref === undefined ? 'Без ориентира — без цвета.' : STATE_TXT[states[k] || 'neutral'] });
+    tips.push({ title: monthFull(idx[k]), rows: rows, note: b.ref === null || b.ref === undefined ? 'Без ориентира — без цвета.' : stTxt(states[k] || 'neutral') });
   }
   return svgSpark(vals, states, tips, refs);
 }
@@ -3002,8 +3018,6 @@ function obsBase(unitId, m, v) {
 }
 function relDev(v, ref) { return ref ? Math.abs(v - ref) / Math.abs(ref) : (v ? 1 : 0); }
 function refWord(bl) { return bl.kind === 'kpi' ? 'цели' : 'базы'; }
-// «сверх цели ≈ 3,1», «до базы не хватает ≈ 2,4»: число — в конце, падеж не согласуется (≈ 3,1 — дробь).
-function exPhrase(m, bl, ex) { return m.exA.replace('ориентира', refWord(bl)) + ' ' + fmtPeople(ex); }
 // Имя команды в тексте: «Напрямую в «…»» уже в кавычках.
 function qName(r) { return r.id === '·' ? rowName(r) : '«' + rowName(r) + '»'; }
 // Текст факта — сегменты: строка или команда {r, mk} (в списке — ссылка в «Команды», в подсказке — имя).
@@ -3166,7 +3180,7 @@ function obsHTML() {
   var P = CFG.ns, O = CFG.obs, list = obsFacts();
   var info = hInfo({ title: 'Что видно в данных', text: 'Главное по юниту отчёта целиком: где метрика заметно хуже или лучше ориентира, всплески уходов, незаполненные причины.',
     note: ['В список попадает отклонение от ' + Math.round(O.dev * 100) + '% ориентира. Команду называем, только если на неё приходится больше половины отклонения.',
-           'Команды меньше ' + CFG.small.min + ' человек не оцениваем.'] });
+           'Метрики команд меньше порога — без цвета.'] });
   if (!list.length) {
     return '<div class="' + P + '-obs"><div class="' + P + '-obs-h"><span class="' + P + '-obs-ico" aria-hidden="true">✓</span>'
       + '<span class="' + P + '-obs-t">Что видно в данных</span>' + info
@@ -3251,7 +3265,7 @@ function retActive(m) { return (m.num === 'r3n' || m.num === 'r6n') && !!MODEL.m
 function metricNotes(m) {
   var out = [];
   if (m.hq) out.push('Знаменатель — всегда активная численность HQ, какие бы фильтры ни были выбраны.');
-  if (smallGate(m)) out.push('Не оцениваем, если в юните меньше ' + smallMin(m) + ' человек: один уход сдвигает процент на несколько пунктов.');
+  if (smallGate(m)) out.push('Если в юните меньше ' + smallMin(m) + ' человек, значение без цвета: один уход сдвигает процент на несколько пунктов.');
   if (retActive(m)) out.push('Выбран тип «Активная»: новички — пришедшие в активную численность (найм, переход кандидата, внутренний перевод), срок — от прихода.');
   return out.concat(m.notes || []);
 }
@@ -3381,7 +3395,11 @@ function storyHTML(items) {
   return s + '</ol>';
 }
 function storyRow(u, ser, m) {
-  var P = CFG.ns, spec = yoySpec(u, ser, m), items = storyItems(u, ser, m, spec);
+  // Факты — словами как есть («хуже базы»), даже у маленького юнита: без цвета только график (spec.nocol).
+  var P = CFG.ns, spec = yoySpec(u, ser, m), nc = NOCOL;
+  NOCOL = false;
+  var items = storyItems(u, ser, m, spec);
+  NOCOL = nc;
   spec.marks = [];
   for (var i = 0; i < items.length; i++) if (items[i].n) spec.marks.push({ i: items[i].i, s: items[i].s, n: items[i].n });
   return '<tr class="' + P + '-det"><td colspan="6"><div class="' + P + '-story" data-story="1">'
@@ -3399,13 +3417,15 @@ function onepagerHTML() {
   for (var g0 = 0; g0 < CFG.small.blocks.length; g0++) if (selMetrics(CFG.small.blocks[g0]).length) gatedOn = true;
   s += kpiCardsHTML() + popHintHTML() + obsHTML()
     + (smallScope && gatedOn ? '<div class="' + P + '-note ' + P + '-ninfo ' + P + '-gap">В юните ' + fmtInt(hcOf(M.scope)) + ' ' + plural(hcOf(M.scope), 'человек', 'человека', 'человек')
-      + ' — часть метрик не оцениваем: ' + esc(smallRule()) + '. Под прочерком — сколько это людей.</div>' : '')
+      + ' — часть метрик без цвета: ' + esc(smallRule()) + '. Значения и графики — как обычно.</div>' : '')
     + legendHTML(true, smallScope && gatedOn);
   var any = false;
   for (var b = 0; b < CFG.blocks.length; b++) {
     var blk = CFG.blocks[b], mets = selMetrics(blk.key), items = [];
     for (var i = 0; i < mets.length; i++) {
+      NOCOL = smallHide(M.scope, mets[i]);
       var m = mets[i], v = mval(M.scope, 'm', m, L), bl = baseline(u, m, v, 'm', L);
+      NOCOL = false;
       // Зона из нескольких корней: цель общего предка для неё всегда унаследована.
       if (bl.kind === 'kpi' && !M.single) bl.inherited = true;
       if (state.focusOnly && bl.kind !== 'kpi') continue;
@@ -3416,9 +3436,10 @@ function onepagerHTML() {
     items.sort(function (a, c) { return (a.bl.kind === 'kpi' ? 0 : 1) - (c.bl.kind === 'kpi' ? 0 : 1); });
     var rows = '', nOpen = 0, nExp = 0;
     for (var k = 0; k < items.length; k++) {
-      var it = items[k], mk = it.m.key, sm = smallHide(M.scope, it.m), open = !sm && opOpen(mk);
+      var it = items[k], mk = it.m.key, sm = smallHide(M.scope, it.m), open = opOpen(mk);
       if (open) nOpen++;
-      if (!sm) nExp++;
+      nExp++;
+      NOCOL = sm;
       var hid = hiddenRules(u, mk);
       if (it.bl.kind === 'kpi' && it.bl.inherited) {
         var more = hiddenRules(it.bl.owner, mk);
@@ -3427,17 +3448,8 @@ function onepagerHTML() {
       var name = '<span class="' + P + '-rb">' + esc(it.m.name) + hInfo(metricTip(it.m))
         + focusTag(it.m, it.bl) + moreFocus(hid, false) + rowNote(it.m) + '</span>';
       var ab = absText(it.m, M.scope, L), abH = ab ? '<span class="' + P + '-us ' + P + '-abs">' + esc(ab) + '</span>' : '';
-      // Юнит меньше CFG.small.min человек: процента, цвета, динамики нет — только сколько это людей.
-      if (sm) {
-        var why = tip({ title: it.m.name, text: smallWhy(M.scope, it.m), rows: absRows(it.m, M.scope, L) });
-        rows += '<tr class="' + P + '-row ' + P + '-smr" data-key="' + mk + '">'
-          + '<td class="' + P + '-l"><span class="' + P + '-rl"><span class="' + P + '-cars"></span>' + name + '</span></td>'
-          + '<td class="' + P + '-lead ' + P + '-muted"' + why + '>—' + abH + '</td>'
-          + '<td class="' + P + '-vs"' + why + '><span class="' + P + '-nocmp">мало людей</span></td>'
-          + '<td class="' + P + '-muted"' + why + '>—</td><td class="' + P + '-muted"' + why + '>—</td>'
-          + '<td class="' + P + '-spk"' + why + '><span class="' + P + '-ks">меньше ' + CFG.small.min + ' чел.</span></td></tr>';
-        continue;
-      }
+      // Юнит меньше порога (HRBP 13.10): значение, динамика и график — как у всех, только без цвета.
+      if (sm) abH += '<span class="' + P + '-us ' + P + '-abs"' + tip({ title: it.m.name, text: smallWhy(M.scope, it.m), rows: absRows(it.m, M.scope, L) }) + '>без цвета: мало людей</span>';
       rows += '<tr class="' + P + '-row' + (open ? ' ' + P + '-opn' : '') + '" data-action="openm" data-key="' + mk + '" aria-expanded="' + (open ? 'true' : 'false') + '">'
         + '<td class="' + P + '-l"><span class="' + P + '-rl">' + hCaret(open, 'openm', mk, open ? 'Скрыть динамику' : 'Показать динамику')
         + name + '</span></td>'
@@ -3448,6 +3460,7 @@ function onepagerHTML() {
         + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 12)), 'Сравнение с тем же месяцем прошлого года (' + monthLow(L - 12) + ').', null, mval(M.scope, 'm', it.m, L - 12))
         + '<td class="' + P + '-spk">' + sparkHTML(u, M.scope, it.m) + '</td></tr>';
       if (open) rows += storyRow(u, M.scope, it.m);
+      NOCOL = false;
     }
     var allOpen = nExp > 0 && nOpen === nExp;
     var tbl = '<table class="' + P + '-t ' + P + '-fix ' + P + '-op"><colgroup><col style="width:30%"><col style="width:10%"><col style="width:15%">'
@@ -3554,24 +3567,24 @@ function unitCell(unitId, ser, m, selected, cls) {
   var P = CFG.ns, L = MODEL.L, v = mval(ser, 'm', m, L), txt = fmtVal(m, v), c = cls ? ' class="' + cls + '"' : '';
   // «Команды» (HRBP 13.10, Дьяченко): значения — у всех команд, у маленьких — без цвета.
   if (smallHide(ser, m)) return v === null ? smallTd(m, ser, cls)
-    : '<td class="' + P + '-sm1' + (cls ? ' ' + cls : '') + '"' + tip({ title: m.name, text: smallWhy(ser, m).replace('Не оцениваем:', 'Без цвета:'), rows: [{ label: 'факт', value: txt }].concat(absRows(m, ser, L)) }) + '>' + esc(txt) + '</td>';
+    : '<td class="' + P + '-sm1' + (cls ? ' ' + cls : '') + '"' + tip({ title: m.name, text: smallWhy(ser, m), rows: [{ label: 'факт', value: txt }].concat(absRows(m, ser, L)) }) + '>' + esc(txt) + '</td>';
   if (v === null) return '<td class="' + P + '-muted' + (cls ? ' ' + cls : '') + '">' + esc(txt) + '</td>';
   var bl = baseline(unitId, m, v, 'm', L), fact = [{ label: 'факт', value: txt }].concat(absRows(m, ser, L));
   if (bl.kind === 'none') return '<td' + c + tip({ title: m.name, text: 'Ориентира у метрики нет: ' + (m.better === 'flat' ? '«больше» не значит «лучше».' : 'абсолютная величина.'), rows: fact }) + '>' + esc(txt) + '</td>';
   var t = bl.kind === 'kpi'
     ? { title: m.name, text: bl.inherited ? 'Цель унаследована с уровня «' + unitName(MODEL, bl.owner) + '».' : 'Цель стоит на этом юните.',
         rows: fact.concat([{ label: 'цель', value: fmtVal(m, bl.ref), dash: true, color: CFG.colors.kpi }, { label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, bl.ref)) }]),
-        note: STATE_TXT[bl.state] }
+        note: stTxt(bl.state) }
     : { title: m.name, text: 'Утверждённой цели нет — сравнение с базой.',
         rows: fact.concat([{ label: benchLabel(), value: fmtVal(m, bl.ref), dash: true, color: CFG.colors.bench }, { label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, bl.ref)) }]),
-        note: STATE_TXT[bl.state] };
+        note: stTxt(bl.state) };
   return '<td' + c + tip(t) + '>' + hPill(bl.state, txt)
     + (selected ? '<span class="' + P + '-cref">' + (bl.kind === 'kpi' ? 'цель ' : 'база ') + esc(fmtVal(m, bl.ref)) + '</span>' : '') + '</td>';
 }
-// Маленькая команда: прочерк без цвета, в подсказке — почему и сколько это людей.
+// Маленькая команда: значение без цвета, в подсказке — почему и сколько это людей.
 function smallWhy(ser, m) {
   var n = popOf(ser, m), hq = m.hq && MODEL.hqOk;
-  return 'Не оцениваем: в команде ' + fmtInt(n) + ' ' + plural(n, 'человек', 'человека', 'человек') + (hq ? ' активной HQ' : '') + ', нужно от ' + smallMin(m)
+  return 'Без цвета: в команде ' + fmtInt(n) + ' ' + plural(n, 'человек', 'человека', 'человек') + (hq ? ' активной HQ' : '') + ', нужно от ' + smallMin(m)
     + '. Один человек здесь сдвигает процент на несколько пунктов.';
 }
 function smallRule() { return 'закрепляемость и причины — от ' + CFG.small.min + ' человек, regrettable — от 50, non-regrettable — от 100'; }
@@ -3768,8 +3781,11 @@ function teamsHTML() {
   // Только помесячно (13.10: недели убраны — такой гранулярностью HRBP не работают).
   var cu = sel ? rowUnit(sel) : scopeUnit(), charts = '', gated = 0;
   for (var cm = 0; cm < mets.length; cm++) {
-    if (smallHide(cur.ser, mets[cm])) gated++;
-    charts += chartBlock('side', 'tm:' + mets[cm].key + ':yoy:' + cu + ':' + cur.key, mets[cm].name, yoySpec(cu, cur.ser, mets[cm]), -1);
+    NOCOL = smallHide(cur.ser, mets[cm]);
+    if (NOCOL) gated++;
+    var ysp = yoySpec(cu, cur.ser, mets[cm]);
+    NOCOL = false;
+    charts += chartBlock('side', 'tm:' + mets[cm].key + ':yoy:' + cu + ':' + cur.key, mets[cm].name, ysp, -1);
   }
   var right = '<div class="' + P + '-dyn">'
     + (gated ? '<div class="' + P + '-snote">' + 'В строке ' + fmtInt(hcOf(cur.ser)) + ' чел.: ' + gated + ' ' + plural(gated, 'метрика', 'метрики', 'метрик') + ' без цвета (' + esc(smallRule()) + ').</div>' : '') + charts + '</div>';
@@ -3952,35 +3968,133 @@ function transformHTML() {
   var list = trSorted(axis), months = [];
   if (!list.length || !M.scope) return s + hEmpty('Нет данных для разбивки', 'В юните нет людей под текущими фильтрами.');
   for (var k = L - 11; k <= L; k++) months.push(k);
-  // Метки «≈ N сверх» («что тянет метрику») убраны (владелец 12.10: «никто не понимает»): сравнение
-  // значения оси с ориентиром всего юнита бессмысленно там, где ось сама задаёт метрику (сеньорность и
-  // % джунов: у Middle джунов нет по определению).
-  var th = '<table class="' + P + '-t"><thead><tr><th class="' + P + '-l">' + esc(axisLabel(axis)) + '</th>';
+  // Хитмап (13.10): ячейка — значение месяца, фон — насколько оно лучше или хуже «Всего» юнита в том же месяце
+  // (зелёный / красный, сильнее — дальше; ±5 % и маленькие строки — без цвета); у метрик без «лучше» (численность,
+  // non-regrettable) — один синий по величине. Строка — клик выбирает значение: его линия на графике «Всего»,
+  // его доля на кольце; наведение подсвечивает строку и долю (trLink).
+  var yt = m.ytd && ytdOn(m), flat = m.better === 'flat' || m.fmt === 'int', mx = 0, pick = -1;
+  function cv(ser, k) { return yt && k < 12 ? null : mval(ser, 'm', m, k); }
+  for (var q = 0; q < list.length; q++) {
+    if (list[q].v === state.trPick) pick = q;
+    for (var q2 = 0; q2 < months.length; q2++) mx = Math.max(mx, Math.abs(cv(list[q].ser, months[q2]) || 0));
+  }
+  var th = '<table class="' + P + '-t ' + P + '-heat"><thead><tr><th class="' + P + '-l">' + esc(axisLabel(axis)) + '</th>';
   for (var hm = 0; hm < months.length; hm++) {
     var pp = dparts(M.cal.m[months[hm]].s);
     th += '<th>' + esc(MONTH_ABBR[pp.m] + (hm === 0 || pp.m === 0 ? ' ' + String(pp.y).slice(2) : '')) + '</th>';
   }
   th += '<th class="' + P + '-vs">За 12 мес<span class="' + P + '-hc">к ' + esc(monthDat(L - 11)) + '</span></th></tr></thead><tbody>';
-  function prow(name, ser, cls) {
-    var r = '<tr class="' + cls + '"><td class="' + P + '-l">' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел</span></td>';
-    // Меньше порога численности (30 / 50 / 100) — не оценивается и здесь; с начала года — только месяцы этого года.
-    var sh = smallHide(ser, m), yt = m.ytd && ytdOn(m);
-    if (sh) {
-      r = r.replace('<td class="' + P + '-l">', '<td class="' + P + '-l"' + tip({ title: m.name, text: smallWhy(ser, m) }) + '>');
-      for (var c0 = 0; c0 < months.length; c0++) r += '<td class="' + P + '-muted' + (c0 === months.length - 1 ? ' ' + P + '-now' : '') + '">—</td>';
-      return r + '<td class="' + P + '-vs ' + P + '-muted">—</td></tr>';
+  function prow(name, ser, cls, idx) {
+    NOCOL = smallHide(ser, m);
+    var tot = idx < 0, r = '<tr class="' + cls + (idx === pick && !tot ? ' ' + P + '-sel' : '') + '"'
+      + (tot || list[idx].rest ? '' : ' data-trv="' + idx + '" data-action="trpick" data-key="' + idx + '" tabindex="0" aria-pressed="' + (idx === pick ? 'true' : 'false') + '"')
+      + '><td class="' + P + '-l"' + (NOCOL ? tip({ title: m.name, text: smallWhy(ser, m) }) : '') + '>' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел' + (NOCOL ? ' · без цвета' : '') + '</span></td>';
+    for (var c = 0; c < months.length; c++) {
+      var k = months[c], v = cv(ser, k), t = cv(M.scope, k), bg = '';
+      if (v !== null && !tot && !NOCOL) bg = flat ? heatSeq(v, mx) : heatDiv(m, v, t);
+      var rows = [{ label: name.length > 28 ? name.slice(0, 27) + '…' : name, value: fmtVal(m, v), color: C0.cur, line: true }].concat(v === null ? [] : absRows(m, ser, k));
+      if (!tot && t !== null) rows.push({ label: 'Всего', value: fmtVal(m, t), color: C0.prev, line: true, dim: true });
+      r += '<td class="' + (c === months.length - 1 ? P + '-now' : '') + '"' + (bg ? ' style="background:' + bg + '"' : '')
+        + tip({ title: monthFull(k), rows: rows, note: tot ? null : (NOCOL ? 'Без цвета: мало людей.' : (v !== null && t !== null && !flat ? heatTxt(m, v, t) : null)) }) + '>' + esc(fmtVal(m, v)) + '</td>';
     }
-    for (var c = 0; c < months.length; c++) r += '<td' + (c === months.length - 1 ? ' class="' + P + '-now"' : '') + '>' + esc(yt && months[c] < 12 ? '—' : fmtVal(m, mval(ser, 'm', m, months[c]))) + '</td>';
-    if (isCum(m)) return r + '<td class="' + P + '-vs"' + tip({ title: 'За 12 мес', text: 'С начала года значение копится, поэтому сравнивать с ' + monthDat(L - 11) + ' не имеет смысла.' }) + '>' + hPill('flat', '—') + '</td></tr>';
-    return r + deltaTd(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.', P + '-vs', mval(ser, 'm', m, L - 11)) + '</tr>';
+    if (isCum(m)) r += '<td class="' + P + '-vs"' + tip({ title: 'За 12 мес', text: 'С начала года значение копится, поэтому сравнивать с ' + monthDat(L - 11) + ' не имеет смысла.' }) + '>' + hPill('flat', '—') + '</td></tr>';
+    else r += deltaTd(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.', P + '-vs', mval(ser, 'm', m, L - 11)) + '</tr>';
+    NOCOL = false;
+    return r;
   }
-  th += prow('ИТОГО · ' + scopeLabel(), M.scope, P + '-tot');
-  for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr]), list[rr].ser, list[rr].rest ? P + '-rest' : '');
+  var C0 = CFG.colors;
+  th += prow('ИТОГО · ' + scopeLabel(), M.scope, P + '-tot', -1);
+  for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr]), list[rr].ser, list[rr].rest ? P + '-rest' : P + '-trr', rr);
   th += '</tbody></table>';
-  var nv = trCount(axis);
-  return s + hPanel({ title: m.name + ' · ' + axisLabel(axis),
+  var leg = '<div class="' + P + '-hleg">' + (flat ? '<span><i style="background:' + heatSeq(1, 1) + '"></i>больше — темнее</span>'
+    : '<span><i style="background:' + heatDiv(m, m.better === 'higher' ? 1.3 : 0.7, 1) + '"></i>лучше, чем «Всего»</span><span><i style="background:' + heatDiv(m, m.better === 'higher' ? 0.7 : 1.3, 1) + '"></i>хуже</span><span><i></i>±5% или мало людей</span>')
+    + '<span class="' + P + '-us">Клик по строке — её линия на графике и доля на кольце.</span></div>';
+  var nv = trCount(axis), sel = pick > -1 ? list[pick] : null;
+  return s + '<div class="' + P + '-trbox" data-trbox="1"><div class="' + P + '-trtop">'
+    + hPanel({ cls: P + '-trln', title: 'Динамика · ' + (sel ? trName(sel) + ' и всего' : 'всего по юниту'), sub: sel ? 'серая — всего по юниту' : 'выберите строку таблицы, чтобы сравнить',
+        body: trLineBlock(m, sel, months), tabs: sel ? '<span class="' + P + '-pbtn"><button type="button" class="' + P + '-btn ' + P + '-ghost" data-action="trpick" data-key="-1">Сбросить</button></span>' : '' })
+    + hPanel({ cls: P + '-trpie', title: 'Структура · ' + axisLabel(axis), sub: monthFull(L), body: trPieHTML(m, list, pick), tabs: trPieSw(m) })
+    + '</div><div class="' + P + '-gap">' + hPanel({ title: m.name + ' · ' + axisLabel(axis),
     sub: 'последний месяц выделен · ' + nv + ' ' + plural(nv, 'значение', 'значения', 'значений'),
-    body: th, tbl: true, tabs: '<span class="' + P + '-pbtn">' + copyBtn('tr') + '</span>' });
+    body: th + leg, tbl: true, tabs: '<span class="' + P + '-pbtn">' + copyBtn('tr') + '</span>' }) + '</div></div>';
+}
+// Цвет ячейки хитмапа: два полюса (лучше — зелёный, хуже — красный) от «Всего» того же месяца, серая середина ±5 %;
+// насыщенность — по отклонению до 30 %. Текст ячейки — всегда чернилами (цвет — только фон).
+function heatDiv(m, v, t) {
+  if (v === null || t === null || !t) return '';
+  var d = (v - t) / Math.abs(t);
+  if (Math.abs(d) <= CFG.deadZone) return '';
+  var good = (m.better === 'higher') === (d > 0), a = 0.08 + 0.26 * Math.min(1, (Math.abs(d) - CFG.deadZone) / 0.25);
+  return (good ? 'rgba(17,128,74,' : 'rgba(203,46,46,') + a.toFixed(2) + ')';
+}
+function heatSeq(v, mx) { return mx > 0 ? 'rgba(43,108,255,' + (0.05 + 0.25 * Math.min(1, Math.abs(v) / mx)).toFixed(2) + ')' : ''; }
+function heatTxt(m, v, t) {
+  var d = (v - t) / Math.abs(t || 1);
+  if (Math.abs(d) <= CFG.deadZone) return 'Как «Всего» (±5%).';
+  return ((m.better === 'higher') === (d > 0) ? 'Лучше' : 'Хуже') + ', чем «Всего»: ' + fmtDelta(m, deltaOf(m, v, t)) + '.';
+}
+// График над таблицей: «Всего» по юниту за 12 месяцев; выбрана строка — её линия акцентом, «Всего» — серая.
+function trLineBlock(m, sel, months) {
+  var M = MODEL, yt = m.ytd && ytdOn(m), cur = [], prev = [], labels = [], heads = [];
+  function cv(ser, k) { return yt && k < 12 ? null : mval(ser, 'm', m, k); }
+  for (var i = 0; i < months.length; i++) {
+    var k = months[i];
+    cur.push(cv(sel ? sel.ser : M.scope, k));
+    prev.push(sel ? cv(M.scope, k) : null);
+    labels.push(MONTH_ABBR[dparts(M.cal.m[k].s).m]);
+    heads.push(monthFull(k));
+  }
+  var nm = sel ? trName(sel) : 'Всего';
+  var spec = { m: m, ytd: yt, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: null, refKind: 'none', boldIdx: months.length - 1, heads: heads, prevHeads: null,
+               curName: nm.length > 24 ? nm.slice(0, 23) + '…' : nm, prevName: 'Всего', noPrev: !sel, tips: { cur: sel ? 'Значение «' + nm + '» по месяцам.' : 'Весь юнит по месяцам.', prev: 'Весь юнит по месяцам.' } };
+  return chartBlock('story', 'tr:' + m.key + ':' + wantAxis() + ':' + (sel ? sel.v : ''), 'Помесячно, 12 месяцев', spec, CFG.chart.story - 40);
+}
+// Кольцо: доли значений в людях (или в числителе метрики: уходы, новички, джуны…) на последний месяц — пять
+// крупнейших и «Остальные» серым (не больше 6 сегментов). Цвета — категориальные по порядку, рядом список
+// с числами (три светлых цвета ниже 3:1 к фону — подписи обязательны).
+var PIE_C = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4'];
+function fmtPct1(x) { return fmtNum1(x) + '%'; }
+function trPieOf(m, ser) {
+  if (state.trPie !== 'num' || m.fmt === 'int') return hcOf(ser);
+  var a = absParts(m, ser, MODEL.L);
+  return a ? Math.round(a.num) : 0;
+}
+function trPieSw(m) {
+  var f = metricFrac(m);
+  if (m.fmt === 'int' || !f) return '';
+  return '<span class="' + CFG.ns + '-pbtn">' + hSeg([['hc', 'Люди'], ['num', capFirst(f[0]).replace(/\s*\(.*\)$/, '')]], state.trPie === 'num' ? 'num' : 'hc', 'trpie') + '</span>';
+}
+function trPieHTML(m, list, pick) {
+  var P = CFG.ns, seg = [], other = 0, tot = 0, i;
+  for (i = 0; i < list.length; i++) {
+    var n = trPieOf(m, list[i].ser);
+    tot += n;
+    if (list[i].rest) other += n; else seg.push({ i: i, n: n, nm: trName(list[i]) });
+  }
+  seg.sort(function (a, b) { return b.n - a.n; });
+  for (i = 5; i < seg.length; i++) other += seg[i].n;
+  seg = seg.slice(0, 5);
+  if (other > 0) seg.push({ i: -2, n: other, nm: 'Остальные' });
+  if (!tot) return '<div class="' + P + '-nores">Нет людей за ' + esc(monthLow(MODEL.L)) + '</div>';
+  var R = 62, w = 20, cx = 72, cy = 72, a0 = -Math.PI / 2, svg = '<svg class="' + P + '-pie" width="144" height="144" viewBox="0 0 144 144">', lg = '';
+  for (i = 0; i < seg.length; i++) {
+    var g = seg[i], sh = g.n / tot, a1 = a0 + sh * 2 * Math.PI, col = g.i === -2 ? CFG.colors.neutral : PIE_C[i], on = g.i === pick;
+    var tipH = tip({ title: g.nm, rows: [{ label: state.trPie === 'num' && m.fmt !== 'int' ? 'в числителе' : 'людей', value: fmtInt(g.n) }, { label: 'доля', value: fmtPct1(100 * sh) }] });
+    var at = g.i >= 0 ? ' data-trv="' + g.i + '" data-action="trpick" data-key="' + g.i + '"' : '';
+    if (sh >= 0.999) svg += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (R - w / 2) + '" fill="none" stroke="' + col + '" stroke-width="' + w + '"' + at + tipH + '/>';
+    else if (sh > 0) {
+      var la = a1 - a0 > Math.PI ? 1 : 0, r1 = R - w;
+      var d = 'M' + (cx + R * Math.cos(a0)).toFixed(2) + ' ' + (cy + R * Math.sin(a0)).toFixed(2) + 'A' + R + ' ' + R + ' 0 ' + la + ' 1 ' + (cx + R * Math.cos(a1)).toFixed(2) + ' ' + (cy + R * Math.sin(a1)).toFixed(2)
+        + 'L' + (cx + r1 * Math.cos(a1)).toFixed(2) + ' ' + (cy + r1 * Math.sin(a1)).toFixed(2) + 'A' + r1 + ' ' + r1 + ' 0 ' + la + ' 0 ' + (cx + r1 * Math.cos(a0)).toFixed(2) + ' ' + (cy + r1 * Math.sin(a0)).toFixed(2) + 'Z';
+      svg += '<path class="' + P + '-pseg' + (on ? ' ' + P + '-on' : '') + '" d="' + d + '" fill="' + col + '"' + at + tipH + '/>';
+    }
+    a0 = a1;
+    lg += '<div class="' + P + '-plg' + (on ? ' ' + P + '-on' : '') + '"' + at + (g.i >= 0 ? ' tabindex="0"' : '') + tipH + '><i style="background:' + col + '"></i><span class="' + P + '-optt">' + esc(g.nm) + '</span>'
+      + '<b>' + fmtPct1(100 * sh) + '</b><span class="' + P + '-us">' + fmtInt(g.n) + '</span></div>';
+  }
+  svg += '<text x="' + cx + '" y="' + (cy - 2) + '" text-anchor="middle" class="' + P + '-pct">' + esc(fmtInt(tot)) + '</text>'
+    + '<text x="' + cx + '" y="' + (cy + 14) + '" text-anchor="middle" class="' + P + '-ax">' + (state.trPie === 'num' && m.fmt !== 'int' ? 'в числителе' : 'человек') + '</text></svg>';
+  return '<div class="' + P + '-piew">' + svg + '<div class="' + P + '-plgs">' + lg + '</div></div>';
 }
 
 // ---- вкладка «KPI»: цели через форму n8n (13.10) ----
@@ -4265,7 +4379,7 @@ function tourSteps(view) {
     add({ sel: function (R) { var b = R.querySelector('[data-action="block"]'); return b ? b.parentNode : null; }, title: 'Группы метрик',
       html: 'Все метрики сразу или одна группа: удержание, текучесть, структура.' });
     add({ sel: P + '-tpan', title: 'Подразделения',
-      html: 'Юнит отчёта («ИТОГО») и три уровня под ним, ▸ раскрывает строку. Прочерк — в команде слишком мало людей, чтобы оценивать.' });
+      html: 'Юнит отчёта («ИТОГО») и три уровня под ним, ▸ раскрывает строку. Без цвета — в команде слишком мало людей, чтобы оценивать.' });
     add({ sel: P + '-tpan tr' + P + '-row:not(' + P + '-tot)', demo: true, at: 'left', done: function (k) { return state.selTeam === k; }, title: 'Выбрать строку',
       html: 'Нажмите на строку — справа появятся её графики.',
       hint: 'Нажмите на подсвеченную строку или «Показать».' });
@@ -4286,15 +4400,19 @@ function tourSteps(view) {
     add({ sel: P + '-dhint', title: 'Глубже трёх уровней',
       html: 'Откройте юнит строки иконкой — таблица покажет следующие три уровня.' });
   } else if (view === 'transform') {
-    add({ sel: function (R) { var x = R.querySelector('select[data-sel="tfm"]'); return x ? x.parentNode.parentNode : null; }, title: 'Метрика',
+    add({ sel: function (R) { var x = R.querySelector('[data-dsel="tfm"]'); return x ? x.parentNode : null; }, title: 'Метрика',
       html: 'Какую метрику раскладывать по оси.' });
-    add({ sel: function (R) { var x = R.querySelector('select[data-sel="tfa"]'); return x ? x.parentNode.parentNode : null; }, lock: true, title: 'Разбивка',
+    add({ sel: function (R) { var x = R.querySelector('[data-dsel="tfa"]'); return x ? x.parentNode : null; }, lock: true, title: 'Разбивка',
       html: 'По чему разбить: грейд, стаж, возраст, город и другие.' });
     add({ sel: '[data-tfps]', title: 'Готовые срезы',
       html: 'Частые вопросы одним кликом: на каких грейдах уходят ценные, где не задерживаются новички, где не указывают причины. Клик ставит метрику и разбивку.' });
-    add({ sel: P + '-content ' + P + '-panel', title: 'Сводная таблица',
-      html: 'Строки — значения разбивки, колонки — 12 месяцев, справа — изменение за год.' });
-    add({ sel: P + '-content ' + P + '-panel [data-action="copy"]', pad: 4, title: 'Копировать',
+    add({ sel: P + '-trln', title: 'Динамика',
+      html: 'Метрика всего юнита за 12 месяцев. Выберите строку таблицы — рядом появится её линия, «Всего» станет серой.' });
+    add({ sel: P + '-trpie', title: 'Структура',
+      html: 'Доли значений: в людях или в числителе метрики (уходы, новички, джуны). Наведите на долю — подсветится её строка в таблице, клик — её линия на графике.' });
+    add({ sel: P + '-heat', title: 'Таблица-хитмап',
+      html: 'Строки — значения разбивки, колонки — 12 месяцев. Зелёный — лучше, чем «Всего» в том же месяце, красный — хуже; чем ярче, тем дальше. Клик по строке выбирает её.' });
+    add({ sel: P + '-trbox [data-action="copy"]', pad: 4, title: 'Копировать',
       html: 'Сводная — в буфер обмена: вставьте в Excel или письмо.' });
   } else if (view === 'goals') {
     add({ sel: function (R) { var ps = R.querySelectorAll(P + '-content ' + P + '-panel'); return ps.length ? ps[ps.length - 1] : null; }, title: 'Все KPI',
@@ -4977,6 +5095,7 @@ function buildHTML() {
         if (srow && srow.scrollIntoView) { try { srow.scrollIntoView({ block: 'center' }); } catch (ers) { srow.scrollIntoView(); } }
       }
       placeDrawer();
+      placeDsel();
       // Колонки и списки окна — после placeDrawer: одна колонка или две решает ширина окна.
       restoreScrolls(keep);
       if (fin && !overlay.contains(document.activeElement)) {
@@ -5079,6 +5198,23 @@ function buildHTML() {
       for (i = 0; i < els.length; i++) els[i].classList.add(on);
       state.mkOn = { box: box, n: n };
     }
+    // «Трансформеры»: строка таблицы ↔ доля на кольце и в списке (data-trv): наведение подсвечивает пару, прочие доли
+    // бледнеют. Как mkLink — только классы, без перерисовки.
+    function trLink(box, n) {
+      var c = state.trOn, on = CFG.ns + '-trh', i;
+      if (c && c.box === box && c.n === n) return;
+      if (c) {
+        c.box.removeAttribute('data-trh');
+        var old = c.box.querySelectorAll('.' + on);
+        for (i = 0; i < old.length; i++) old[i].classList.remove(on);
+      }
+      state.trOn = null;
+      if (!box || !n) return;
+      box.setAttribute('data-trh', n);
+      var els = box.querySelectorAll('[data-trv="' + n + '"]');
+      for (i = 0; i < els.length; i++) els[i].classList.add(on);
+      state.trOn = { box: box, n: n };
+    }
     // Наведение на пункт легенды гасит чужие серии своего графика.
     function legendHi(el) {
       var box = el ? trigger(el, 'data-chb') : null, cur = state.hiBox;
@@ -5094,6 +5230,8 @@ function buildHTML() {
       if (hz) { cancelHide(); hzMove(hz, e); return; }
       var mkEl = trigger(e.target, 'data-mk');
       mkLink(mkEl ? trigger(mkEl, 'data-story') : null, mkEl ? mkEl.getAttribute('data-mk') : '');
+      var trEl = trigger(e.target, 'data-trv');
+      trLink(trEl ? trigger(trEl, 'data-trbox') : null, trEl ? trEl.getAttribute('data-trv') : '');
       var el = trigger(e.target, 'data-tip');
       // Кнопка с раскрытым поповером подсказку не показывает: меню и так перед глазами.
       if (el && el.getAttribute('aria-expanded') === 'true' && el.getAttribute('data-pop')) el = null;
@@ -5105,7 +5243,7 @@ function buildHTML() {
       state.tip = { rect: curPt(e), key: html, kind: el.getAttribute('data-kind') || '' };
       showTip(html, state.tip.rect);
     }
-    function onLeave() { legendHi(null); mkLink(null, ''); dropTip(); }
+    function onLeave() { legendHi(null); mkLink(null, ''); trLink(null, ''); dropTip(); }
     // Подсказки и ⓘ — и с клавиатуры: фокус (Tab) показывает подсказку у элемента, уход фокуса — прячет.
     function onFocusIn(e) {
       var el = trigger(e.target, 'data-tip');
@@ -5447,9 +5585,54 @@ function buildHTML() {
       var ed = overlay.querySelector('[data-kd-ed]');
       if (ed && ed.scrollIntoView) { try { ed.scrollIntoView({ block: 'nearest' }); } catch (er) { ed.scrollIntoView(false); } }
     }
+    // Выбор в выпадающем списке (hSel): что меняет каждый список.
+    function selPick(sel, v) {
+      if (sel === 'tfm') { state.tfMetric = v; render(); return; }
+      if (sel === 'tfa') {
+        state.tfAxis = v;
+        state.trPick = '';
+        // Ось уже в ответе (разрез или атрибуты небольшой ветки) — без запроса.
+        if (axisReady(v)) { render(); return; }
+        var n = reqNow();
+        n.axis = v;
+        emit(n);
+        return;
+      }
+      if (sel === 'kdm' && state.kd) { state.kd.metric = v; render(); return; }
+      if (sel && sel.indexOf('kdc:') === 0 && state.kd) { state.kd.cuts[sel.slice(4)] = v; render(); return; }
+      render();
+    }
+    // Карточка открытого списка — под кнопкой (или над ней, если снизу в видимой части мало места), не уже кнопки.
+    function placeDsel() {
+      var P = CFG.ns, pop = state.dsel ? overlay.querySelector('.' + P + '-dsp') : null;
+      if (!pop) return;
+      var btn = pop.parentNode.querySelector('.' + P + '-ddb'), br = btn.getBoundingClientRect(), v = visV();
+      var below = v.b - br.bottom - 8, above = br.top - v.t - 8, up = below < 220 && above > below;
+      pop.style.left = Math.round(br.left) + 'px';
+      pop.style.minWidth = Math.round(br.width) + 'px';
+      pop.style.maxHeight = Math.round(Math.max(140, Math.min(340, up ? above : below))) + 'px';
+      pop.style.top = up ? '' : Math.round(br.bottom + 4) + 'px';
+      pop.style.bottom = up ? Math.round(window.innerHeight - br.top + 4) + 'px' : '';
+      var q = pop.querySelector('[data-dsq]');
+      focusQuiet(q || pop.querySelector('.' + P + '-on') || btn);
+    }
+    function closeDsel() {
+      var k = state.dsel;
+      if (!k) return;
+      state.dsel = '';
+      render();
+      var b = overlay.querySelector('[data-action="dsel"][data-key="' + cssq(k) + '"]');
+      if (b) focusQuiet(b);
+    }
     function onClick(e) {
       // «Открыть форму» KPI: обычный клик не уводит отчёт на форму (см. kdEditorHTML).
       if (trigger(e.target, 'data-kd-link')) { e.preventDefault(); kdLinkHint(); return; }
+      // Открытый выпадающий список закрывает клик мимо него (действие под курсором выполняется как обычно).
+      if (state.dsel && !trigger(e.target, 'data-dsel')) {
+        state.dsel = '';
+        render();
+        if (!trigger(e.target, 'data-action') && !trigger(e.target, 'data-view')) return;
+      }
       // Тур «Как работать»: кнопка в шапке.
       var ta = trigger(e.target, 'data-tact');
       if (ta) { tourAct(ta.getAttribute('data-tact')); return; }
@@ -5674,9 +5857,17 @@ function buildHTML() {
         return;
       }
       if (act === 'axis') { var nx = reqNow(); nx.axis = key || wantAxis(); emit(nx); return; }
+      if (act === 'trpick') {
+        var tl = trSorted(wantAxis()), ti = +key, tv = ti >= 0 && tl[ti] ? tl[ti].v : '';
+        state.trPick = tv === state.trPick ? '' : tv;
+        render();
+        return;
+      }
+      if (act === 'trpie') { state.trPie = key; render(); return; }
       if (act === 'tfp') {
         var pr = CFG.trPresets[+key];
         if (!pr) return;
+        if (pr.a !== state.tfAxis) state.trPick = '';
         state.tfMetric = pr.m; state.tfAxis = pr.a;
         if (axisReady(pr.a)) { render(); return; }
         var np = reqNow(); np.axis = pr.a; emit(np); return;
@@ -5709,6 +5900,14 @@ function buildHTML() {
       }
       if (act === 'kclose') { state.kdOpen = false; state.kd = null; state.copied = ''; render(); return; }
       if (act === 'kcopy') { copyLine(); return; }
+      if (act === 'dsel') { state.dsel = state.dsel === key ? '' : key; render(); return; }
+      if (act === 'dselv') {
+        state.dsel = '';
+        selPick(key, a.getAttribute('data-id'));
+        var db = overlay.querySelector('[data-action="dsel"][data-key="' + cssq(key) + '"]');
+        if (db) focusQuiet(db);
+        return;
+      }
     }
 
     // Чекбоксы и выпадашки: change, не click (label/input дают оба события).
@@ -5734,19 +5933,6 @@ function buildHTML() {
         render();
         return;
       }
-      var sel = t.getAttribute('data-sel');
-      if (sel === 'tfm') { state.tfMetric = t.value; render(); return; }
-      if (sel === 'tfa') {
-        state.tfAxis = t.value;
-        // Ось уже в ответе (разрез или атрибуты небольшой ветки) — без запроса.
-        if (axisReady(t.value)) { render(); return; }
-        var n = reqNow();
-        n.axis = t.value;
-        emit(n);
-        return;
-      }
-      if (sel === 'kdm') { state.kd.metric = t.value; render(); return; }
-      if (sel && sel.indexOf('kdc:') === 0 && state.kd) { state.kd.cuts[sel.slice(4)] = t.value; updateKd(); return; }
     }
 
     // Поиск в окне фильтров: у каждого списка свой (state.qk), пересобираем ТОЛЬКО этот список —
@@ -5761,6 +5947,11 @@ function buildHTML() {
         return;
       }
       if (t.getAttribute('data-tsearch') !== null) { state.tq = t.value; refreshTeams(); return; }
+      if (t.getAttribute('data-dsq') !== null) {
+        var q = t.value.replace(/^\s+|\s+$/g, '').toLowerCase(), os = t.parentNode.querySelectorAll('[data-action="dselv"]');
+        for (var oi = 0; oi < os.length; oi++) os[oi].style.display = !q || os[oi].textContent.toLowerCase().indexOf(q) > -1 ? '' : 'none';
+        return;
+      }
       var kd = t.getAttribute('data-kd');
       if (kd && state.kd) { state.kd[kd] = t.value; updateKd(); }
     }
@@ -5808,6 +5999,7 @@ function buildHTML() {
         refreshTeams();
         return;
       }
+      if (k === 27 && state.dsel) { closeDsel(); return; }
       if (k === 27 && cutPopOpen()) {
         var ck = state.open, cb;
         state.open = '';
@@ -5838,6 +6030,7 @@ function buildHTML() {
     // Прокрутка отчёта во время тура — подсветка едет за целью.
     overlay.addEventListener('scroll', function () {
       if (state.tour) tourPos();
+      if (state.dsel) closeDsel();
       var stk = overlay.querySelector('.' + CFG.ns + '-stick');
       if (stk) stk.classList.toggle(CFG.ns + '-shd', overlay.scrollTop > 2);
     });
