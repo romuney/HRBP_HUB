@@ -144,7 +144,7 @@
 {#- Условие «строка проходит разрезы», кроме разреза skip (для фасетов). -#}
 {% macro cond(skip) -%}
 {%- set parts = [] -%}
-{%- for c in CUT_COLS -%}{%- if c != skip and F[c]|length > 0 -%}{%- set _ = parts.append('has(' ~ qa(F[c]) ~ ', ifNull(' ~ c ~ ", '-'))") -%}{%- elif c == 'hct' and c != skip -%}{%- set _ = parts.append('ifNull(hct, ' ~ qs(NONLEGAL) ~ ') != ' ~ qs(NONLEGAL)) -%}{%- endif -%}{%- endfor -%}
+{%- for c in CUT_COLS -%}{%- if c != skip and F[c]|length > 0 -%}{%- set _ = parts.append('has(' ~ qa(F[c]) ~ ', ifNull(' ~ c ~ ", '-'))") -%}{%- elif c == 'hct' and c != skip -%}{%- set _ = parts.append('hct != ' ~ qs(NONLEGAL)) -%}{%- endif -%}{%- endfor -%}
 {{- parts|join(' AND ') if parts else '1' -}}
 {%- endmacro %}
 {#- 12 последних закрытых месяцев (трансформеры): из массивов a2 (по одному на компонент) — окно
@@ -466,17 +466,21 @@ FROM (
 
   UNION ALL
   {#- ---------- цели: на юнитах зоны и на предках её корней (наследуются вниз) ---------- #}
+  {#- Цели пишет форма n8n (DLH → переливка в CH, 13.10): таблица — лог, правка и удаление — новые строки с тем же
+      rule_id. Берётся последняя версия правила (ts_inserted), удалённые (op = delete) — нет. Колонок op и ts_inserted
+      у реестра ноута нет — матчером в подзапросе без JOIN: «()» вместо значения. Комментарий — последним полем:
+      табуляция в нём чарту не мешает. #}
   SELECT 'kpi' AS role, ifNull(rule_id, '') AS id, ifNull(unit_id, '') AS pid, toInt64(0) AS n,
-    concat(ifNull(metric_id, ''), '\t', toString(ifNull(target, 0)), '\t',
+    concat(ifNull(metric_id, ''), '\t', toString(target), '\t',
            ifNull(f_paint, 'all'), '\t', ifNull(f_it, 'all'), '\t', ifNull(f_stream, 'all'), '\t',
            ifNull(f_spec, 'all'), '\t', ifNull(f_staff, 'all'), '\t', ifNull(f_hct, 'all'), '\t',
            ifNull(toString(valid_from), ''), '\t', ifNull(toString(valid_to), ''), '\t',
-           replaceRegexpAll(ifNull(author, ''), '[\\t\\n\\r]', ' '), '\t',
-           replaceRegexpAll(ifNull(note, ''), '[\\t\\n\\r]', ' '), '\t', ifNull(unit_rk, '')) AS j,
+           ifNull(author, ''), '\t', ifNull(note, '')) AS j,
     emptyArrayInt64() AS a, -1 AS lw
-  FROM prod_proteus.hrbp_hub_kpi
+  FROM (SELECT *, toString(tuple(COLUMNS('^op$'))) AS kop, toString(tuple(COLUMNS('^ts_inserted$'))) AS kts
+        FROM prod_proteus.hrbp_hub_kpi ORDER BY kts DESC LIMIT 1 BY rule_id) AS k
   CROSS JOIN ctx
-  WHERE notEmpty(ctx.roots)
+  WHERE notEmpty(ctx.roots) AND kop NOT LIKE '%delete%' AND target IS NOT NULL
     {#- Юнит цели в зоне — по пути из справочника, а не по unit_path цели: реестр целей
         выгружается без array_type_cast, и unit_path в ClickHouse — строка, не массив. #}
     AND (has(ctx.anc, ifNull(unit_id, ''))
@@ -504,8 +508,9 @@ FROM (
       ',"tr_top":', toString(notEmpty(ex.tops)),
       ',"rk":', toJSONString(if(length(ctx.scope) = 1, ex.rk1, '')),
       ',"ret_base":', toJSONString('{{ 'active' if RA else 'company' }}'),
-      ',"ytd":', toString({% for t in ['cube', 'base', 'attr', 'attr_top'] %}hasColumnInTable('prod_proteus', 'hrbp_hub_{{ t }}', 'm_rgs'){% if not loop.last %} AND {% endif %}{% endfor %}),
-      ',"hq":', toString({% for t in ['cube', 'base', 'attr', 'attr_top'] %}hasColumnInTable('prod_proteus', 'hrbp_hub_{{ t }}', 'm_hirea'){% if not loop.last %} AND {% endif %}{% endfor %}),
+      {#- новые колонки ноута — по кубу: base, attr, attr_top выгружает тот же запуск -#}
+      ',"ytd":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_rgs')),
+      ',"hq":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_hirea')),
       ',"last_m":', toString(ctx.last_m),
       ',"fdv":', tupleElement({{ FZ }}, 12),
       ',"end":1',

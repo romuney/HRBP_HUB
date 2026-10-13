@@ -191,9 +191,23 @@ var CFG = {
   tabs: [
     { key: 'onepager', label: 'Сводка' }, { key: 'teams', label: 'Команды' },
     { key: 'transform', label: 'Трансформеры' },
-    // «Цели» скрыты до готовности (владелец 12.10, к тестам): goalsHTML и её тур — в коде, вкладки нет.
+    // KPI (13.10): HRBP ставит, меняет и удаляет цели через форму n8n — чарт собирает ссылку с заполненными полями.
+    { key: 'goals', label: 'KPI' },
     { key: 'catalog', label: 'Каталог метрик' }
   ],
+  // Форма KPI в n8n (ИНСТРУКЦИЯ-KPI-ФОРМА.md; поставка — «7. KPI — форма n8n и переливка»). Песочница чарта не пускает
+  // ни сеть, ни попапы: чарт только собирает prefill-ссылку, HRBP копирует её и открывает в новой вкладке. Ключи
+  // prefill = ТОЧНЫЕ подписи полей формы; значения дропдаунов («Действие», «Метрика») — точные опции. Меняются
+  // только вместе с build_kpi_flow.py. Разрезы — по полю на разрез, подпись = CFG.cuts[].label, 'all' — все.
+  kpiForm: {
+    // Ссылка для пользователя, не загрузка ресурса: чарт ничего с неё не тянет (схема отдельно — правило D1c скилла про CDN).
+    url: 'https:' + '//n8n.t-tech.team/form/hrbp-kpi',
+    op: 'Действие', id: 'ID цели', unit: 'ID юнита', unitNm: 'Юнит', metric: 'Метрика', target: 'Целевое значение',
+    from: 'Действует с (ГГГГ-ММ-ДД)', to: 'Действует по (ГГГГ-ММ-ДД)', login: 'Ваш логин (например r.ivanov)', note: 'Комментарий',
+    ops: { add: 'Добавить', update: 'Изменить', del: 'Удалить' },
+    all: 'все',   // разрез не задан (форма пишет all)
+    lag: 30   // минут: переливка DLH → ClickHouse
+  },
   text: {
     noData: 'Нет данных',
     title: 'HRBP HUB',
@@ -299,7 +313,8 @@ var STATE0 = {
   openRows: {},          // раскрытые узлы «Команд»: ключ — путь узла от −1 через '/'
   tfMetric: 'regret', tfAxis: '',
   axisTried: {},         // оси трансформеров, которые уже запрашивались
-  kd: {},                // черновик новой цели (вкладка «Цели»)
+  kd: null,              // черновик формы KPI (вкладка «KPI»): add | update | del
+  kdOpen: false,         // форма KPI открыта над списком
   copied: '',
   dynH: 0,               // высота графиков «Динамики» «Команд» по панели (fitDyn, БЛОК 6)
   cw: {},                // измеренные ширины графиков по видам: half | side | wide
@@ -457,9 +472,11 @@ function buildModel() {
     else if (role === 'end') M.complete = true;
     else if (role === 'kpi') {
       var kf = String(r[F.j] || '').split('\t');
-      M.rules.push({ id: id, unit: pid, metric: kf[0], target: num(kf[1]),
-        f: { paint: kf[2] || 'all', it: kf[3] || 'all', stream: kf[4] || 'all', spec: kf[5] || 'all', staff: kf[6] || 'all', hct: kf[7] || 'all' },
-        from: kf[8] || '2000-01-01', to: kf[9] || '2099-12-31', author: kf[10] || '', note: kf[11] || '', rk: kf[12] || '' });
+      // metric_id формы — ключ метрики; старые коды компонентов и подписи метрик тоже понимаем (kpiMetricKey).
+      // Комментарий — последним полем: табуляция в нём склеивается обратно.
+      M.rules.push({ id: id, unit: pid, metric: kpiMetricKey(kf[0]), target: num(kf[1]),
+        f: { paint: kpiCut(kf[2]), it: kpiCut(kf[3]), stream: kpiCut(kf[4]), spec: kpiCut(kf[5]), staff: kpiCut(kf[6]), hct: kpiCut(kf[7]) },
+        from: kf[8] || '2000-01-01', to: kf[9] || '2099-12-31', author: kf[10] || '', note: kf.slice(11).join(' ') });
     }
   }
   // Обрезка: строк не меньше лимита чарта или (датасет с маркером end) строки end нет. Под GROUP BY обёртки
@@ -2011,6 +2028,23 @@ function buildCSS() {
     P + '-root ' + P + '-code{display:block;width:100%;min-height:58px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:' + F.control + 'px;line-height:1.5;border:1px solid ' + C.line + ';border-radius:9px;padding:10px 12px;background:' + C.hover + ';color:' + C.ink + ';resize:vertical;white-space:pre-wrap;}',
     P + '-root ' + P + '-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:' + F.val + 'px;color:' + C.muted + ';font-weight:400;}',
     P + '-steps{margin:0;padding-left:18px;color:' + C.ink2 + ';font-size:' + F.body + 'px;line-height:1.6;}',
+    // Форма KPI (вкладка «KPI»): поля сеткой, юнит / разрезы / комментарий — во всю ширину; ссылка прячется,
+    // пока в полях ошибка (style.display: .hidden ненадёжен, RETRO 8 скилла).
+    P + '-kform{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:14px;}',
+    P + '-kwide{grid-column:1/-1;}',
+    P + '-kval{min-height:34px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:' + F.body + 'px;color:' + C.ink + ';}',
+    P + '-kval b{font-weight:500;}',
+    P + '-kcut{display:flex;flex-direction:column;gap:6px;}',
+    P + '-kcuts{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;}',
+    P + '-kerr{font-size:' + F.note + 'px;color:' + C.redTx + ';margin:6px 0;}',
+    P + '-kerr:empty{display:none;}',
+    P + '-know{font-size:' + F.note + 'px;color:' + C.muted + ';}',
+    P + '-know:empty{display:none;}',
+    P + '-root ' + P + '-code+' + P + '-steps,' + P + '-kerr+' + P + '-code{margin-top:10px;}',
+    P + '-steps{margin-top:10px;}',
+    P + '-kact{white-space:nowrap;text-align:right;}',
+    P + '-kact ' + P + '-lnk+' + P + '-lnk{margin-left:14px;}',
+    P + '-root ' + P + '-kdel{color:' + C.redTx + ';}',
 
     // ---- тур «Как работать»: кнопка в шапке, слой тура ----
     P + '-help{color:' + C.act + ';}',
@@ -2895,7 +2929,7 @@ function moveOf(ser) {
   return { from: from, to: to, hire: hire, fire: fire, other: to - from - hire + fire, months: months };
 }
 function moveTip(mv, hire, fire) {
-  var L = MODEL.L, t = { title: 'Численность и движение', text: 'Сколько людей на конец месяца и что изменило численность с начала года.' };
+  var t = { title: 'Численность и движение', text: 'Сколько людей на конец месяца и что изменило численность с начала года.' };
   if (!mv) { t.rows = [{ label: 'найм за месяц', value: '+' + fmtInt(hire) }, { label: 'уходы за месяц', value: MINUS + fmtInt(fire) }]; return t; }
   var day0 = MODEL.cal.m[11] ? MODEL.cal.m[11].e : '';
   var act = !!MODEL.meta && MODEL.meta.ret_base === 'active';
@@ -3915,7 +3949,78 @@ function transformHTML() {
     body: th, tbl: true, tabs: '<span class="' + P + '-pbtn">' + copyBtn('tr') + '</span>' });
 }
 
-// ---- вкладка «Цели»: реестр зоны и строка для новой цели ----
+// ---- вкладка «KPI»: цели через форму n8n (13.10) ----
+// Код метрики из таблицы целей: ключ метрики; старые коды компонентов формы (rg, r3n…) и подписи — тоже.
+var KPI_ALIAS = { rg: 'regret', rgs: 'regret', nrg: 'nonregret', nr: 'exit_reasons', jun: 'jun_team', r3n: 'retention_new_3', r6n: 'retention_new_6', hc: 'headcount' };
+function kpiMetricKey(v) {
+  v = String(v || '').replace(/^\s+|\s+$/g, '');
+  if (METRIC[v]) return v;
+  if (KPI_ALIAS[v]) return KPI_ALIAS[v];
+  for (var i = 0; i < CFG.metrics.length; i++) if (CFG.metrics[i].name === v) return CFG.metrics[i].key;
+  return v;
+}
+// Разрез цели: пусто, «все» (подпись формы) и all — без разреза.
+function kpiCut(v) { v = String(v || '').replace(/^\s+|\s+$/g, ''); return !v || v === 'all' || v.toLowerCase() === CFG.kpiForm.all ? 'all' : v; }
+// Финансовый год по умолчанию (инструкция формы): с 1 октября по 30 сентября — тот, что идёт сейчас, то есть
+// на месяц после последнего закрытого (данные за сентябрь — уже новый год с 1 октября).
+function kpiFY() {
+  var p = dparts(MODEL.cal.m[MODEL.L] ? MODEL.cal.m[MODEL.L].e : '2026-09-30'), mo = p.m + 1, yy = p.y;
+  if (mo > 11) { mo = 0; yy++; }
+  var y = mo >= 9 ? yy : yy - 1;
+  return [y + '-10-01', (y + 1) + '-09-30'];
+}
+// Черновик формы (state.kd): mode add | update | del; юнит — выбранный в отчёте (или юнит правила).
+function kdDraft() {
+  var d = state.kd || {};
+  // Новый KPI — на юнит, выбранный в отчёте сейчас (выбрали в «Фильтрах» после открытия формы — подхватится).
+  if (d.mode === 'add') d.unit = MODEL.single ? MODEL.scopeIds[0] : '';
+  return d;
+}
+function kdNew() {
+  var M = MODEL, fy = kpiFY(), cuts = {};
+  for (var i = 0; i < CFG.cuts.length; i++) { var sv = M.sel[CFG.cuts[i].key] || []; cuts[CFG.cuts[i].key] = sv.length === 1 ? sv[0] : 'all'; }
+  return { mode: 'add', id: '', unit: M.single ? M.scopeIds[0] : '', metric: 'regret', target: '', from: fy[0], to: fy[1], cuts: cuts, note: '' };
+}
+function kdFromRule(r, mode) {
+  var cuts = {};
+  for (var i = 0; i < CFG.cuts.length; i++) cuts[CFG.cuts[i].key] = r.f[CFG.cuts[i].key] || 'all';
+  return { mode: mode, id: r.id, unit: r.unit, metric: r.metric, target: String(r.target).replace('.', ','), from: r.from > '2000-01-01' ? r.from : kpiFY()[0],
+           to: r.to < '2099-12-31' ? r.to : '', cuts: cuts, note: r.note || '' };
+}
+function kdNum(v) { var t = String(v === undefined || v === null ? '' : v).replace(',', '.').replace(/\s/g, ''); return t !== '' && !isNaN(Number(t)) ? Number(t) : null; }
+function isoOk(v) { return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')); }
+// Что мешает отправить: пустой юнит, цель не число, даты.
+function kdErrors(d) {
+  var e = [];
+  if (!d.unit) e.push('выберите юнит');
+  if (d.mode !== 'del') {
+    if (kdNum(d.target) === null) e.push('цель — число');
+    if (!isoOk(d.from)) e.push('«действует с» — дата ГГГГ-ММ-ДД');
+    if (d.to && !isoOk(d.to)) e.push('«действует по» — дата ГГГГ-ММ-ДД');
+    if (isoOk(d.from) && isoOk(d.to) && d.to < d.from) e.push('«по» раньше, чем «с»');
+  }
+  return e;
+}
+// Prefill-ссылка: ключ — точная подпись поля, значение — точная опция (метрика — названием, действие — словом).
+function kdLink(d) {
+  var K = CFG.kpiForm, m = METRIC[d.metric], q = [];
+  function put(k, v) { if (v !== undefined && v !== null && v !== '') q.push(encodeURIComponent(k) + '=' + encodeURIComponent(v)); }
+  put(K.op, K.ops[d.mode] || K.ops.add);
+  if (d.mode !== 'add') put(K.id, d.id);
+  put(K.unit, d.unit);
+  put(K.unitNm, d.unit ? unitName(MODEL, d.unit) : '');
+  put(K.metric, m ? m.name : d.metric);
+  if (d.mode !== 'del') {
+    var n = kdNum(d.target);
+    put(K.target, n === null ? '' : String(n));
+    put(K.from, d.from);
+    put(K.to, d.to);
+    for (var i = 0; i < CFG.cuts.length; i++) { var cv = (d.cuts || {})[CFG.cuts[i].key]; put(CFG.cuts[i].label, cv && cv !== 'all' ? cv : K.all); }
+    put(K.note, d.note);
+  }
+  put(K.login, MODEL.meta && MODEL.meta.me || '');
+  return K.url + '?' + q.join('&');
+}
 function ruleStatus(r, day) {
   if (!ruleActive(r, day)) return r.from > day ? ['neutral', 'с ' + fmtDay(r.from)] : ['neutral', 'истекла'];
   if (!ruleMatches(r)) return ['wait', 'ждёт разреза'];
@@ -3927,84 +4032,91 @@ function ruleSpan(r) {
   var b = r.to < '2099-12-31' ? 'по ' + fmtDay(r.to) : 'бессрочно';
   return a ? a + ' ' + b : b;
 }
-// rk юнита для строки реестра целей: справочник его не везёт (на супер-HRBP — сотни КБ),
-// выбранному юниту он приезжает в meta.rk.
-function unitRk(u) {
-  if (!u) return '';
-  return u.rk || (MODEL.single && MODEL.scopeIds[0] === u.id ? MODEL.scopeRk : '');
+// Значения разреза для формы — словари всей компании (meta.fdv), иначе фасеты ответа.
+function kdCutValues(key) {
+  var out = [], d = MODEL.fdv && MODEL.fdv[key] ? MODEL.fdv[key] : null, i;
+  if (d) for (i = 0; i < d.length; i++) out.push(d[i]);
+  else { var f = MODEL.facets[key] || []; for (i = 0; i < f.length; i++) out.push(f[i].v); }
+  return out;
 }
-function kdValue(k, dflt) { return state.kd && state.kd[k] !== undefined && state.kd[k] !== null ? state.kd[k] : dflt; }
-function sqlStr(v) { return "'" + String(v).replace(/'/g, "''") + "'"; }
-function kdLine() {
-  var M = MODEL, u = M.single ? M.units[M.scopeIds[0]] : null;
-  var mk = kdValue('metric', 'regret'), tg = String(kdValue('target', '')).replace(',', '.').replace(/\s/g, '');
-  var y = M.L >= 0 ? dparts(M.cal.m[M.L].s).y : 2026;
-  var from = kdValue('from', y + '-01-01'), note = kdValue('note', '');
-  var f = [];
-  for (var i = 0; i < CFG.cuts.length; i++) {
-    var sel = M.sel[CFG.cuts[i].key] || [];
-    f.push(sqlStr(sel.length === 1 ? sel[0] : 'all'));
+// Сейчас у юнита и база — чтобы цель ставили с оглядкой на факт (только для юнита отчёта: его ряд есть в ответе).
+function kdNow(d) {
+  var M = MODEL, m = METRIC[d.metric];
+  if (!m || !M.scope || !(M.single && M.scopeIds[0] === d.unit)) return '';
+  var v = mval(M.scope, 'm', m, M.L), b = comparable(m) ? mval(M.base, 'm', m, M.L) : null;
+  return 'Сейчас у юнита — ' + fmtVal(m, v) + (b !== null ? ', база — ' + fmtVal(m, b) : '') + (m.ytd ? ' (с начала года; цель — годовая)' : '') + '.';
+}
+function kdEditorHTML() {
+  var P = CFG.ns, M = MODEL, d = kdDraft(), K = CFG.kpiForm, m = METRIC[d.metric], err = kdErrors(d), del = d.mode === 'del';
+  var mOpts = [];
+  for (var k = 0; k < CFG.metrics.length; k++) if (targetable(CFG.metrics[k])) mOpts.push([CFG.metrics[k].key, CFG.metrics[k].name]);
+  var unitH = d.unit ? '<b>' + esc(unitName(M, d.unit)) + '</b>' + (M.units[d.unit] ? '<span class="' + P + '-us">' + esc(levelLabel(M.units[d.unit].lvl)) + ' · цель действует на юнит и его подразделения</span>' : '')
+    : '<span class="' + P + '-kerr">Выберите один юнит в «Фильтрах»</span> <button type="button" class="' + P + '-lnk" data-action="drawer">Открыть фильтры</button>';
+  var title = del ? 'Удалить KPI' : (d.mode === 'update' ? 'Изменить KPI' : 'Новый KPI');
+  var body = '<div class="' + P + '-kform">'
+    + '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">Юнит</span><span class="' + P + '-kval">' + unitH + '</span></div>';
+  if (del) {
+    body += '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">Цель</span><span class="' + P + '-kval">' + esc((m ? m.name : d.metric) + ': ' + (m ? (m.better === 'higher' ? '≥ ' : '≤ ') + fmtVal(m, kdNum(d.target)) : d.target)) + '</span></div>'
+      + '<div class="' + P + '-note ' + P + '-warn ' + P + '-kwide">Цель перестанет действовать на юнит и его подразделения.</div>';
+  } else {
+    var cutsH = '';
+    for (var c = 0; c < CFG.cuts.length; c++) {
+      var ck = CFG.cuts[c].key, vals = kdCutValues(ck), opts = [['all', 'все']];
+      for (var v = 0; v < vals.length; v++) opts.push([vals[v], cutName(vals[v])]);
+      cutsH += '<div class="' + P + '-ctl"><span class="' + P + '-ctll">' + esc(CFG.cuts[c].label) + '</span>' + hSel('kdc:' + ck, opts, (d.cuts || {})[ck] || 'all') + '</div>';
+    }
+    body += '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('kdm', mOpts, d.metric) + '</div>'
+      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Цель' + (m && m.fmt === 'pct' ? ', %' : '') + (m ? ' · ' + (m.better === 'higher' ? 'не ниже' : 'не выше') : '') + '</span>'
+      + '<input class="' + P + '-inp" type="text" inputmode="decimal" data-kd="target" placeholder="например, 3,5" value="' + esc(d.target) + '"></div>'
+      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span><input class="' + P + '-inp" type="text" data-kd="from" placeholder="ГГГГ-ММ-ДД" value="' + esc(d.from) + '"></div>'
+      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует по</span><input class="' + P + '-inp" type="text" data-kd="to" placeholder="ГГГГ-ММ-ДД, пусто — бессрочно" value="' + esc(d.to) + '"></div>'
+      + '<div class="' + P + '-know ' + P + '-kwide" data-kd-now="1">' + esc(kdNow(d)) + '</div>'
+      + '<div class="' + P + '-kcut ' + P + '-kwide"><span class="' + P + '-ctll">Для кого — разрезы численности</span><div class="' + P + '-kcuts">' + cutsH + '</div>'
+      + '<span class="' + P + '-us">«все» — вся численность юнита. Цель с разрезом работает в отчёте, когда выбран ровно этот разрез.</span></div>'
+      + '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">Комментарий</span><input class="' + P + '-inp" type="text" data-kd="note" placeholder="зачем цель" value="' + esc(d.note) + '"></div>';
   }
-  var rk = unitRk(u) || '<rk юнита>';
-  var id = 'R-' + String(from).replace(/-/g, '').slice(0, 6) + '-' + String(rk).slice(0, 6) + '-' + mk;
-  var num = tg !== '' && !isNaN(Number(tg)) ? String(Number(tg)) : '<цель>';
-  return '(' + [sqlStr(id), sqlStr(rk), sqlStr(mk), num].concat(f).concat([sqlStr(from), 'null', sqlStr(M.meta && M.meta.me || ''), sqlStr(note)]).join(', ') + '),';
+  body += '</div>'
+    + '<div class="' + P + '-chh"><span class="' + P + '-cht">Ссылка на форму</span><span class="' + P + '-chl"><span data-kd-msg="1">' + esc(state.copied || '') + '</span>'
+    + '<button type="button" class="' + P + '-btn ' + P + '-pri" data-action="kcopy"' + (err.length ? ' disabled' : '') + '>Скопировать ссылку</button></span></div>'
+    + '<div class="' + P + '-kerr" data-kd-err="1">' + (err.length ? 'Чтобы получить ссылку: ' + esc(err.join(', ')) + '.' : '') + '</div>'
+    + '<textarea class="' + P + '-code" readonly data-kd-out="1"' + (err.length ? ' style="display:none"' : '') + '>' + esc(err.length ? '' : kdLink(d)) + '</textarea>'
+    + '<ol class="' + P + '-steps"><li>Скопируйте ссылку.</li><li>Откройте новую вкладку браузера и вставьте её в адресную строку — откроется форма, все поля уже заполнены.</li>'
+    + '<li>Проверьте и нажмите «Отправить».</li><li>' + (del ? 'Цель исчезнет' : 'Цель появится') + ' в отчёте в течение ' + K.lag + ' минут — обновите борд.</li></ol>';
+  return hPanel({ title: title, sub: 'отчёт заполнит форму за вас — останется открыть её и отправить', body: body,
+    tabs: '<span class="' + P + '-pbtn"><button type="button" class="' + P + '-btn ' + P + '-ghost" data-action="kclose">Закрыть</button></span>' });
 }
 function goalsHTML() {
   var P = CFG.ns, M = MODEL, L = M.L, day = M.cal.m[L] ? M.cal.m[L].e : '';
-  var s = pageHead('Цели', 'Цель ставится на юнит и действует на всю его ветку вниз, пока ниже не встретится своя. Несколько целей на одном юните разводятся разрезами численности: '
-    + 'правило с разрезом работает, только когда в фильтрах выбран <b>ровно этот</b> разрез. Источник — параграф «KPI · реестр целей» ноута HRBP HUB: строка там = цель здесь после пересчёта.');
+  var s = pageHead('KPI', 'Цели на юниты: цель действует на юнит и все его подразделения, пока ниже нет своей. Добавить, изменить и удалить — здесь.');
+  s += '<div class="' + P + '-tools"><button type="button" class="' + P + '-btn ' + P + '-pri" data-action="kadd" data-tour="kadd">+ Новый KPI</button>'
+    + '<span class="' + P + '-us">' + (M.single ? 'для юнита «' + esc(unitName(M, M.scopeIds[0])) + '»' : 'юнит выбирается в «Фильтрах»') + '</span></div>';
+  if (state.kdOpen) s += '<div class="' + P + '-gap" data-kd-ed="1">' + kdEditorHTML() + '</div>';
   var rules = M.rules.slice();
   rules.sort(function (a, b) {
     var da = pathTo(a.unit).length, db = pathTo(b.unit).length;
     return da - db || (unitName(M, a.unit) < unitName(M, b.unit) ? -1 : (unitName(M, a.unit) > unitName(M, b.unit) ? 1 : (a.metric < b.metric ? -1 : 1)));
   });
   var t = '<table class="' + P + '-t"><thead><tr><th class="' + P + '-l">Юнит</th><th class="' + P + '-l">Метрика</th><th>Цель</th>'
-    + '<th class="' + P + '-l">Разрезы</th><th class="' + P + '-l">Действует</th><th class="' + P + '-l">Статус</th><th class="' + P + '-l">Автор · комментарий</th><th></th></tr></thead><tbody>';
+    + '<th class="' + P + '-l">Для кого</th><th class="' + P + '-l">Действует</th><th class="' + P + '-l">Статус</th><th class="' + P + '-l">Автор · комментарий</th><th></th></tr></thead><tbody>';
   for (var i = 0; i < rules.length; i++) {
     var r = rules[i], m = METRIC[r.metric], st = ruleStatus(r, day), cuts = ruleCuts(r), unit = M.units[r.unit];
     var chips = '';
     for (var c = 0; c < cuts.length; c++) chips += '<span class="' + P + '-fchip">' + esc(cuts[c]) + '</span>';
     var above = !inZone(r.unit);
-    t += '<tr><td class="' + P + '-l">' + esc(unitName(M, r.unit)) + '<span class="' + P + '-us">' + esc(unit ? levelLabel(unit.lvl) : '') + (above ? ' · выше зоны, наследуется' : '') + '</span></td>'
+    t += '<tr><td class="' + P + '-l">' + esc(unitName(M, r.unit)) + '<span class="' + P + '-us">' + esc(unit ? levelLabel(unit.lvl) : '') + (above ? ' · выше вашей зоны, действует на неё' : '') + '</span></td>'
       + '<td class="' + P + '-l">' + esc(m ? m.name : r.metric) + '</td>'
       + '<td>' + esc(m ? (m.better === 'higher' ? '≥ ' : '≤ ') + fmtVal(m, r.target) : String(r.target)) + '</td>'
       + '<td class="' + P + '-l">' + (chips || '<span class="' + P + '-muted">вся численность</span>') + '</td>'
       + '<td class="' + P + '-l"><span class="' + P + '-muted">' + esc(ruleSpan(r)) + '</span></td>'
-      + '<td class="' + P + '-l"><span class="' + P + '-st ' + P + '-' + st[0] + '"' + tip({ title: st[1], text: st[0] === 'wait' ? 'Цель привязана к разрезам. Выберите их в «Фильтрах» — или нажмите «Показать».' : (st[0] === 'good' ? 'Цель действует при текущих разрезах.' : 'Цель вне срока действия на дату данных.'), note: cuts.length ? cuts.join('; ') : null }) + '>' + esc(st[1]) + '</span></td>'
-      + '<td class="' + P + '-l"><span class="' + P + '-muted">' + esc((r.author || '—') + (r.note ? ' · ' + r.note : '')) + '</span><span class="' + P + '-us ' + P + '-mono">' + esc(r.id) + '</span></td>'
-      + '<td>' + (above ? '' : '<button class="' + P + '-lnk" data-action="gorule" data-key="' + esc(r.id) + '"' + tip({ title: 'Показать цель в отчёте', text: 'Открыть юнит цели и выбрать её разрезы — цель станет фокусом «Сводки».' }) + '>Показать</button>') + '</td></tr>';
+      + '<td class="' + P + '-l"><span class="' + P + '-st ' + P + '-' + st[0] + '"' + tip({ title: st[1], text: st[0] === 'wait' ? 'Цель задана для разреза — выберите его в «Фильтрах» или нажмите «Показать».' : (st[0] === 'good' ? 'Цель действует при текущих фильтрах.' : 'Цель не действует на дату данных.'), note: cuts.length ? cuts.join('; ') : null }) + '>' + esc(st[1]) + '</span></td>'
+      + '<td class="' + P + '-l"><span class="' + P + '-muted">' + esc((r.author || '—') + (r.note ? ' · ' + r.note : '')) + '</span></td>'
+      + '<td class="' + P + '-kact">' + (above ? '' : '<button class="' + P + '-lnk" data-action="gorule" data-key="' + esc(r.id) + '"' + tip({ title: 'Показать в отчёте', text: 'Открыть юнит цели с её разрезами.' }) + '>Показать</button>'
+        + '<button class="' + P + '-lnk" data-action="kedit" data-key="' + esc(r.id) + '">Изменить</button>'
+        + '<button class="' + P + '-lnk ' + P + '-kdel" data-action="kdel" data-key="' + esc(r.id) + '">Удалить</button>') + '</td></tr>';
   }
-  if (!rules.length) t += '<tr><td class="' + P + '-l" colspan="8"><span class="' + P + '-muted">В зоне и выше по ветке целей пока нет.</span></td></tr>';
+  if (!rules.length) t += '<tr><td class="' + P + '-l" colspan="8"><span class="' + P + '-muted">В вашей зоне целей пока нет. Нажмите «+ Новый KPI».</span></td></tr>';
   t += '</tbody></table>';
-  s += '<div class="' + P + '-gap">' + hPanel({ title: 'Реестр целей', sub: 'цели на юнитах зоны и на их предках (наследуются вниз) · статус — на ' + fmtDay(day), body: t, tbl: true }) + '</div>';
-
-  var u = M.single ? M.units[M.scopeIds[0]] : null, mOpts = [];
-  for (var k = 0; k < CFG.metrics.length; k++) if (targetable(CFG.metrics[k])) mOpts.push([CFG.metrics[k].key, CFG.metrics[k].name]);
-  var y = L >= 0 ? dparts(M.cal.m[L].s).y : 2026;
-  var cutsNow = [];
-  for (var q = 0; q < CFG.cuts.length; q++) {
-    var sv = M.sel[CFG.cuts[q].key] || [];
-    if (sv.length === 1) cutsNow.push('<span class="' + P + '-fchip">' + esc(CFG.cuts[q].label + ': ' + sv[0]) + '</span>');
-    else if (sv.length > 1) cutsNow.push('<span class="' + P + '-fchip">' + esc(CFG.cuts[q].label + ': все (выбрано ' + sv.length + ')') + '</span>');
-  }
-  var form = '<div class="' + P + '-form">'
-    + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Юнит</span><span class="' + P + '-cn">' + esc(u ? u.nm : 'выберите один юнит в шапке') + '</span>'
-    + '<span class="' + P + '-mono">rk: ' + esc(unitRk(u) || '—') + '</span></div>'
-    + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('kdm', mOpts, kdValue('metric', 'regret')) + '</div>'
-    + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Цель, %</span><input class="' + P + '-inp" type="text" inputmode="decimal" data-kd="target" placeholder="например, 3,5" value="' + esc(kdValue('target', '')) + '"></div>'
-    + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span><input class="' + P + '-inp" type="text" data-kd="from" placeholder="ГГГГ-ММ-ДД" value="' + esc(kdValue('from', y + '-01-01')) + '"></div>'
-    + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Комментарий</span><input class="' + P + '-inp" type="text" data-kd="note" placeholder="зачем цель" value="' + esc(kdValue('note', '')) + '"></div>'
-    + '</div>'
-    + '<div class="' + P + '-tnote">Разрезы берутся из «Фильтров»: ' + (cutsNow.length ? cutsNow.join('') : '<b>вся численность</b>')
-    + '. Мультивыбор цель не поддерживает — такой разрез уйдёт в строку как «все».</div>'
-    + '<div class="' + P + '-chh"><span class="' + P + '-cht">Строка для реестра</span><span class="' + P + '-chl"><span data-kd-msg="1">' + esc(state.copied || '') + '</span>'
-    + '<button class="' + P + '-btn" data-action="copy">Скопировать</button></span></div>'
-    + '<textarea class="' + P + '-code" readonly data-kd-out="1">' + esc(kdLine()) + '</textarea>'
-    + '<ol class="' + P + '-steps"><li>Скопируйте строку и добавьте её в <b>insert</b> параграфа «KPI · реестр целей» ноута HRBP HUB (или отправьте владельцу ноута).</li>'
-    + '<li>Запустите ноут — «HH · проверки» покажет правила с неизвестным rk или метрикой.</li>'
-    + '<li>После выгрузки цель появится здесь и на «Сводке»; снять цель — удалить строку или закрыть её датой valid_to.</li></ol>';
-  s += hPanel({ title: 'Новая цель', sub: u ? 'на юнит «' + u.nm + '» и всю его ветку' : 'цель ставится на один юнит — выберите его в шапке', body: form });
+  s += '<div class="' + P + '-gap">' + hPanel({ title: 'Все KPI', sub: 'на юнитах вашей зоны и выше по дереву · статус на ' + fmtDay(day), body: t, tbl: true }) + '</div>';
   return s;
 }
 
@@ -4051,7 +4163,7 @@ function catalogHTML() {
 // need — показывать ли шаг. Цель не нашлась (нет строк, нет данных) — шаг пропускается.
 var HELP_SVG = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + '<circle cx="12" cy="12" r="9.5"/><path d="M9.3 9.2a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.6-2.7 2.6"/><path d="M12 16.6h.01"/></svg>';
-var TOUR_NEXT = { onepager: 'teams', teams: 'transform', transform: 'catalog' };
+var TOUR_NEXT = { onepager: 'teams', teams: 'transform', transform: 'goals', goals: 'catalog' };
 function tabLabel(v) { for (var i = 0; i < CFG.tabs.length; i++) if (CFG.tabs[i].key === v) return CFG.tabs[i].label; return v; }
 // Первый шаг полного тура: как читать отчёт — четыре правила (ДС §10).
 function tourIntroHTML() {
@@ -4144,12 +4256,14 @@ function tourSteps(view) {
     add({ sel: P + '-content ' + P + '-panel [data-action="copy"]', pad: 4, title: 'Копировать',
       html: 'Сводная — в буфер обмена: вставьте в Excel или письмо.' });
   } else if (view === 'goals') {
-    add({ sel: P + '-content ' + P + '-panel', title: 'Реестр целей',
-      html: 'Цели на юнитах вашей зоны и выше. Цель действует на юнит и всю ветку вниз, пока ниже не встретится своя. Статус: в фокусе, ждёт разреза или вне срока.' });
-    add({ sel: '[data-action="gorule"]', lock: true, pad: 4, title: 'Показать цель',
-      html: 'Откроет юнит цели и выставит её разрезы в фильтрах.' });
-    add({ sel: function (R) { var ps = R.querySelectorAll(P + '-content ' + P + '-panel'); return ps.length > 1 ? ps[ps.length - 1] : null; }, title: 'Новая цель',
-      html: 'Отчёт цели только читает. Здесь собирается строка для реестра — её добавляют в параграф «KPI · реестр целей» ноута Helicopter.' });
+    add({ sel: function (R) { var ps = R.querySelectorAll(P + '-content ' + P + '-panel'); return ps.length ? ps[ps.length - 1] : null; }, title: 'Все KPI',
+      html: 'KPI на юнитах вашей зоны и выше по дереву. KPI действует на юнит и все его подразделения, пока ниже нет своего. Статус: «в фокусе», «ждёт разреза» или вне срока.' });
+    add({ sel: '[data-tour="kadd"]', pad: 4, title: 'Новый KPI',
+      html: 'Откроет форму для юнита, выбранного в «Фильтрах»: метрика, цель, срок, для кого (разрезы). Отчёт соберёт ссылку на форму с уже заполненными полями — останется открыть её и нажать «Отправить».' });
+    add({ sel: '[data-action="kedit"]', lock: true, pad: 4, title: 'Изменить и удалить',
+      html: 'У каждого KPI — «Изменить» и «Удалить»: та же форма, ссылка сразу с нужным действием. Изменения появятся в отчёте в течение ' + CFG.kpiForm.lag + ' минут.' });
+    add({ sel: '[data-action="gorule"]', lock: true, pad: 4, title: 'Показать в отчёте',
+      html: 'Откроет юнит KPI и выставит его разрезы в фильтрах.' });
   } else if (view === 'catalog') {
     add({ sel: P + '-cgrid ' + P + '-panel', title: 'Метрики по группам',
       html: 'Что значит метрика, в какую сторону лучше и ставятся ли на неё цели. Как считаем — в ⓘ.' });
@@ -4191,7 +4305,7 @@ function accessHTML() {
 function tabHTML(v) {
   if (v === 'teams') return teamsHTML();
   if (v === 'transform') return transformHTML();
-  if (v === 'goals') return onepagerHTML();  // вкладка скрыта (CFG.tabs)
+  if (v === 'goals') return goalsHTML();
   if (v === 'catalog') return catalogHTML();
   return onepagerHTML();
 }
@@ -5218,23 +5332,37 @@ function buildHTML() {
       tourPos();
     }
     function copyLine() {
-      var ta = overlay.querySelector('[data-kd-out]'), ok = false;
-      try { if (ta) { ta.focus(); ta.select(); ok = document.execCommand('copy'); } } catch (er) { ok = false; }
+      var ta = overlay.querySelector('[data-kd-out]'), ok = false, d = kdDraft();
+      if (kdErrors(d).length) return;
+      try { if (ta) { ta.style.display = ''; ta.focus(); ta.select(); ok = document.execCommand('copy'); } } catch (er) { ok = false; }
       if (!ok && navigator.clipboard && navigator.clipboard.writeText) {
-        try { navigator.clipboard.writeText(kdLine()); ok = true; } catch (er2) { ok = false; }
+        try { navigator.clipboard.writeText(kdLink(d)); ok = true; } catch (er2) { ok = false; }
       }
-      state.copied = ok ? 'Скопировано' : 'Выделите строку и нажмите Ctrl+C';
+      state.copied = ok ? 'Скопировано — вставьте в новую вкладку' : 'Выделите ссылку и нажмите Ctrl+C';
       var msg = overlay.querySelector('[data-kd-msg]');
       if (msg) msg.textContent = state.copied;
     }
+    // Поля формы — без перерисовки (фокус и каретка на месте): ссылка, ошибки, «сейчас у юнита».
     function updateKd() {
+      var d = kdDraft(), err = kdErrors(d);
       var out = overlay.querySelector('[data-kd-out]');
-      if (out) out.value = kdLine();
+      if (out) { out.value = err.length ? '' : kdLink(d); out.style.display = err.length ? 'none' : ''; }
+      var eb = overlay.querySelector('[data-kd-err]');
+      if (eb) eb.textContent = err.length ? 'Чтобы получить ссылку: ' + err.join(', ') + '.' : '';
+      var cb = overlay.querySelector('[data-action="kcopy"]');
+      if (cb) cb.disabled = !!err.length;
+      var nw = overlay.querySelector('[data-kd-now]');
+      if (nw) nw.textContent = kdNow(d);
       state.copied = '';
       var msg = overlay.querySelector('[data-kd-msg]');
       if (msg) msg.textContent = '';
     }
 
+    // Редактор KPI — над списком: после открытия показываем его, а не оставляем внизу экрана.
+    function scrollKd() {
+      var ed = overlay.querySelector('[data-kd-ed]');
+      if (ed && ed.scrollIntoView) { try { ed.scrollIntoView({ block: 'nearest' }); } catch (er) { ed.scrollIntoView(false); } }
+    }
     function onClick(e) {
       // Тур «Как работать»: кнопка в шапке.
       var ta = trigger(e.target, 'data-tact');
@@ -5483,7 +5611,18 @@ function buildHTML() {
         }
         return;
       }
-      if (act === 'copy') { copyLine(); return; }
+      if (act === 'kadd') { state.kd = kdNew(); state.kdOpen = true; state.copied = ''; render(); scrollKd(); return; }
+      if (act === 'kedit' || act === 'kdel') {
+        for (var kr = 0; kr < MODEL.rules.length; kr++) {
+          if (MODEL.rules[kr].id !== key) continue;
+          state.kd = kdFromRule(MODEL.rules[kr], act === 'kedit' ? 'update' : 'del');
+          state.kdOpen = true; state.copied = ''; render(); scrollKd();
+          return;
+        }
+        return;
+      }
+      if (act === 'kclose') { state.kdOpen = false; state.kd = null; state.copied = ''; render(); return; }
+      if (act === 'kcopy') { copyLine(); return; }
     }
 
     // Чекбоксы и выпадашки: change, не click (label/input дают оба события).
@@ -5521,6 +5660,7 @@ function buildHTML() {
         return;
       }
       if (sel === 'kdm') { state.kd.metric = t.value; render(); return; }
+      if (sel && sel.indexOf('kdc:') === 0 && state.kd) { state.kd.cuts[sel.slice(4)] = t.value; updateKd(); return; }
     }
 
     // Поиск в окне фильтров: у каждого списка свой (state.qk), пересобираем ТОЛЬКО этот список —
@@ -5536,7 +5676,7 @@ function buildHTML() {
       }
       if (t.getAttribute('data-tsearch') !== null) { state.tq = t.value; refreshTeams(); return; }
       var kd = t.getAttribute('data-kd');
-      if (kd) { state.kd[kd] = t.value; updateKd(); }
+      if (kd && state.kd) { state.kd[kd] = t.value; updateKd(); }
     }
     function refreshTeams() {
       var box = overlay.querySelector('[data-tbox]');

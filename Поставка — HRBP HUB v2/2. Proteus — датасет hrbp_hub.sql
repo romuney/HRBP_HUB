@@ -69,6 +69,9 @@
 ============================================================================ -#}
 {% set CUTS = [['paint', 'paint_f'], ['it', 'it_f'], ['stream', 'stream_f'], ['spec', 'spec_f'], ['staff', 'staff_f'], ['hct', 'hct_f']] %}
 {% set CUT_COLS = ['paint', 'it', 'stream', 'spec', 'staff', 'hct'] %}
+{#- Тип численности строк вне юридической численности (legal_employee_flg <> 1; hh_param.nonlegal_type). Без
+    выбранного типа их нет нигде (HRBP 13.10, Дьяченко); выбрать значение можно явно. -#}
+{% set NONLEGAL = 'Вне юр. численности' %}
 {% set ATTRS = ['grade', 'seniority', 'exp', 'gender', 'age', 'office', 'work', 'head', 'legal', 'macro', 'city'] %}
 {#- rgs, nrgs — regrettable / non-regrettable увольнения без окна (поток слота): текучесть нарастающим итогом с
     начала года (владелец 12.10). Новые компоненты — только в конец списка. С 13.10 трансформеры везут все 14 (MT):
@@ -128,7 +131,8 @@
 {#- Колонки компонентов (закрепляемость — с подменой RA): MM — месячные, MW — они же и недельные, MT — месячные
     трансформеров (все 14, с 13.10). -#}
 {% set MM = [] %}{% set WW = [] %}
-{% for c in COMP %}{% set s = c[:2] ~ RA ~ c[2:] if c in ['r3n', 'r3d', 'r6n', 'r6d'] else c %}{% set _ = MM.append('m_' ~ s) %}{% set _ = WW.append('w_' ~ s) %}{% endfor %}
+{#- При «Активной» найм — приход в активную (hirea, 13.10); колонки нет (ноут не перезапущен) — обычный найм. -#}
+{% for c in COMP %}{% set s = c[:2] ~ RA ~ c[2:] if c in ['r3n', 'r3d', 'r6n', 'r6d'] else c %}{% if c == 'hire' and RA %}{% set _ = MM.append("arraySlice(arrayConcat(COLUMNS('^m_hirea$'), m_hire), 1, 24)") %}{% set _ = WW.append("arraySlice(arrayConcat(COLUMNS('^w_hirea$'), w_hire), 1, 24)") %}{% else %}{% set _ = MM.append('m_' ~ s) %}{% set _ = WW.append('w_' ~ s) %}{% endif %}{% endfor %}
 {#- rgs / nrgs (с 12–13.10) — через матчер COLUMNS: в бою датасет вставляют раньше, чем ноут успевает выгрузить новые
     колонки, и ClickHouse падал «Unknown identifier 'o'» (13.10). Нет колонки — на её месте 24 пустых слота, а meta.ytd = 0
     говорит чарту не считать текучесть с начала года (он показывает 12 мес). -#}
@@ -140,7 +144,7 @@
 {#- Условие «строка проходит разрезы», кроме разреза skip (для фасетов). -#}
 {% macro cond(skip) -%}
 {%- set parts = [] -%}
-{%- for c in CUT_COLS -%}{%- if c != skip and F[c]|length > 0 -%}{%- set _ = parts.append('has(' ~ qa(F[c]) ~ ', ifNull(' ~ c ~ ", '-'))") -%}{%- endif -%}{%- endfor -%}
+{%- for c in CUT_COLS -%}{%- if c != skip and F[c]|length > 0 -%}{%- set _ = parts.append('has(' ~ qa(F[c]) ~ ', ifNull(' ~ c ~ ", '-'))") -%}{%- elif c == 'hct' and c != skip -%}{%- set _ = parts.append('hct != ' ~ qs(NONLEGAL)) -%}{%- endif -%}{%- endfor -%}
 {{- parts|join(' AND ') if parts else '1' -}}
 {%- endmacro %}
 {#- 12 последних закрытых месяцев (трансформеры): из массивов a2 (по одному на компонент) — окно
@@ -462,17 +466,21 @@ FROM (
 
   UNION ALL
   {#- ---------- цели: на юнитах зоны и на предках её корней (наследуются вниз) ---------- #}
+  {#- Цели пишет форма n8n (DLH → переливка в CH, 13.10): таблица — лог, правка и удаление — новые строки с тем же
+      rule_id. Берётся последняя версия правила (ts_inserted), удалённые (op = delete) — нет. Колонок op и ts_inserted
+      у реестра ноута нет — матчером в подзапросе без JOIN: «()» вместо значения. Комментарий — последним полем:
+      табуляция в нём чарту не мешает. #}
   SELECT 'kpi' AS role, ifNull(rule_id, '') AS id, ifNull(unit_id, '') AS pid, toInt64(0) AS n,
-    concat(ifNull(metric_id, ''), '\t', toString(ifNull(target, 0)), '\t',
+    concat(ifNull(metric_id, ''), '\t', toString(target), '\t',
            ifNull(f_paint, 'all'), '\t', ifNull(f_it, 'all'), '\t', ifNull(f_stream, 'all'), '\t',
            ifNull(f_spec, 'all'), '\t', ifNull(f_staff, 'all'), '\t', ifNull(f_hct, 'all'), '\t',
            ifNull(toString(valid_from), ''), '\t', ifNull(toString(valid_to), ''), '\t',
-           replaceRegexpAll(ifNull(author, ''), '[\\t\\n\\r]', ' '), '\t',
-           replaceRegexpAll(ifNull(note, ''), '[\\t\\n\\r]', ' '), '\t', ifNull(unit_rk, '')) AS j,
+           ifNull(author, ''), '\t', ifNull(note, '')) AS j,
     emptyArrayInt64() AS a, -1 AS lw
-  FROM prod_proteus.hrbp_hub_kpi
+  FROM (SELECT *, toString(tuple(COLUMNS('^op$'))) AS kop, toString(tuple(COLUMNS('^ts_inserted$'))) AS kts
+        FROM prod_proteus.hrbp_hub_kpi ORDER BY kts DESC LIMIT 1 BY rule_id) AS k
   CROSS JOIN ctx
-  WHERE notEmpty(ctx.roots)
+  WHERE notEmpty(ctx.roots) AND kop NOT LIKE '%delete%' AND target IS NOT NULL
     {#- Юнит цели в зоне — по пути из справочника, а не по unit_path цели: реестр целей
         выгружается без array_type_cast, и unit_path в ClickHouse — строка, не массив. #}
     AND (has(ctx.anc, ifNull(unit_id, ''))
@@ -500,7 +508,9 @@ FROM (
       ',"tr_top":', toString(notEmpty(ex.tops)),
       ',"rk":', toJSONString(if(length(ctx.scope) = 1, ex.rk1, '')),
       ',"ret_base":', toJSONString('{{ 'active' if RA else 'company' }}'),
-      ',"ytd":', toString({% for t in ['cube', 'base', 'attr', 'attr_top'] %}hasColumnInTable('prod_proteus', 'hrbp_hub_{{ t }}', 'm_rgs'){% if not loop.last %} AND {% endif %}{% endfor %}),
+      {#- новые колонки ноута — по кубу: base, attr, attr_top выгружает тот же запуск -#}
+      ',"ytd":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_rgs')),
+      ',"hq":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_hirea')),
       ',"last_m":', toString(ctx.last_m),
       ',"fdv":', tupleElement({{ FZ }}, 12),
       ',"end":1',

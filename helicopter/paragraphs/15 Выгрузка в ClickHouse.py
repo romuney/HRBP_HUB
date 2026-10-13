@@ -11,8 +11,8 @@ gp_to_click('hrbp_hub_unit', 'prod_proteus.hrbp_hub_unit',
     gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(id)')
 gp_to_click('hrbp_hub_access', 'prod_proteus.hrbp_hub_access',
     gp_service='gp', upload_mode='replace', order_by_columns='(login)')
-gp_to_click('hrbp_hub_kpi', 'prod_proteus.hrbp_hub_kpi',
-    gp_service='gp', upload_mode='replace', order_by_columns='(unit_id)')
+# hrbp_hub_kpi отсюда больше НЕ выгружается (13.10): цели пишет форма n8n в DLH (dl.usr_cross_data.hrbp_hub_kpi), и
+# prod_proteus.hrbp_hub_kpi наполняет переливка DLH → CH раз в 30 минут. Выгрузка ноута затирала бы её.
 gp_to_click('hrbp_hub_cube', 'prod_proteus.hrbp_hub_cube',
     gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(path_s)')
 gp_to_click('hrbp_hub_attr', 'prod_proteus.hrbp_hub_attr',

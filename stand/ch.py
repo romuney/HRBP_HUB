@@ -82,6 +82,19 @@ def pg_array_text(v):
     return '{' + ','.join('NULL' if x is None else str(x) for x in v) + '}'
 
 
+def kpi_log(nullable=True):
+    """Цели в бою пишет форма n8n → DLH → переливка в CH (13.10): таблица — лог с op и ts_inserted, правка и удаление —
+    новые строки того же rule_id. Стенд повторяет это поверх реестра ноута: T-004 правится (2.9 → 2.5), T-005 удаляется."""
+    nl = (lambda t: 'Nullable(%s)' % t) if nullable else (lambda t: t)
+    S.query("ALTER TABLE prod_proteus.hrbp_hub_kpi ADD COLUMN op %s, ADD COLUMN ts_inserted %s" % (nl('String'), nl('DateTime64(6)')))
+    S.query("ALTER TABLE prod_proteus.hrbp_hub_kpi UPDATE op = 'add', ts_inserted = toDateTime64('2026-10-01 10:00:00', 6) WHERE 1 "
+            "SETTINGS mutations_sync = 2")
+    S.query("INSERT INTO prod_proteus.hrbp_hub_kpi SELECT * REPLACE ('update' AS op, toDateTime64('2026-10-05 10:00:00', 6) AS ts_inserted, "
+            "2.5 AS target) FROM prod_proteus.hrbp_hub_kpi WHERE rule_id = 'T-004'")
+    S.query("INSERT INTO prod_proteus.hrbp_hub_kpi SELECT * REPLACE ('delete' AS op, toDateTime64('2026-10-06 10:00:00', 6) AS ts_inserted) "
+            "FROM prod_proteus.hrbp_hub_kpi WHERE rule_id = 'T-005'")
+
+
 def load(mode='nullable'):
     nullable = mode == 'nullable'
     pg = psycopg2.connect(dbname=os.environ.get('PGDATABASE', 'gp'))
@@ -113,6 +126,8 @@ def load(mode='nullable'):
             lines.append(json.dumps(o, ensure_ascii=False))
         if lines:
             S.query('INSERT INTO prod_proteus.%s FORMAT JSONEachRow\n%s' % (t, '\n'.join(lines)))
+        if t == 'hrbp_hub_kpi':
+            kpi_log(nullable)
         n = S.query('SELECT count() FROM prod_proteus.%s' % t, 'CSV').bytes().decode().strip()
         print('%-20s %8s строк  %s%s' % (t, n, 'nullable' if nullable else 'plain',
                                           '' if cast or not any(d == 'ARRAY' for _, d, _ in cols) else ' · массивы строкой'))

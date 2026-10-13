@@ -210,7 +210,8 @@ def main():
             fs = [r for r in by(rows, 'f') if r['pid'] == cut]
             if CARRIER[cut] in flt:
                 continue
-            ok(sum(int(r['n']) for r in fs) == sc[0]['hc'][last], 'фасеты «%s» == численность области [%s]' % (cut, user))
+            # фасет типа численности показывает и «Вне юр. численности», а область без выбранного типа — только юридическую (13.10)
+            ok(sum(int(r['n']) for r in fs if not (cut == 'hct' and r['id'] == W.NONLEGAL)) == sc[0]['hc'][last], 'фасеты «%s» == численность области [%s]' % (cut, user))
     # Трансформеры: все 17 осей в каждом ответе; Σ значений оси == область за 12 последних
     # месяцев, прежние слоты — нули. Без разрезов у юнитов со свёрткой (attr_top) атрибуты — из
     # неё (tr_top = 1), иначе — из листового куба; оба пути дают одни и те же строки.
@@ -277,7 +278,9 @@ def main():
     retail = {sid(u.rk) for u in W.UNITS if U['Розничный бизнес'] in u.chain_at(W.D) and u.level in W.REPORT_LEVELS}
     ok(set(dict_ids) == retail | {sid(root)}, 'справочник Котова = его ветка + предки корня')
     kp = by(rows, 'kpi')
-    ok({r['id'] for r in kp} == {'T-004', 'T-005', 'T-006', 'T-007'}, 'цели Котова: карты (2) + компанейские (2), без чужих: %s' % sorted(r['id'] for r in kp))
+    # лог формы (ch.kpi_log): T-005 удалена, у T-004 последняя версия — 2.5
+    ok({r['id'] for r in kp} == {'T-004', 'T-006', 'T-007'}, 'цели Котова: карты (1, вторая удалена) + компанейские (2), без чужих: %s' % sorted(r['id'] for r in kp))
+    ok([r['j'].split('\t')[1] for r in kp if r['id'] == 'T-004'] == ['2.5'], 'лог целей: берётся последняя версия правила')
     rows, _ = ask({}, 'nobody')
     ok([r['role'] for r in rows] == ['meta', 'end'] and meta(rows)['role'] == 'none', 'без роли — только meta (и маркер end)')
     rows, _ = ask({}, 'A.SERGEEVA ')
@@ -434,7 +437,8 @@ def main():
         fac, tot = {}, 0
         for uid in seen:
             for vals, n in units.get(uid, ('', []))[1]:
-                fails = [k for k, v in zip(KEYS, vals) if cuts.get(k) and v not in cuts[k]]
+                # без выбранного типа — только юридическая численность (13.10), как датасет и fdCalc чарта
+                fails = [k for k, v in zip(KEYS, vals) if (cuts.get(k) and v not in cuts[k]) or (k == 'hct' and not cuts.get(k) and v == W.NONLEGAL)]
                 tot += n if not fails else 0
                 for k, v in zip(KEYS, vals):
                     if not fails or fails == [k]:
