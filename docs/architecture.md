@@ -156,7 +156,7 @@ attr, attr_top, base); без флага массив приезжает стр�
 | metric_id | String | retention_new_3, retention_new_6, regret, exit_reasons, jun_team |
 | target | Float64 | цель в единицах метрики (3.5 = 3,5 %) |
 | f_paint … f_hct | String | разрезы, при которых цель действует; `all` — при любых |
-| valid_from, valid_to | Date | срок; бессрочно = 2099-12-31 |
+| valid_from, valid_to | Date | срок; пусто (NULL) или 2099-12-31 — по актуальную дату (последний закрытый месяц данных) |
 | author, note | String | кто и зачем |
 
 ### `hrbp_hub_cube` — куб · ORDER BY (path_s)

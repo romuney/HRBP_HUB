@@ -476,7 +476,7 @@ function buildModel() {
       // Комментарий — последним полем: табуляция в нём склеивается обратно.
       M.rules.push({ id: id, unit: pid, metric: kpiMetricKey(kf[0]), target: num(kf[1]),
         f: { paint: kpiCut(kf[2]), it: kpiCut(kf[3]), stream: kpiCut(kf[4]), spec: kpiCut(kf[5]), staff: kpiCut(kf[6]), hct: kpiCut(kf[7]) },
-        from: kf[8] || '2000-01-01', to: kf[9] || '2099-12-31', author: kf[10] || '', note: kf.slice(11).join(' ') });
+        from: kf[8] || '2000-01-01', to: kpiOpenTo(kf[9]) ? '' : kf[9], open: kpiOpenTo(kf[9]), author: kf[10] || '', note: kf.slice(11).join(' ') });
     }
   }
   // Обрезка: строк не меньше лимита чарта или (датасет с маркером end) строки end нет. Под GROUP BY обёртки
@@ -516,6 +516,10 @@ function buildModel() {
     M.dataDt = p[5] || M.dataDt;
   }
   M.L = typeof meta.last_m === 'number' ? meta.last_m : -1;
+  // «Действует по» не заполнено — цель действует по последний период датасета (конец последнего закрытого
+  // месяца): с новым месяцем данных срок сдвигается сам (13.10).
+  var lastDay = M.cal.m[M.L] ? M.cal.m[M.L].e : (M.dataDt || '2099-12-31');
+  for (var rq = 0; rq < M.rules.length; rq++) if (M.rules[rq].open) M.rules[rq].to = lastDay;
   for (var pk in M.units) {
     if (!M.units.hasOwnProperty(pk)) continue;
     var pu = M.units[pk].pid;
@@ -3966,6 +3970,8 @@ function kpiMetricKey(v) {
   for (var i = 0; i < CFG.metrics.length; i++) if (CFG.metrics[i].name === v) return CFG.metrics[i].key;
   return v;
 }
+// «Действует по» пусто (или старое «бессрочно» 2099-12-31) — по актуальную дату: последний период датасета.
+function kpiOpenTo(v) { v = String(v || ''); return !/^\d{4}-\d{2}-\d{2}$/.test(v) || v >= '2099-12-31'; }
 // Разрез цели: пусто, «все» (подпись формы) и all — без разреза.
 function kpiCut(v) { v = String(v || '').replace(/^\s+|\s+$/g, ''); return !v || v === 'all' || v.toLowerCase() === CFG.kpiForm.all ? 'all' : v; }
 // Финансовый год по умолчанию (инструкция формы): с 1 октября по 30 сентября — тот, что идёт сейчас, то есть
@@ -3992,7 +3998,7 @@ function kdFromRule(r, mode) {
   var cuts = {};
   for (var i = 0; i < CFG.cuts.length; i++) cuts[CFG.cuts[i].key] = r.f[CFG.cuts[i].key] || 'all';
   return { mode: mode, id: r.id, unit: r.unit, metric: r.metric, target: String(r.target).replace('.', ','), from: r.from > '2000-01-01' ? r.from : kpiFY()[0],
-           to: r.to < '2099-12-31' ? r.to : '', cuts: cuts, note: r.note || '' };
+           to: r.open ? '' : r.to, cuts: cuts, note: r.note || '' };
 }
 function kdNum(v) { var t = String(v === undefined || v === null ? '' : v).replace(',', '.').replace(/\s/g, ''); return t !== '' && !isNaN(Number(t)) ? Number(t) : null; }
 function isoOk(v) { return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')); }
@@ -4035,8 +4041,7 @@ function ruleStatus(r, day) {
 }
 function ruleSpan(r) {
   var a = r.from > '2000-01-01' ? 'с ' + fmtDay(r.from) : '';
-  // «Бессрочно» в реестре — 2099-12-31 (в Date ClickHouse не влезает больше 2149-06-06).
-  var b = r.to < '2099-12-31' ? 'по ' + fmtDay(r.to) : 'бессрочно';
+  var b = r.open ? 'по актуальную дату (' + fmtDay(r.to) + ')' : 'по ' + fmtDay(r.to);
   return a ? a + ' ' + b : b;
 }
 // Значения разреза для формы — словари всей компании (meta.fdv), иначе фасеты ответа.
@@ -4076,7 +4081,7 @@ function kdEditorHTML() {
       + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Цель' + (m && m.fmt === 'pct' ? ', %' : '') + (m ? ' · ' + (m.better === 'higher' ? 'не ниже' : 'не выше') : '') + '</span>'
       + '<input class="' + P + '-inp" type="text" inputmode="decimal" data-kd="target" placeholder="например, 3,5" value="' + esc(d.target) + '"></div>'
       + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span><input class="' + P + '-inp" type="text" data-kd="from" placeholder="ГГГГ-ММ-ДД" value="' + esc(d.from) + '"></div>'
-      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует по</span><input class="' + P + '-inp" type="text" data-kd="to" placeholder="ГГГГ-ММ-ДД, пусто — бессрочно" value="' + esc(d.to) + '"></div>'
+      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует по</span><input class="' + P + '-inp" type="text" data-kd="to" placeholder="ГГГГ-ММ-ДД, пусто — по актуальную дату" value="' + esc(d.to) + '"></div>'
       + '<div class="' + P + '-know ' + P + '-kwide" data-kd-now="1">' + esc(kdNow(d)) + '</div>'
       + '<div class="' + P + '-kcut ' + P + '-kwide"><span class="' + P + '-ctll">Для кого — разрезы численности</span><div class="' + P + '-kcuts">' + cutsH + '</div>'
       + '<span class="' + P + '-us">«все» — вся численность юнита. Цель с разрезом работает в отчёте, когда выбран ровно этот разрез.</span></div>'
