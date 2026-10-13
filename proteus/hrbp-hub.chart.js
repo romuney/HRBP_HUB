@@ -59,6 +59,18 @@ var CFG = {
     { key: 'legal', label: 'Юрлицо' }
   ],
   defaultAxis: 'spec',
+  // Готовые срезы «Трансформеров» (владелец 13.10: «сразу предложить пресеты, в которых логично смотреть»):
+  // вопрос HRBP → метрика × разбивка. Показываются те, чья метрика включена в «Что показывать».
+  trPresets: [
+    { m: 'regret', a: 'grade', t: 'Ценные уходы по грейдам', q: 'На каких грейдах уходят люди, которых жаль потерять.' },
+    { m: 'regret', a: 'exp', t: 'Ценные уходы по стажу', q: 'Уходят ли ценные люди в первый год или после многих лет в компании.' },
+    { m: 'regret', a: 'head', t: 'Теряем ли руководителей', q: 'Regrettable текучесть руководителей и остальных сотрудников.' },
+    { m: 'retention_new_3', a: 'spec', t: 'Где не задерживаются новички', q: 'Закрепляемость новичков через 3 месяца по специализациям.' },
+    { m: 'retention_new_6', a: 'work', t: 'Новички и формат работы', q: 'Закрепляемость новичков через 6 месяцев по формату работы.' },
+    { m: 'exit_reasons', a: 'legal', t: 'Где не указывают причины', q: 'Увольнения без причины по юрлицам: кому напомнить заполнить.' },
+    { m: 'jun_team', a: 'spec', t: 'Где растим джунов', q: 'Доля джунов и стажёров по специализациям.' },
+    { m: 'headcount', a: 'city', t: 'Где работают люди', q: 'Численность по городам.' }
+  ],
   trTop: 30,                 // трансформеры: у оси показываем столько крупных значений, остальные — «Остальные»
   // Порядок значений там, где он смысловой, а не по численности.
   order: {
@@ -1828,6 +1840,11 @@ function buildCSS() {
     P + '-vlb{fill:#fff;fill-opacity:.94;}',
     P + '-vl{font-size:' + F.val + 'px;fill:' + C.label + ';font-weight:400;font-variant-numeric:tabular-nums;}',
     P + '-vlc{font-weight:600;fill:' + C.ink + ';}',
+    P + '-tfps{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:0 0 12px;}',
+    P + '-tfps ' + P + '-ctll{margin-right:4px;}',
+    P + '-tfp{border:1px solid ' + C.line + ';background:' + C.card + ';color:' + C.ink2 + ';border-radius:999px;padding:5px 11px;font:inherit;font-size:' + F.note + 'px;font-weight:500;cursor:pointer;line-height:1.2;}',
+    P + '-tfp:hover{border-color:' + C.muted2 + ';color:' + C.ink + ';}',
+    P + '-tfp' + P + '-on{background:' + C.blueBg + ';border-color:' + C.blueBg + ';color:#2b5fd0;}',
     P + '-mkt{font-size:' + F.dense + 'px;font-weight:600;fill:#fff;font-variant-numeric:tabular-nums;pointer-events:none;}',
     // Раскрытая строка «Сводки» (13.10): график ≈ 64 % слева, справа «Что видно» (номера = точки на графике) и «О метрике».
     P + '-story{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(250px,1fr);padding:14px 0 6px;}',
@@ -3792,6 +3809,18 @@ function trName(r) {
   if (r.rest) return 'Остальные · ' + r.rest + ' ' + plural(r.rest, 'значение', 'значения', 'значений');
   return cutName(r.v);
 }
+// Готовые срезы: одна строка пилюль-вопросов; выбранный — фоном. Клик ставит метрику и разбивку разом.
+function presetsHTML(avail, mk, axis) {
+  var P = CFG.ns, on = {}, s = '';
+  for (var i = 0; i < avail.length; i++) on[avail[i].key] = true;
+  for (var k = 0; k < CFG.trPresets.length; k++) {
+    var pr = CFG.trPresets[k], cur = pr.m === mk && pr.a === axis;
+    if (!on[pr.m]) continue;
+    s += '<button type="button" class="' + P + '-tfp' + (cur ? ' ' + P + '-on' : '') + '" data-action="tfp" data-key="' + k + '" aria-pressed="' + (cur ? 'true' : 'false') + '"'
+      + tip({ title: pr.t, text: pr.q, rows: [{ label: 'метрика', value: METRIC[pr.m] ? METRIC[pr.m].name : pr.m }, { label: 'разбивка', value: axisLabel(pr.a) }] }) + '>' + esc(pr.t) + '</button>';
+  }
+  return s ? '<div class="' + P + '-tfps" data-tfps="1"><span class="' + P + '-ctll">Готовые срезы</span>' + s + '</div>' : '';
+}
 function transformHTML() {
   var P = CFG.ns, M = MODEL, L = M.L;
   var s = pageHead('Трансформеры', 'Метрика в разбивке по грейду, стажу, городу и другим признакам за 12 месяцев.');
@@ -3804,8 +3833,8 @@ function transformHTML() {
   for (var j = 0; j < CFG.axes.length; j++) aOpts.push([CFG.axes[j].key, CFG.axes[j].label]);
   s += '<div class="' + P + '-tools">'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('tfm', mOpts, m.key) + '</div>'
-    + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Ось разбивки</span>' + hSel('tfa', aOpts, axis) + '</div>'
-    + '</div>';
+    + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Разбивка</span>' + hSel('tfa', aOpts, axis) + '</div>'
+    + '</div>' + presetsHTML(avail, m.key, axis);
   // Все 17 осей приезжают с каждым ответом — смена оси мгновенная. Запасной режим датасета
   // (TR_ALL_MAX): у большой ветки с разрезами атрибут догружается один раз по запросу.
   if (!axisReady(axis)) {
@@ -3842,7 +3871,7 @@ function transformHTML() {
   for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr]), list[rr].ser, list[rr].rest ? P + '-rest' : '');
   th += '</tbody></table>';
   var nv = trCount(axis);
-  return s + hPanel({ title: m.name + ' · сводная по оси «' + axisLabel(axis) + '»',
+  return s + hPanel({ title: m.name + ' · ' + axisLabel(axis),
     sub: 'последний месяц выделен · ' + nv + ' ' + plural(nv, 'значение', 'значения', 'значений'),
     body: th, tbl: true, tabs: '<span class="' + P + '-pbtn">' + copyBtn('tr') + '</span>' });
 }
@@ -4067,8 +4096,10 @@ function tourSteps(view) {
   } else if (view === 'transform') {
     add({ sel: function (R) { var x = R.querySelector('select[data-sel="tfm"]'); return x ? x.parentNode.parentNode : null; }, title: 'Метрика',
       html: 'Какую метрику раскладывать по оси.' });
-    add({ sel: function (R) { var x = R.querySelector('select[data-sel="tfa"]'); return x ? x.parentNode.parentNode : null; }, lock: true, title: 'Ось разбивки',
+    add({ sel: function (R) { var x = R.querySelector('select[data-sel="tfa"]'); return x ? x.parentNode.parentNode : null; }, lock: true, title: 'Разбивка',
       html: 'По чему разбить: грейд, стаж, возраст, город и другие.' });
+    add({ sel: '[data-tfps]', title: 'Готовые срезы',
+      html: 'Частые вопросы одним кликом: на каких грейдах уходят ценные, где не задерживаются новички, где не указывают причины. Клик ставит метрику и разбивку.' });
     add({ sel: P + '-content ' + P + '-panel', title: 'Сводная таблица',
       html: 'Строки — значения разбивки, колонки — 12 месяцев, справа — изменение за год.' });
     add({ sel: P + '-content ' + P + '-panel [data-action="copy"]', pad: 4, title: 'Копировать',
@@ -5391,6 +5422,13 @@ function buildHTML() {
         return;
       }
       if (act === 'axis') { var nx = reqNow(); nx.axis = key || wantAxis(); emit(nx); return; }
+      if (act === 'tfp') {
+        var pr = CFG.trPresets[+key];
+        if (!pr) return;
+        state.tfMetric = pr.m; state.tfAxis = pr.a;
+        if (axisReady(pr.a)) { render(); return; }
+        var np = reqNow(); np.axis = pr.a; emit(np); return;
+      }
       if (act === 'gorule') {
         for (var r = 0; r < MODEL.rules.length; r++) {
           var rl = MODEL.rules[r];
