@@ -1713,7 +1713,7 @@ function buildCSS() {
     P + '-sub:hover{color:' + C.ink2 + ';}',
     P + '-sub' + P + '-on{background:' + C.card + ';color:' + C.ink + ';}',
     P + '-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;}',
-    P + '-tools>' + P + '-legend{margin:0;}',
+    P + '-tools>' + P + '-legend,' + P + '-pbtn>' + P + '-legend{margin:0;}',
     P + '-tools ' + P + '-lh{align-self:center;}',
     P + '-below{color:' + C.muted + ';cursor:help;border-bottom:1px dotted ' + C.muted2 + ';}',
     P + '-ctl{display:flex;flex-direction:column;gap:4px;}',
@@ -1883,6 +1883,8 @@ function buildCSS() {
     P + '-tfp' + P + '-on{background:' + C.blueBg + ';border-color:' + C.blueBg + ';color:#2b5fd0;}',
     P + '-sm1{color:' + C.ink2 + ';}',
     P + '-hqa{margin:0 0 8px;}',
+    P + '-poph{display:inline-flex;align-items:center;gap:6px;font-size:' + F.control + 'px;white-space:nowrap;}',
+    P + '-root ' + P + '-popx{color:' + C.muted + ';font-weight:400;font-size:' + F.title + 'px;line-height:1;padding:0 2px;}',
     P + '-mkt{font-size:' + F.dense + 'px;font-weight:600;fill:#fff;font-variant-numeric:tabular-nums;pointer-events:none;}',
     // Раскрытая строка «Сводки» (13.10): график ≈ 64 % слева, справа «Что видно» (номера = точки на графике) и «О метрике».
     P + '-story{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(250px,1fr);padding:14px 0 6px;}',
@@ -2788,7 +2790,7 @@ function filterBarHTML() {
       + '<button class="' + P + '-btn ' + P + '-ghost" data-action="unstage">Отменить</button></span>';
   }
   if (chips.length > 1) s += '<button class="' + P + '-lnk" data-action="reset">Сбросить всё</button>';
-  s += '<span class="' + P + '-sp"></span>';
+  s += '<span class="' + P + '-sp"></span>' + (state.view === 'onepager' || !state.view ? popHintBtn() : '');
   s += '<span class="' + P + '-bench"' + tip({ title: 'База сравнения',
     text: 'Вся компания под теми же разрезами. С ней сравниваем метрики, у которых нет цели.' }) + '>База: <b>' + esc(benchLabel()) + '</b></span>';
   return s + '</div>';
@@ -2950,7 +2952,7 @@ function kpiCardsHTML() {
     + kpiCard({ label: M.single ? 'Целей на юните' : 'Целей внутри зоны', value: String(own.length),
         q: hInfo({ title: 'Свои цели', text: 'Цели, поставленные на этот юнит. Цель с разрезом работает, когда этот разрез выбран в «Фильтрах».' }),
         row1: live ? '<span class="' + P + '-tag ' + P + '-own">' + live + ' в фокусе сейчас</span>' : '<span class="' + P + '-ks">' + (own.length ? 'ни одна не подходит под разрезы' : 'своих целей нет') + '</span>',
-        row2: '<span class="' + P + '-ks">цели ставит владелец отчёта</span>' })
+        row2: '<button type="button" class="' + P + '-lnk" data-view="goals">задать во вкладке «KPI»</button>' })
     + kpiCard({ label: 'Наследуемых целей', value: String(inh),
         q: hInfo({ title: 'Наследуемые цели', text: 'Цели юнитов выше: они действуют, пока у юнита нет своей.' }),
         row1: inh ? '<span class="' + P + '-tag">Фокус через родителя</span>' : '<span class="' + P + '-ks">—</span>',
@@ -3239,17 +3241,22 @@ function hqAlertHTML() {
     return '<div class="' + P + '-note ' + P + '-warn ' + P + '-hqa" data-hqnote="1"><b>Regrettable и non-regrettable не считаются:</b> их знаменатель — активная численность HQ, '
       + 'а выбранные фильтры (' + esc(selLabel()) + ') её исключают.' + btn + '</div>';
   }
-  return '<div class="' + P + '-note ' + P + '-ninfo ' + P + '-hqa" data-hqnote="1"><b>Regrettable и non-regrettable — по активной численности HQ.</b> '
-    + 'Остальные метрики — по выбранной численности: ' + esc(selLabel()) + '.' + btn + '</div>';
+  return '';
 }
-function popHintHTML() {
+// Подзаголовок «Текучести»: норматив HQ одной фразой и ссылка «показать по активной HQ», если фильтры не ровно она.
+function hqSub() {
+  var P = CFG.ns, h = CFG.hq, can = hasVal('hct', h.hct) && hasVal('paint', h.paint);
+  return ' · <span' + tip({ title: 'Regrettable и non-regrettable', text: 'Знаменатель — всегда активная численность HQ, какие бы фильтры ни были выбраны. Остальные метрики — по выбранной численности: ' + selLabel() + '.' }) + '>regrettable — по активной HQ</span>'
+    + (!hqOn() && can ? ' · <button type="button" class="' + P + '-lnk" data-action="hqact">показать всё по активной HQ</button>' : '');
+}
+// Сравнение с популяцией — кнопкой рядом с «Базой» (не плашкой): подробности — в подсказке, × — скрыть.
+function popHintBtn() {
   var P = CFG.ns, h = popHint(), sig = sigOf(reqNow());
   if (!h || state.popOff === sig) return '';
-  var lab = CUT[h.key] ? CUT[h.key].label : h.key, pc = Math.round(h.share * 100);
-  return '<div class="' + P + '-note ' + P + '-ninfo ' + P + '-gap" data-pophint="1"><b>' + pc + ' % людей юнита — «' + esc(cutName(h.v)) + '»</b> (' + esc(lab.toLowerCase()) + '), а база — вся компания. '
-    + 'Чтобы сравнение было честным, сравните с «' + esc(cutName(h.v)) + '» по компании. '
-    + '<button type="button" class="' + P + '-lnk" data-action="pophint" data-key="' + esc(h.key) + '" data-val="' + esc(h.v) + '">Сравнить с «' + esc(cutName(h.v)) + '»</button>'
-    + ' · <button type="button" class="' + P + '-lnk" data-action="pophint" data-key="">Скрыть</button></div>';
+  var lab = CUT[h.key] ? CUT[h.key].label : h.key, pc = Math.round(h.share * 100), nm = cutName(h.v);
+  return '<span class="' + P + '-poph" data-pophint="1"><button type="button" class="' + P + '-lnk" data-action="pophint" data-key="' + esc(h.key) + '" data-val="' + esc(h.v) + '"'
+    + tip({ title: 'Сравнить честнее', text: pc + ' % людей юнита — «' + nm + '» (' + lab.toLowerCase() + '), а база — вся компания. Клик сравнит с «' + nm + '» по компании.' }) + '>Сравнить с «' + esc(nm) + '»</button>'
+    + '<button type="button" class="' + P + '-lnk ' + P + '-popx" data-action="pophint" data-key="" aria-label="Скрыть"' + tip({ title: 'Скрыть', text: 'Подсказка вернётся при другом выборе юнита или фильтров.' }) + '>×</button></span>';
 }
 function sumInfo() {
   return hInfo({ title: 'Как читать сводку', text: 'Значения за ' + monthLow(MODEL.L) + ' сравниваем с целью юнита, а если цели нет — с базой.',
@@ -3415,11 +3422,11 @@ function onepagerHTML() {
   var smallScope = false, gatedOn = false, sm0 = selMetrics('');
   for (var s0 = 0; s0 < sm0.length; s0++) if (smallHide(M.scope, sm0[s0])) smallScope = true;
   for (var g0 = 0; g0 < CFG.small.blocks.length; g0++) if (selMetrics(CFG.small.blocks[g0]).length) gatedOn = true;
-  s += kpiCardsHTML() + popHintHTML() + obsHTML()
-    + (smallScope && gatedOn ? '<div class="' + P + '-note ' + P + '-ninfo ' + P + '-gap">В юните ' + fmtInt(hcOf(M.scope)) + ' ' + plural(hcOf(M.scope), 'человек', 'человека', 'человек')
-      + ' — часть метрик без цвета: ' + esc(smallRule()) + '. Значения и графики — как обычно.</div>' : '')
-    + legendHTML(true, smallScope && gatedOn);
-  var any = false;
+  // Над таблицами — одна строка «Что видно в данных» (владелец 14.10: «слишком много подсказок, глаза разбегаются»):
+  // сравнение с популяцией — кнопкой у «Базы» (popHintBtn), «мало людей» — подписью в строке метрики и в легенде,
+  // легенда цвета — в шапке первого блока, норматив HQ — в подзаголовке «Текучести».
+  s += kpiCardsHTML() + obsHTML();
+  var any = false, legOn = false;
   for (var b = 0; b < CFG.blocks.length; b++) {
     var blk = CFG.blocks[b], mets = selMetrics(blk.key), items = [];
     for (var i = 0; i < mets.length; i++) {
@@ -3472,7 +3479,10 @@ function onepagerHTML() {
       + '<th>Изменение<span class="' + P + '-hc">к ' + esc(monthDat(L - 1)) + '</span></th>'
       + '<th>Год к году<span class="' + P + '-hc">к ' + esc(monthDat(L - 12)) + '</span></th>'
       + '<th class="' + P + '-c">12 мес<span class="' + P + '-hc">точка — к ориентиру месяца</span></th></tr></thead><tbody>' + rows + '</tbody></table>';
-    s += '<div class="' + P + '-gap">' + (blk.key === 'turnover' ? hqAlertHTML() : '') + hPanel({ title: blk.name, sub: blk.hint, body: tbl, tbl: true }) + '</div>';
+    var hqs = blk.key === 'turnover' ? hqSub() : '';
+    s += '<div class="' + P + '-gap">' + (blk.key === 'turnover' ? hqAlertHTML() : '') + hPanel({ title: blk.name, subHtml: esc(blk.hint) + hqs, body: tbl, tbl: true,
+      tabs: legOn ? '' : '<span class="' + P + '-pbtn">' + legendHTML(false, smallScope && gatedOn, true) + '</span>' }) + '</div>';
+    legOn = true;
   }
   if (!any) s += hEmpty('С «Только фокусные» метрик не осталось', 'Целей по выбранным метрикам здесь нет. Выключите «Только фокусные» в «Фильтрах».');
   return s;
@@ -4355,10 +4365,10 @@ function tourSteps(view) {
       html: 'Юнит отчёта и путь к нему, применённые фильтры (× снимает фильтр) и база сравнения — вся компания под теми же разрезами.' });
     add({ sel: function (R) { var k = R.querySelectorAll(P + '-kpis>' + P + '-kpi'); return k.length > 1 ? k[1] : null; }, title: 'Сотрудники и движение',
       html: 'Численность на конец месяца и что изменило её за год: найм, уходы, переводы. Помесячно — в ⓘ.' });
-    add({ sel: '[data-pophint]', lock: true, need: !!popHint(), title: 'С кем сравнивать',
+    add({ sel: '[data-pophint]', lock: true, pad: 4, title: 'С кем сравнивать',
       html: 'Почти все люди юнита — одна популяция (например, HQ), а база — вся компания. «Сравнить с …» поставит этот разрез — база станет той же популяцией.' });
-    add({ sel: '[data-hqnote]', lock: true, need: !hqOn(), title: 'Текучесть — по активной HQ',
-      html: 'Знаменатель regrettable и non-regrettable — всегда активная численность HQ. Если фильтры другие, здесь это видно; «Показать по активной HQ» поставит оба фильтра.' });
+    add({ sel: function (R) { return R.querySelector('[data-hqnote]') || R.querySelector('[data-action="hqact"]'); }, lock: true, pad: 4, title: 'Текучесть — по активной HQ',
+      html: 'Знаменатель regrettable и non-regrettable — всегда активная численность HQ. «Показать всё по активной HQ» поставит оба фильтра.' });
     add({ sel: P + '-obs', title: 'Что видно в данных',
       html: 'Главное по юниту: где метрика заметно хуже или лучше ориентира и прошлого года, всплески уходов, незаполненные причины. <b>«Ещё N»</b> раскрывает список.' });
     add({ sel: function (R) { var t = firstOp(R); return t ? t.querySelectorAll(P + '-row>' + P + '-lead') : null; }, all: true, title: 'Значение',
