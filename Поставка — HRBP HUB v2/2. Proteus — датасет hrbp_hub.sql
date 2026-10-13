@@ -129,7 +129,13 @@
     трансформеров (все 14, с 13.10). -#}
 {% set MM = [] %}{% set WW = [] %}
 {% for c in COMP %}{% set s = c[:2] ~ RA ~ c[2:] if c in ['r3n', 'r3d', 'r6n', 'r6d'] else c %}{% set _ = MM.append('m_' ~ s) %}{% set _ = WW.append('w_' ~ s) %}{% endfor %}
-{% set MW = (MM + WW)|join(', ') %}
+{#- rgs / nrgs (с 12–13.10) — через матчер COLUMNS: в бою датасет вставляют раньше, чем ноут успевает выгрузить новые
+    колонки, и ClickHouse падал «Unknown identifier 'o'» (13.10). Нет колонки — на её месте 24 пустых слота, а meta.ytd = 0
+    говорит чарту не считать текучесть с начала года (он показывает 12 мес). -#}
+{%- macro opt(p, n) -%}arrayResize(arrayConcat(CAST([], 'Array(Nullable(Int32))'), COLUMNS('^{{ p }}_{{ '(rgs|nrgs)' if n == 48 else n }}$')), {{ n if n == 48 else 24 }}){%- endmacro -%}
+{#- плоский массив плеч — пара одним матчером (в таблицах rgs раньше nrgs), массивы трансформеров — по колонке -#}
+{% set MW = (MM[:12] + [opt('m', 48)] + WW[:12] + [opt('w', 48)])|join(', ') %}
+{% set MM = MM[:12] + [opt('m', 'rgs'), opt('m', 'nrgs')] %}
 {% set MT = MM|join(', ') %}
 {#- Условие «строка проходит разрезы», кроме разреза skip (для фасетов). -#}
 {% macro cond(skip) -%}
@@ -490,6 +496,7 @@ FROM (
       ',"tr_top":', toString(notEmpty(ex.tops)),
       ',"rk":', toJSONString(if(length(ctx.scope) = 1, ex.rk1, '')),
       ',"ret_base":', toJSONString('{{ 'active' if RA else 'company' }}'),
+      ',"ytd":', toString({% for t in ['cube', 'base', 'attr', 'attr_top'] %}hasColumnInTable('prod_proteus', 'hrbp_hub_{{ t }}', 'm_rgs'){% if not loop.last %} AND {% endif %}{% endfor %}),
       ',"last_m":', toString(ctx.last_m),
       ',"fdv":', tupleElement({{ FZ }}, 12),
       ',"end":1',

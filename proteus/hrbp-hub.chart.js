@@ -440,6 +440,9 @@ function buildModel() {
   // порядок не держится — пропасть может любая строка, в том числе meta (09.10).
   M.cut = rawData.length >= CFG.rowLimit || (!!M.meta && num(M.meta.end) === 1 && !M.complete);
   if (!M.meta) return M;
+  // Колонки есть, но в таблицах ClickHouse их ещё нет (ноут не перезапущен) — датасет шлёт пустые и meta.ytd = 0:
+  // текучесть тогда за скользящие 12 мес, а не «с начала года» из нулей.
+  if (M.meta.ytd === 0) M.ytdOk = false;
   var meta = M.meta;
   M.role = meta.role || 'none';
   M.scopeIds = (meta.scope || []).slice().sort();
