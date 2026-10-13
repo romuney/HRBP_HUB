@@ -1281,14 +1281,19 @@ function svgLine(spec, W, H, ctx) {
   }
   // Номерные отметки фактов «Что видно» (раскрытая строка «Сводки»): точка с номером вместо обычной;
   // подписи значений их обходят, у отмеченной точки подпись отодвинута от кружка.
-  var marks = spec.marks || [], mAt = {}, mk = '';
+  var marks = spec.marks || [], mAt = {}, mk = '', mkHz = [];
   for (var mi = 0; mi < marks.length; mi++) {
     var mm = marks[mi], ms = mm.s === 'prev' ? spec.prev : spec.cur;
     if (!on[mm.s] || mm.i < 0 || mm.i >= n || ms[mm.i] === null || ms[mm.i] === undefined) continue;
     var mx = X(mm.i), my = Y(ms[mm.i]);
     if (mm.s === 'cur') mAt[mm.i] = true;
     placed.push({ x: mx - 8, y: my - 8, w: 16, h: 16 });
-    mk += '<g class="' + P + '-fd ' + P + '-mk" data-d="' + dly(mm.i) + '" data-s="' + mm.s + '"><circle cx="' + mx.toFixed(1) + '" cy="' + my.toFixed(1) + '" r="8" fill="' + (mm.s === 'prev' ? C.neutralTx : C.ink) + '" stroke="#fff" stroke-width="1.6"/>'
+    mkHz.push({ n: String(mm.n), x: mx, y: my });
+    // Связь с фактом справа (13.10): при наведении на факт или на точку — ореол, акцент и пунктир до оси месяцев.
+    mk += '<g class="' + P + '-fd ' + P + '-mk" data-d="' + dly(mm.i) + '" data-s="' + mm.s + '" data-mk="' + mm.n + '">'
+      + '<line class="' + P + '-mkg" x1="' + mx.toFixed(1) + '" x2="' + mx.toFixed(1) + '" y1="' + (my + 9).toFixed(1) + '" y2="' + (gt + ph).toFixed(1) + '"/>'
+      + '<circle class="' + P + '-mkh" cx="' + mx.toFixed(1) + '" cy="' + my.toFixed(1) + '" r="14"/>'
+      + '<circle class="' + P + '-mkc" cx="' + mx.toFixed(1) + '" cy="' + my.toFixed(1) + '" r="8" fill="' + (mm.s === 'prev' ? C.neutralTx : C.ink) + '" stroke="#fff" stroke-width="1.6"/>'
       + '<text x="' + mx.toFixed(1) + '" y="' + (my + 3.6).toFixed(1) + '" text-anchor="middle" class="' + P + '-mkt">' + mm.n + '</text></g>';
   }
   var lbl = '', order = [];
@@ -1319,12 +1324,14 @@ function svgLine(spec, W, H, ctx) {
         + '<text x="' + (box.x + box.w / 2).toFixed(1) + '" y="' + (box.y + 11).toFixed(1) + '" text-anchor="middle" class="' + P + '-vl' + (ci === spec.boldIdx ? ' ' + P + '-vlc' : '') + '">' + esc(txt) + '</text></g>';
     }
   }
-  s += lbl + mk;
+  s += lbl;
   // перекрестие: линия и маркеры серий на колонке под курсором (показывает БЛОК 6)
   s += '<g class="' + P + '-xhg" data-xh="1" style="display:none"><line x1="0" x2="0" y1="' + gt + '" y2="' + (gt + ph) + '" stroke="' + C.xh + '" stroke-width="1"/>'
     + (on.ref ? '<circle data-xs="ref" r="3.2" fill="#fff" stroke="' + refC + '" stroke-width="1.6"/>' : '')
     + (on.prev ? '<circle data-xs="prev" r="3.6" fill="' + C.prev + '" stroke="#fff" stroke-width="1.6"/>' : '')
     + (on.cur ? '<circle data-xs="cur" r="4.6" fill="' + C.cur + '" stroke="#fff" stroke-width="2"/>' : '') + '</g>';
+  // Номерные точки — поверх перекрестия: его кружок не закрывает номер.
+  s += mk;
   // данные колонок для следящего тултипа
   var xs = [], ys = { cur: [], prev: [], ref: [] }, tips = [];
   for (var hi = 0; hi < n; hi++) {
@@ -1342,7 +1349,7 @@ function svgLine(spec, W, H, ctx) {
     if (!rows.length) rows.push({ label: 'нет данных', value: '—' });
     tips.push(tipHtml({ title: spec.heads[hi], rows: rows, note: st && on.cur && on.ref ? STATE_TXT[st] : null }));
   }
-  if (ctx && CHARTS[ctx.ci]) CHARTS[ctx.ci].hz = { xs: xs, ys: ys, tips: tips };
+  if (ctx && CHARTS[ctx.ci]) CHARTS[ctx.ci].hz = { xs: xs, ys: ys, tips: tips, mk: mkHz };
   s += '<rect class="' + P + '-hz" x="' + (gl - 8) + '" y="' + (gt - 6) + '" width="' + (pw + 16) + '" height="' + (ph + 6) + '" fill="transparent" data-hz="line" data-kind="pt" data-hc="' + (ctx ? ctx.ci : 0) + '"/>';
   return s + '</svg>';
 }
@@ -1912,6 +1919,22 @@ function buildCSS() {
     P + '-ins li b{font-weight:600;color:' + C.ink + ';}',
     P + '-insn{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-top:1px;border-radius:50%;background:' + C.ink + ';color:#fff;font-style:normal;font-size:' + F.dense + 'px;font-weight:600;font-variant-numeric:tabular-nums;}',
     P + '-insp{background:' + C.neutralTx + ';}',
+    // Факт ↔ точка (13.10): наведение на факт с номером или на его точку — пара подсвечивается, остальные точки
+    // графика бледнеют; линии и подписи не трогаем, текст фактов не гасим. Только при наведении на номерной факт
+    // или точку — не на весь график.
+    P + '-insn{transition:background-color .15s;}',
+    P + '-ins li[data-mk]{padding:3px 6px;margin:0 -6px 3px;border-radius:8px;transition:background-color .15s;}',
+    P + '-ins li' + P + '-mkon{background:' + C.blueBg + ';}',
+    P + '-ins li' + P + '-mkon ' + P + '-insn{background:' + C.act + ';}',
+    P + '-mk{transition:opacity .15s;}',
+    P + '-mkc{transition:fill .15s;}',
+    P + '-mkh{fill:' + C.act + ';opacity:0;transition:opacity .15s;pointer-events:none;}',
+    P + '-mkg{stroke:' + C.act + ';stroke-width:1.2;stroke-dasharray:2 3;opacity:0;transition:opacity .15s;pointer-events:none;}',
+    P + '-story[data-mkon] ' + P + '-mk{opacity:.35;}',
+    P + '-story[data-mkon] ' + P + '-mk' + P + '-mkon{opacity:1;}',
+    P + '-mk' + P + '-mkon ' + P + '-mkc{fill:' + C.act + ';}',
+    P + '-mk' + P + '-mkon ' + P + '-mkh{opacity:.16;}',
+    P + '-mk' + P + '-mkon ' + P + '-mkg{opacity:.75;}',
     P + '-insb{flex:0 0 auto;width:18px;height:18px;position:relative;}',
     P + '-insb::after{content:"";position:absolute;left:7px;top:8px;width:5px;height:5px;border-radius:50%;background:' + C.muted2 + ';}',
     P + '-mlnk{font-size:inherit;}',
@@ -3361,7 +3384,7 @@ function storyRow(u, ser, m) {
   var P = CFG.ns, spec = yoySpec(u, ser, m), items = storyItems(u, ser, m, spec);
   spec.marks = [];
   for (var i = 0; i < items.length; i++) if (items[i].n) spec.marks.push({ i: items[i].i, s: items[i].s, n: items[i].n });
-  return '<tr class="' + P + '-det"><td colspan="6"><div class="' + P + '-story">'
+  return '<tr class="' + P + '-det"><td colspan="6"><div class="' + P + '-story" data-story="1">'
     + '<div class="' + P + '-stc">' + chartBlock('story', 'op:' + m.key + ':yoy:' + u, cmpRef(spec) ? 'Помесячно: этот год и ' + (spec.refKind === 'kpi' ? 'цель' : 'база') : 'Помесячно: этот год и прошлый', spec, CFG.chart.story) + '</div>'
     + '<div class="' + P + '-sts">' + storyHTML(items) + '<div class="' + P + '-sta">' + aboutHTML(m) + '</div></div>'
     + '</div></td></tr>';
@@ -4235,7 +4258,7 @@ function tourSteps(view) {
       html: 'Нажмите на строку — откроется график по месяцам и пояснения к метрике.',
       hint: 'Нажмите на подсвеченную строку или «Показать».' });
     add({ sel: 'tr' + P + '-det ' + P + '-stc', title: 'График',
-      html: 'Синяя линия — этот год, серая — прошлый, пунктир — ориентир. Цифры в кружках — точки из «Что видно» справа.' });
+      html: 'Синяя линия — этот год, серая — прошлый, пунктир — ориентир. Цифры в кружках — точки из «Что видно» справа: наведите на цифру или на факт — пара подсветится.' });
     add({ sel: 'tr' + P + '-det ' + P + '-sts', title: 'Что видно и о метрике',
       html: 'Главное по метрике: сейчас против ориентира, год назад, пиковый месяц. Ниже — что это за метрика и как её считаем.' });
   } else if (view === 'teams') {
@@ -5030,6 +5053,31 @@ function buildHTML() {
       }
       state.tip = { rect: curPt(e), key: ch.hz.tips[i], kind: 'pt', hz: true };
       showTip(state.tip.key, state.tip.rect);
+      // Курсор на номерной точке (до 13 px от центра) — подсветить её факт справа.
+      var mks = ch.hz.mk || [], y = e.clientY - r.top, near = '';
+      for (var q = 0; q < mks.length; q++) {
+        var dx = mks[q].x - x, dy = mks[q].y - y;
+        if (dx * dx + dy * dy <= 169) near = mks[q].n;
+      }
+      mkLink(near ? trigger(svg, 'data-story') : null, near);
+    }
+    // Факт «Что видно» ↔ его точка на графике (data-mk внутри [data-story]): пара — класс -mkon, у блока —
+    // data-mkon (остальные точки бледнее). Меняется только при смене пары; render() пересоздаёт DOM — старая
+    // пара просто отпадает.
+    function mkLink(box, n) {
+      var c = state.mkOn, on = CFG.ns + '-mkon', i;
+      if (c && c.box === box && c.n === n) return;
+      if (c) {
+        c.box.removeAttribute('data-mkon');
+        var old = c.box.querySelectorAll('.' + on);
+        for (i = 0; i < old.length; i++) old[i].classList.remove(on);
+      }
+      state.mkOn = null;
+      if (!box || !n) return;
+      box.setAttribute('data-mkon', n);
+      var els = box.querySelectorAll('[data-mk="' + n + '"]');
+      for (i = 0; i < els.length; i++) els[i].classList.add(on);
+      state.mkOn = { box: box, n: n };
     }
     // Наведение на пункт легенды гасит чужие серии своего графика.
     function legendHi(el) {
@@ -5044,6 +5092,8 @@ function buildHTML() {
       if (lg || state.hiBox) legendHi(lg);
       var hz = trigger(e.target, 'data-hz');
       if (hz) { cancelHide(); hzMove(hz, e); return; }
+      var mkEl = trigger(e.target, 'data-mk');
+      mkLink(mkEl ? trigger(mkEl, 'data-story') : null, mkEl ? mkEl.getAttribute('data-mk') : '');
       var el = trigger(e.target, 'data-tip');
       // Кнопка с раскрытым поповером подсказку не показывает: меню и так перед глазами.
       if (el && el.getAttribute('aria-expanded') === 'true' && el.getAttribute('data-pop')) el = null;
@@ -5055,7 +5105,7 @@ function buildHTML() {
       state.tip = { rect: curPt(e), key: html, kind: el.getAttribute('data-kind') || '' };
       showTip(html, state.tip.rect);
     }
-    function onLeave() { legendHi(null); dropTip(); }
+    function onLeave() { legendHi(null); mkLink(null, ''); dropTip(); }
     // Подсказки и ⓘ — и с клавиатуры: фокус (Tab) показывает подсказку у элемента, уход фокуса — прячет.
     function onFocusIn(e) {
       var el = trigger(e.target, 'data-tip');
