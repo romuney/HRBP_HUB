@@ -186,7 +186,7 @@ var CFG = {
   // линии. Жёлтого в светофоре нет.
   colors: {
     bg: '#f6f6f6', card: '#ffffff', line: '#e7e9ee', line2: '#eef0f3',
-    ink: '#23272e', ink2: '#454b55', muted: '#8a909c', muted2: '#aab0bb',
+    ink: '#23272e', ink2: '#454b55', muted: '#6b7280', muted2: '#aab0bb',
     green: '#7fd2a5', greenBg: '#dbf5e6', greenTx: '#11804a',
     red: '#f59e9e', redBg: '#fde2e2', redTx: '#cb2e2e',
     neutral: '#d8dde4', neutralBg: '#eff1f5', neutralTx: '#5d6574',
@@ -196,7 +196,7 @@ var CFG = {
     // Линии «период к периоду»: текущий — акцент, прошлый — светлый сине-серый,
     // база — серый пунктир, цель — тёмный пунктир; заливка под текущим — 8 % акцента.
     cur: '#2b6cff', curArea: 'rgba(43,108,255,.08)', prev: '#b4bdcc', bench: '#98a1b1', kpi: '#4b5262',
-    label: '#2f3440', axis: '#8a909c', axisLine: '#9ba4b5', axisStrong: '#3a3f4a', grid: '#e9ecf1', xh: '#b9c6de',
+    label: '#2f3440', axis: '#6b7280', axisLine: '#9ba4b5', axisStrong: '#3a3f4a', grid: '#e9ecf1', xh: '#b9c6de',
     series: ['#5f86c2', '#97dece', '#ac87c5', '#cdbf97', '#85cdfd', '#9fae6a', '#c98aa6', '#686d76']
   },
   // Типографика — профиль виджетов Proteus Adoption (DESIGN_SYSTEM.md §16): один стек
@@ -1332,14 +1332,14 @@ function buildCSS() {
            + 'padding:7px 10px;font-size:' + F.note + 'px;line-height:1.4;color:' + C.ink2 + ';font-weight:400;'
            + 'max-width:260px;white-space:normal;}',
     P + '-tip b{font-weight:500;}',
-    P + '-tip ' + P + '-t-h{display:block;font-size:10px;font-weight:500;letter-spacing:.3px;text-transform:uppercase;color:' + C.muted + ';margin-bottom:5px;}',
+    P + '-tip ' + P + '-t-h{display:block;font-size:' + F.cap + 'px;font-weight:500;letter-spacing:.3px;text-transform:uppercase;color:' + C.muted + ';margin-bottom:5px;}',
     P + '-tip ' + P + '-t-x{display:block;font-size:' + F.note + 'px;font-weight:400;color:' + C.ink2 + ';line-height:1.4;}',
     P + '-tip ' + P + '-t-r{display:flex;align-items:center;gap:6px;margin-top:3px;min-width:118px;}',
     P + '-tip ' + P + '-t-r:first-child{margin-top:0;}',
     P + '-tip ' + P + '-t-m{display:inline-block;flex:0 0 auto;width:10px;height:9px;border-radius:3px;}',
     P + '-tip ' + P + '-t-m' + P + '-dash{height:0;width:14px;border-radius:0;border-top:2px dashed;background:none;}',
     P + '-tip ' + P + '-t-m' + P + '-solid{border-top-style:solid;}',
-    P + '-tip ' + P + '-t-l{font-size:11px;font-weight:500;color:' + C.muted + ';min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    P + '-tip ' + P + '-t-l{font-size:' + F.val + 'px;font-weight:500;color:' + C.muted + ';min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
     P + '-tip ' + P + '-t-v{display:inline;margin:0 0 0 auto;font-size:' + F.body + 'px;font-weight:500;color:' + C.ink + ';white-space:nowrap;font-variant-numeric:tabular-nums;}',
     P + '-tip ' + P + '-t-r' + P + '-dim ' + P + '-t-v{color:' + C.muted + ';}',
     P + '-tip ' + P + '-t-pill{margin:0 0 0 auto;}',
@@ -1364,7 +1364,7 @@ function buildCSS() {
     // вкладки отчёта — пилюли групп «Команд» (-subs ниже), кегль контрола
     P + '-tabbar ' + P + '-sub{font-size:' + F.control + 'px;}',
     P + '-sub ' + P + '-cnt{margin-left:0;}',
-    P + '-cnt{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 4px;margin-left:5px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;font-size:9px;font-weight:500;}',
+    P + '-cnt{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 4px;margin-left:5px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;font-size:' + F.micro + 'px;font-weight:500;}',
 
     // ---- строка фильтров: контролы 34 px ----
     P + '-fbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0 0;min-height:44px;}',
@@ -1379,8 +1379,8 @@ function buildCSS() {
     P + '-ddl{color:' + C.muted + ';font-weight:400;}',
     P + '-ddb' + P + '-set ' + P + '-ddl{color:#5b83dc;}',
     P + '-ddv{overflow:hidden;text-overflow:ellipsis;min-width:0;}',
-    P + '-ddc{color:' + C.muted2 + ';font-size:10px;}',
-    P + '-x{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(43,95,208,.14);color:#2b5fd0;font-size:11px;line-height:1;cursor:pointer;flex:0 0 auto;}',
+    P + '-ddc{color:' + C.muted + ';font-size:' + F.cap + 'px;}',
+    P + '-x{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:rgba(43,95,208,.14);color:#2b5fd0;font-size:' + F.val + 'px;line-height:1;cursor:pointer;flex:0 0 auto;}',
     P + '-x:hover{background:rgba(43,95,208,.3);}',
     P + '-bench{display:inline-flex;align-items:center;gap:6px;height:34px;border-radius:9px;padding:0 12px;font-size:' + F.control + 'px;font-weight:400;background:' + C.bg + ';color:' + C.muted + ';border:1px solid ' + C.line + ';cursor:help;white-space:nowrap;}',
     P + '-bench b{color:' + C.ink2 + ';font-weight:500;}',
@@ -1493,7 +1493,7 @@ function buildCSS() {
     P + '-cchip ' + P + '-optn{margin-left:2px;}',
     P + '-cchip' + P + '-on ' + P + '-optn{color:#5b83dc;}',
     // число окна, равное нулю (в области с набранным выбором таких людей нет) — бледнее
-    P + '-zero{color:' + C.muted2 + ';}',
+    P + '-zero{color:' + C.muted + ';}',
     P + '-crn{align-self:center;font-size:' + F.note + 'px;color:' + C.muted + ';}',
     // разделы окна (HRBP, разрез с длинным списком): заголовок-кнопка во всю ширину и тело под ним
     P + '-acc>' + P + '-ddb{display:flex;width:100%;max-width:none;}',
@@ -1514,7 +1514,7 @@ function buildCSS() {
     // Поиск — пилюля с лупой 13 px, как поиск каталога Adoption (в поповере 30 px).
     P + '-psearch{position:relative;margin:0 0 8px;color:' + C.muted + ';}',
     P + '-psearch svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);pointer-events:none;}',
-    P + '-srch{display:block;width:100%;height:30px;border:1px solid ' + C.line + ';border-radius:999px;padding:0 12px 0 30px;font-size:13px;font-weight:400;color:' + C.ink + ';margin:0;background:' + C.card + ';}',
+    P + '-srch{display:block;width:100%;height:30px;border:1px solid ' + C.line + ';border-radius:999px;padding:0 12px 0 30px;font-size:' + F.chart + 'px;font-weight:400;color:' + C.ink + ';margin:0;background:' + C.card + ';}',
     P + '-srch:focus{outline:none;border-color:' + C.act + ';}',
     P + '-list{max-height:320px;overflow:auto;margin:0 -4px;padding:0 4px;}',
     P + '-opt{display:flex;align-items:center;gap:8px;padding:6px 9px;border-radius:7px;cursor:pointer;font-size:' + F.control + 'px;font-weight:400;color:' + C.ink2 + ';}',
@@ -1525,22 +1525,22 @@ function buildCSS() {
     P + '-blk{font-size:' + F.cap + 'px;font-weight:500;color:' + C.muted + ';text-transform:uppercase;letter-spacing:.3px;margin:10px 9px 2px;}',
     P + '-blk:first-child{margin-top:2px;}',
     P + '-popf{display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid ' + C.line2 + ';}',
-    P + '-popf span{flex:1;font-size:11px;color:' + C.muted + ';font-weight:400;line-height:1.35;}',
+    P + '-popf span{flex:1;font-size:' + F.val + 'px;color:' + C.muted + ';font-weight:400;line-height:1.35;}',
     P + '-nores{padding:14px 8px;color:' + C.muted + ';font-size:' + F.note + 'px;font-weight:400;text-align:center;}',
     // дерево юнитов: строка как пункт выпадашки Adoption (12 px, поля 6/9)
     P + '-tr{display:flex;align-items:center;gap:4px;padding:6px 9px;border-radius:7px;cursor:pointer;font-size:' + F.control + 'px;font-weight:400;color:' + C.ink2 + ';}',
     P + '-tr:hover{background:#f4f6f9;color:' + C.ink + ';}',
     P + '-tr' + P + '-cur{background:' + C.blueBg + ';color:#2b5fd0;font-weight:500;}',
-    P + '-tw{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin:-2px 0;border:0;background:transparent;color:' + C.muted + ';cursor:pointer;border-radius:6px;flex:0 0 auto;font-size:10px;line-height:1;padding:0;}',
+    P + '-tw{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin:-2px 0;border:0;background:transparent;color:' + C.muted + ';cursor:pointer;border-radius:6px;flex:0 0 auto;font-size:' + F.cap + 'px;line-height:1;padding:0;}',
     P + '-tw:hover{background:#eef1f5;color:' + C.ink + ';}',
     P + '-tsp{display:inline-block;width:20px;flex:0 0 auto;}',
     P + '-tn{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    P + '-tl{color:' + C.muted2 + ';font-size:' + F.cap + 'px;font-weight:400;white-space:nowrap;}',
+    P + '-tl{color:' + C.muted + ';font-size:' + F.cap + 'px;font-weight:400;white-space:nowrap;}',
     P + '-th{color:' + C.muted + ';font-size:' + F.note + 'px;font-variant-numeric:tabular-nums;white-space:nowrap;min-width:44px;text-align:right;}',
     P + '-hzc{flex:0 1 auto !important;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:none;letter-spacing:0;font-size:' + F.note + 'px;font-weight:500;color:#2b5fd0;background:' + C.blueBg + ';border-radius:999px;padding:2px 8px;}',
-    P + '-hzt{display:inline-block;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.blueBg + ';color:#2b5fd0;margin-left:6px;vertical-align:1px;white-space:nowrap;}',
+    P + '-hzt{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.blueBg + ';color:#2b5fd0;margin-left:6px;vertical-align:1px;white-space:nowrap;}',
     P + '-tpath{display:block;color:' + C.muted + ';font-size:' + F.cap + 'px;font-weight:400;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-    P + '-gone{display:inline-block;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.surface2 + ';color:' + C.muted + ';margin-left:5px;vertical-align:1px;white-space:nowrap;}',
+    P + '-gone{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.surface2 + ';color:' + C.muted + ';margin-left:5px;vertical-align:1px;white-space:nowrap;}',
     // мини-вкладки внутри поповера (tiny: 22 в подложке 26)
     P + '-seg{display:inline-flex;align-items:center;gap:2px;background:' + C.line2 + ';border-radius:9px;padding:2px;}',
     P + '-segb{display:inline-flex;align-items:center;height:22px;border:0;background:transparent;padding:0 8px;border-radius:6px;font-weight:500;font-size:' + F.note + 'px;color:' + C.muted + ';cursor:pointer;text-transform:none;letter-spacing:0;white-space:nowrap;}',
@@ -1615,14 +1615,14 @@ function buildCSS() {
     P + '-tools>' + P + '-legend{margin:0;}',
     P + '-tools ' + P + '-lh{align-self:center;}',
     P + '-dnote{font-size:' + F.note + 'px;color:' + C.muted + ';max-width:380px;line-height:1.4;}',
-    P + '-below{color:' + C.muted2 + ';cursor:help;border-bottom:1px dotted ' + C.muted2 + ';}',
+    P + '-below{color:' + C.muted + ';cursor:help;border-bottom:1px dotted ' + C.muted2 + ';}',
     P + '-ctl{display:flex;flex-direction:column;gap:4px;}',
     P + '-ctll{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.4px;color:' + C.muted + ';font-weight:500;}',
     P + '-selw{position:relative;display:inline-block;max-width:100%;}',
     P + '-selw select{appearance:none;-webkit-appearance:none;height:34px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:9px;padding:0 30px 0 12px;font-size:' + F.control + 'px;color:' + C.ink2 + ';font-weight:500;cursor:pointer;min-width:200px;max-width:100%;}',
     P + '-selw select:focus{outline:none;border-color:' + C.act + ';}',
-    P + '-selc{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:' + C.muted2 + ';font-size:10px;pointer-events:none;}',
-    P + '-inp{height:34px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:9px;padding:0 12px;font-size:13px;font-weight:400;color:' + C.ink + ';width:100%;}',
+    P + '-selc{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:' + C.muted + ';font-size:' + F.cap + 'px;pointer-events:none;}',
+    P + '-inp{height:34px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:9px;padding:0 12px;font-size:' + F.chart + 'px;font-weight:400;color:' + C.ink + ';width:100%;}',
     P + '-inp:focus{outline:none;border-color:' + C.act + ';}',
     P + '-sp2{flex:1;}',
 
@@ -1632,7 +1632,7 @@ function buildCSS() {
     P + '-t th{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.3px;color:' + C.muted + ';font-weight:500;line-height:12px;text-align:right;padding:9px 8px;border-bottom:1px solid ' + C.line + ';white-space:nowrap;position:sticky;top:0;z-index:3;background:' + C.card + ';}',
     P + '-t th' + P + '-l{text-align:left;padding-left:12px;}',
     P + '-t th' + P + '-c{text-align:center;}',
-    P + '-hc{display:block;font-size:' + F.micro + 'px;text-transform:none;letter-spacing:0;color:' + C.muted2 + ';font-weight:400;margin-top:2px;}',
+    P + '-hc{display:block;font-size:' + F.micro + 'px;text-transform:none;letter-spacing:0;color:' + C.muted + ';font-weight:400;margin-top:2px;}',
     P + '-t td{text-align:right;padding:6px 8px;height:44px;font-weight:400;color:' + C.ink2 + ';border-bottom:1px solid ' + C.line2 + ';white-space:nowrap;vertical-align:middle;}',
     P + '-t td' + P + '-l{text-align:left;font-weight:500;color:' + C.ink + ';padding-left:12px;white-space:normal;}',
     // Второй и следующие текстовые столбцы — 400 и ink2, даже если это имена (профиль §16.3).
@@ -1669,7 +1669,7 @@ function buildCSS() {
     P + '-us{display:block;font-size:' + F.cap + 'px;color:' + C.muted + ';font-weight:400;margin-top:2px;}',
     P + '-muted{color:' + C.muted + ';font-weight:400;}',
     // Каретка — отдельная кнопка 28 × 28 с подложкой при наведении: промах не уходит в клик по строке.
-    P + '-car{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;margin:-6px 4px -6px -6px;border:0;background:transparent;border-radius:7px;color:' + C.muted + ';font-size:12px;line-height:1;cursor:pointer;flex:0 0 auto;padding:0;}',
+    P + '-car{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;margin:-6px 4px -6px -6px;border:0;background:transparent;border-radius:7px;color:' + C.muted + ';font-size:' + F.control + 'px;line-height:1;cursor:pointer;flex:0 0 auto;padding:0;}',
     P + '-car:hover{background:#eef1f5;color:' + C.ink + ';}',
     P + '-car' + P + '-open{color:' + C.act + ';}',
     P + '-cars{display:inline-block;width:26px;flex:0 0 auto;}',
@@ -1706,7 +1706,7 @@ function buildCSS() {
     P + '-t th' + P + '-sth{cursor:pointer;user-select:none;}',
     P + '-t th' + P + '-sth:hover{color:' + C.ink2 + ';}',
     P + '-t th' + P + '-son{color:' + C.ink2 + ';}',
-    P + '-sa{color:' + C.act + ';margin-left:4px;font-size:11px;}',
+    P + '-sa{color:' + C.act + ';margin-left:4px;font-size:' + F.val + 'px;}',
     P + '-nw{white-space:nowrap;}',
 
     // ---- пилюля — одна на отчёт: 11,5 / 500, высота 22, поля 0 8, радиус 999 ----
@@ -1722,30 +1722,30 @@ function buildCSS() {
     P + '-tgl{color:' + C.muted + ';font-weight:400;font-size:' + F.note + 'px;margin-right:5px;}',
     P + '-same{font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;white-space:nowrap;}',
     // Метка строки (флаг): 9 / 500, радиус 4, поля 1/5
-    P + '-tag{display:inline-block;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.surface2 + ';color:' + C.ink2 + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
+    P + '-tag{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.surface2 + ';color:' + C.ink2 + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
     P + '-tag' + P + '-own{background:' + C.warnBg + ';color:' + C.warnTx + ';}',
-    P + '-more{display:inline-block;font-size:9px;font-weight:500;letter-spacing:.3px;padding:0 5px;border-radius:4px;border:1px dashed ' + C.line + ';color:' + C.muted + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
+    P + '-more{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;letter-spacing:.3px;padding:0 5px;border-radius:4px;border:1px dashed ' + C.line + ';color:' + C.muted + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
     // Без ориентира — словами в пунктирной рамке, а не прочерком (ДС 4.8).
     P + '-nocmp{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px dashed ' + C.line + ';border-radius:999px;font-size:' + F.note + 'px;font-weight:400;color:' + C.muted + ';white-space:nowrap;}',
     // Значок справки ⓘ: 14 px, глиф 9 / 600, рамка muted2
-    P + '-info{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid ' + C.muted2 + ';color:' + C.muted + ';font-size:9px;font-weight:600;font-style:normal;line-height:1;cursor:help;flex:0 0 auto;margin-left:6px;vertical-align:-2px;user-select:none;}',
+    P + '-info{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid ' + C.muted2 + ';color:' + C.muted + ';font-size:' + F.micro + 'px;font-weight:600;font-style:normal;line-height:1;cursor:help;flex:0 0 auto;margin-left:6px;vertical-align:-2px;user-select:none;}',
     P + '-info:hover{border-color:' + C.act + ';color:' + C.act + ';}',
     // Сигнальный чип: 11 / 500, радиус 999, поля 2/9
-    P + '-st{display:inline-block;font-size:11px;font-weight:500;padding:2px 9px;border-radius:999px;white-space:nowrap;cursor:help;}',
+    P + '-st{display:inline-block;font-size:' + F.val + 'px;font-weight:500;padding:2px 9px;border-radius:999px;white-space:nowrap;cursor:help;}',
     P + '-st' + P + '-good{background:' + C.greenBg + ';color:' + C.greenTx + ';}',
     P + '-st' + P + '-neutral{background:' + C.surface2 + ';color:' + C.muted + ';}',
     P + '-st' + P + '-wait{background:' + C.blueBg + ';color:#2b5fd0;}',
-    P + '-fchip{display:inline-block;font-size:11px;font-weight:500;padding:2px 9px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;margin:1px 4px 1px 0;white-space:nowrap;}',
+    P + '-fchip{display:inline-block;font-size:' + F.val + 'px;font-weight:500;padding:2px 9px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;margin:1px 4px 1px 0;white-space:nowrap;}',
 
     // ---- легенда, пусто, сноски ----
     P + '-legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin:0 0 12px;font-size:' + F.note + 'px;color:' + C.ink2 + ';}',
     P + '-legend' + P + '-r{justify-content:flex-end;text-align:right;}',
-    P + '-lh{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.5px;color:' + C.muted2 + ';font-weight:500;}',
+    P + '-lh{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.5px;color:' + C.muted + ';font-weight:500;}',
     P + '-sw{display:inline-flex;align-items:center;gap:6px;font-weight:500;cursor:help;}',
     P + '-sw:hover{color:' + C.ink + ';}',
     P + '-dot{width:10px;height:9px;border-radius:3px;display:inline-block;box-shadow:inset 0 0 0 1px rgba(31,31,31,.10);}',
     P + '-empty{background:' + C.card + ';border-radius:12px;box-shadow:' + SH + ';padding:28px;text-align:center;color:' + C.muted + ';font-size:' + F.body + 'px;line-height:1.5;}',
-    P + '-empty b{display:block;color:' + C.ink + ';font-size:15px;font-weight:600;margin-bottom:8px;}',
+    P + '-empty b{display:block;color:' + C.ink + ';font-size:' + F.title + 'px;font-weight:600;margin-bottom:8px;}',
     P + '-tnote{margin-top:8px;font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;line-height:1.5;}',
 
     // ---- графики (Proteus Adoption, ДС 6): ось 10,5, подписи 11 на белой подложке ----
@@ -1755,10 +1755,11 @@ function buildCSS() {
     P + '-sref{fill:none;stroke:' + C.prev + ';stroke-width:1;stroke-dasharray:3 3;}',
     // Точки светофора — тон того же сигнала, что у пилюли (тот, что был у столбиков), с белой обводкой.
     P + '-sdot{stroke:#fff;stroke-width:1.2;transform-box:fill-box;transform-origin:center;transition:transform .12s;}',
-    P + '-sdot' + P + '-good{fill:' + C.green + ';}',
-    P + '-sdot' + P + '-bad{fill:' + C.red + ';}',
+    // «Лучше» — кольцо, «хуже» — сплошная тёмная точка: различаются формой, не только цветом (дальтонизм, ч/б; ревью 13.10).
+    P + '-sdot' + P + '-good{fill:#fff;stroke:' + C.greenTx + ';stroke-width:1.4;}',
+    P + '-sdot' + P + '-bad{fill:' + C.redTx + ';stroke:#fff;}',
     P + '-sdot' + P + '-warn,' + P + '-sdot' + P + '-neutral{fill:' + C.neutral + ';}',
-    P + '-sdot' + P + '-slast' + P + '-good{fill:' + C.greenTx + ';}',
+    P + '-sdot' + P + '-slast' + P + '-good{fill:#fff;stroke:' + C.greenTx + ';stroke-width:2;}',
     P + '-sdot' + P + '-slast' + P + '-bad{fill:' + C.redTx + ';}',
     P + '-sdot' + P + '-slast' + P + '-warn,' + P + '-sdot' + P + '-slast' + P + '-neutral{fill:' + C.neutralTx + ';}',
     // Прозрачная полоса колонки: попасть в неё легко, между колонками нет щелей (ДС 6.4).
@@ -1828,13 +1829,13 @@ function buildCSS() {
     P + '-rail{display:flex;flex-direction:column;align-items:center;gap:8px;width:40px;min-height:220px;padding:12px 0;border:1px solid ' + C.line + ';border-radius:12px;background:' + C.card + ';color:' + C.muted + ';cursor:pointer;font-size:' + F.note + 'px;font-weight:500;}',
     P + '-rail:hover{color:' + C.act + ';border-color:#cfdcfb;background:' + C.blueBg + ';}',
     P + '-rail span{writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:.3px;}',
-    P + '-rail i{font-style:normal;font-size:11px;}',
+    P + '-rail i{font-style:normal;font-size:' + F.val + 'px;}',
     P + '-ib{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:0;background:transparent;border-radius:7px;color:' + C.muted + ';cursor:pointer;padding:0;flex:0 0 auto;}',
     P + '-ib:hover{background:#eef1f5;color:' + C.ink + ';}',
     P + '-ib' + P + '-on{color:' + C.act + ';}',
     P + '-pbtn{display:inline-flex;align-items:center;gap:6px;}',
     // Группы метрик над колонками («Все метрики»): строка 22 над шапкой, линия между группами.
-    P + '-t tr' + P + '-thg th{height:' + CFG.spacing.thG + 'px;padding:6px 8px 0;border-bottom:0;text-align:center;color:' + C.muted2 + ';letter-spacing:.5px;}',
+    P + '-t tr' + P + '-thg th{height:' + CFG.spacing.thG + 'px;padding:6px 8px 0;border-bottom:0;text-align:center;color:' + C.muted + ';letter-spacing:.5px;}',
     P + '-t tr' + P + '-thg th' + P + '-l{vertical-align:bottom;text-align:left;padding:0 8px 9px 12px;color:' + C.muted + ';letter-spacing:.3px;border-bottom:1px solid ' + C.line + ';}',
     // Узкая таблица не сжимает имена в столбик — прокручивается внутри панели.
     // Колонка имён не уже, чем при всех именах в одну строку (--hh-ncol, measureNames): выбранная
@@ -1891,10 +1892,10 @@ function buildCSS() {
     P + '-cn{font-weight:500;font-size:' + F.body + 'px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;color:' + C.ink + ';}',
     P + '-cn ' + P + '-info{margin-left:0;}',
     P + '-cm{font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;line-height:1.4;}',
-    P + '-cb{font-size:11px;font-weight:500;padding:1px 8px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;}',
+    P + '-cb{font-size:' + F.val + 'px;font-weight:500;padding:1px 8px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;}',
     P + '-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:12px;}',
-    P + '-root ' + P + '-code{display:block;width:100%;min-height:58px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;border:1px solid ' + C.line + ';border-radius:9px;padding:10px 12px;background:' + C.hover + ';color:' + C.ink + ';resize:vertical;white-space:pre-wrap;}',
-    P + '-root ' + P + '-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:' + C.muted + ';font-weight:400;}',
+    P + '-root ' + P + '-code{display:block;width:100%;min-height:58px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:' + F.control + 'px;line-height:1.5;border:1px solid ' + C.line + ';border-radius:9px;padding:10px 12px;background:' + C.hover + ';color:' + C.ink + ';resize:vertical;white-space:pre-wrap;}',
+    P + '-root ' + P + '-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:' + F.val + 'px;color:' + C.muted + ';font-weight:400;}',
     P + '-steps{margin:0;padding-left:18px;color:' + C.ink2 + ';font-size:' + F.body + 'px;line-height:1.6;}',
 
     // ---- тур «Как работать»: кнопка в шапке, слой тура ----
@@ -1916,7 +1917,7 @@ function buildCSS() {
     P + '-tarr' + P + '-ta-left{display:block;right:-5px;}',
     P + '-tch{display:flex;align-items:center;gap:8px;margin:0 -6px 4px 0;}',
     P + '-tcs{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.4px;color:' + C.muted + ';font-weight:500;}',
-    P + '-tx{margin-left:auto;font-size:12px;}',
+    P + '-tx{margin-left:auto;font-size:' + F.control + 'px;}',
     P + '-tct{font-size:' + F.title + 'px;font-weight:600;color:' + C.ink + ';margin:0 0 4px;}',
     P + '-tcx b{font-weight:500;color:' + C.ink + ';}',
     P + '-tul{margin:6px 0 0;padding-left:18px;}',
@@ -1993,12 +1994,12 @@ function hSel(name, options, value, cls) {
 var PILL_OF = { up: 'good', down: 'bad', flat: 'flat', neu: 'neu' };
 function hPill(st, text) { return '<span class="' + CFG.ns + '-pill ' + CFG.ns + '-' + st + '">' + esc(text) + '</span>'; }
 // Ячейка изменения: подсказка на всей ячейке — между соседними ячейками тултип не мигает.
-function deltaTd(m, d, text, cls) {
+function deltaTd(m, d, text, cls, base) {
   var c = cls ? ' class="' + cls + '"' : '';
   if (d === null || d === undefined) return '<td' + c + tip({ title: 'Изменение', text: 'Нет значения за один из периодов.' }) + '>' + hPill('flat', '—') + '</td>';
   return '<td' + c + tip({ title: 'Изменение', text: text, rows: [{ label: 'значение', value: fmtDelta(m, d) }],
                        note: m.better === 'flat' ? 'Нейтральная метрика: цвет не ставится.' : null }) + '>'
-    + hPill(PILL_OF[deltaClass(m, d)] || 'flat', fmtDelta(m, d)) + '</td>';
+    + hPill(base !== undefined && base !== null && d !== 0 && Math.abs(d) <= Math.abs(base) * CFG.deadZone ? 'flat' : (PILL_OF[deltaClass(m, d)] || 'flat'), fmtDelta(m, d)) + '</td>';
 }
 function dirText(m) { return m.better === 'flat' ? 'больше не значит лучше' : (m.better === 'higher' ? 'выше — лучше' : 'ниже — лучше'); }
 function pageHead(title, ledeHtml) {
@@ -3119,8 +3120,8 @@ function onepagerHTML() {
         + name + '</span></td>'
         + '<td class="' + P + '-lead">' + esc(fmtVal(it.m, it.v)) + abH + '</td>'
         + cmpTd(it.m, it.v, it.bl)
-        + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 1)), 'Сравнение с предыдущим месяцем (' + monthLow(L - 1) + ').')
-        + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 12)), 'Сравнение с тем же месяцем прошлого года (' + monthLow(L - 12) + ').')
+        + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 1)), 'Сравнение с предыдущим месяцем (' + monthLow(L - 1) + ').', null, mval(M.scope, 'm', it.m, L - 1))
+        + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 12)), 'Сравнение с тем же месяцем прошлого года (' + monthLow(L - 12) + ').', null, mval(M.scope, 'm', it.m, L - 12))
         + '<td class="' + P + '-spk">' + sparkHTML(u, M.scope, it.m) + '</td></tr>';
       if (open) {
         rows += '<tr class="' + P + '-det"><td colspan="6"><div class="' + P + '-dsplit">'
@@ -3629,7 +3630,7 @@ function transformHTML() {
   function prow(name, ser, cls) {
     var r = '<tr class="' + cls + '"><td class="' + P + '-l">' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел</span></td>';
     for (var c = 0; c < months.length; c++) r += '<td' + (c === months.length - 1 ? ' class="' + P + '-now"' : '') + '>' + esc(fmtVal(m, mval(ser, 'm', m, months[c]))) + '</td>';
-    return r + deltaTd(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.', P + '-vs') + '</tr>';
+    return r + deltaTd(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.', P + '-vs', mval(ser, 'm', m, L - 11)) + '</tr>';
   }
   th += prow('ИТОГО · ' + scopeLabel(), M.scope, P + '-tot');
   for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr]), list[rr].ser, list[rr].rest ? P + '-rest' : '');
