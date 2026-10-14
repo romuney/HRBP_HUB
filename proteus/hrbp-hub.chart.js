@@ -2108,9 +2108,10 @@ function buildCSS() {
     P + '-kval b{font-weight:500;}',
     P + '-kcut{display:flex;flex-direction:column;gap:10px;padding-top:4px;}',
     // Разрезы цели (владелец 14.10: «прилипли друг к другу»): колонка не уже списка, список — по ширине колонки.
-    P + '-kcuts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px 16px;}',
-    P + '-kcuts>' + P + '-ctl{min-width:0;}',
-    P + '-kcuts ' + P + '-dsel>' + P + '-ddb{min-width:0;}',
+    P + '-kfor{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:30px;}',
+    P + '-chip' + P + '-chipro{padding:0 11px;}',
+    P + '-kval0{font-size:' + F.body + 'px;color:' + C.ink2 + ';}',
+    P + '-kfl{margin-left:10px;font-size:' + F.cap + 'px;text-transform:none;letter-spacing:0;}',
     P + '-kerr{font-size:' + F.note + 'px;color:' + C.redTx + ';margin:6px 0;}',
     P + '-kerr:empty{display:none;}',
     P + '-know{font-size:' + F.note + 'px;color:' + C.muted + ';}',
@@ -4294,30 +4295,33 @@ function kpiMetricKey(v) {
 function kpiOpenTo(v) { v = String(v || ''); return !/^\d{4}-\d{2}-\d{2}$/.test(v) || v >= '2099-12-31'; }
 // Разрез цели: пусто, «все» (подпись формы) и all — без разреза.
 function kpiCut(v) { v = String(v || '').replace(/^\s+|\s+$/g, ''); return !v || v === 'all' || v.toLowerCase() === CFG.kpiForm.all ? 'all' : v; }
-// Финансовый год по умолчанию (инструкция формы): с 1 октября по 30 сентября — тот, что идёт сейчас, то есть
-// на месяц после последнего закрытого (данные за сентябрь — уже новый год с 1 октября).
-function kpiFY() {
-  var p = dparts(MODEL.cal.m[MODEL.L] ? MODEL.cal.m[MODEL.L].e : '2026-09-30'), mo = p.m + 1, yy = p.y;
-  if (mo > 11) { mo = 0; yy++; }
-  var y = mo >= 9 ? yy : yy - 1;
-  return [y + '-10-01', (y + 1) + '-09-30'];
-}
+// Год для KPI — календарный текущий (владелец 14.10: «Начало / конец года — текущего года»): [1 января, 31 декабря].
+function kpiYear() { var y = todayIso().slice(0, 4); return [y + '-01-01', y + '-12-31']; }
 // Черновик формы (state.kd): mode add | update | del; юнит — выбранный в отчёте (или юнит правила).
 function kdDraft() {
   var d = state.kd || {};
-  // Новый KPI — на юнит, выбранный в отчёте сейчас (выбрали в «Фильтрах» после открытия формы — подхватится).
-  if (d.mode === 'add') d.unit = MODEL.single ? MODEL.scopeIds[0] : '';
+  // Новый KPI — на юнит и разрезы, применённые в «Фильтрах» сейчас (владелец 14.10: в форме разрезы не выбирают —
+  // поменяли фильтры при открытой форме — подхватится). Несколько значений одного разреза цель не принимает.
+  if (d.mode === 'add') {
+    d.unit = MODEL.single ? MODEL.scopeIds[0] : '';
+    d.cuts = {};
+    d.multi = [];
+    for (var i = 0; i < CFG.cuts.length; i++) {
+      var sv = MODEL.sel[CFG.cuts[i].key] || [];
+      d.cuts[CFG.cuts[i].key] = sv.length === 1 ? sv[0] : 'all';
+      if (sv.length > 1) d.multi.push(CFG.cuts[i].label);
+    }
+  }
   return d;
 }
+// Новый KPI: с 1 января текущего года, «по» — пусто (действует без даты окончания; владелец 14.10).
 function kdNew() {
-  var M = MODEL, fy = kpiFY(), cuts = {};
-  for (var i = 0; i < CFG.cuts.length; i++) { var sv = M.sel[CFG.cuts[i].key] || []; cuts[CFG.cuts[i].key] = sv.length === 1 ? sv[0] : 'all'; }
-  return { mode: 'add', id: '', unit: M.single ? M.scopeIds[0] : '', metric: 'regret', target: '', from: fy[0], to: fy[1], cuts: cuts, note: '' };
+  return { mode: 'add', id: '', unit: '', metric: 'regret', target: '', from: kpiYear()[0], to: '', cuts: {}, multi: [], note: '' };
 }
 function kdFromRule(r, mode) {
   var cuts = {};
   for (var i = 0; i < CFG.cuts.length; i++) cuts[CFG.cuts[i].key] = r.f[CFG.cuts[i].key] || 'all';
-  return { mode: mode, id: r.id, unit: r.unit, metric: r.metric, target: kdClean(String(r.target)), from: r.from > '2000-01-01' ? r.from : kpiFY()[0],
+  return { mode: mode, id: r.id, unit: r.unit, metric: r.metric, target: kdClean(String(r.target)), from: r.from > '2000-01-01' ? r.from : kpiYear()[0],
            to: r.open ? '' : r.to, cuts: cuts, note: r.note || '' };
 }
 // Цель: только цифры и одна запятая (точка → запятая), до 2 знаков после неё, до 3 знаков до неё; «,5» → «0,5».
@@ -4332,6 +4336,7 @@ function isoOk(v) { return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')); }
 function kdErrors(d) {
   var e = [];
   if (!d.unit) e.push('выберите юнит');
+  if (d.multi && d.multi.length) e.push('в «Фильтрах» оставьте одно значение (или ни одного) в разрезе: ' + d.multi.join(', '));
   if (d.mode !== 'del') {
     var tn = kdNum(d.target), tm = METRIC[d.metric];
     if (tn === null) e.push('укажите цель');
@@ -4378,12 +4383,18 @@ function ruleSpan(r) {
   var b = r.open ? (r.from > r.to ? 'без даты окончания' : 'по актуальную дату (' + fmtDay(r.to) + ')') : 'по ' + fmtDay(r.to);
   return a ? a + ' ' + b : b;
 }
-// Значения разреза для формы — словари всей компании (meta.fdv), иначе фасеты ответа.
-function kdCutValues(key) {
-  var out = [], d = MODEL.fdv && MODEL.fdv[key] ? MODEL.fdv[key] : null, i;
-  if (d) for (i = 0; i < d.length; i++) out.push(d[i]);
-  else { var f = MODEL.facets[key] || []; for (i = 0; i < f.length; i++) out.push(f[i].v); }
-  return out;
+// «Для кого» цели — чипами, как над отчётом: разрезы применённых «Фильтров» (новый KPI) или самого правила (изменить /
+// удалить: разрезы цели не меняются — для другого разреза новый KPI).
+function kdForHTML(d) {
+  var P = CFG.ns, s = '', n = 0;
+  for (var i = 0; i < CFG.cuts.length; i++) {
+    var v = (d.cuts || {})[CFG.cuts[i].key];
+    if (!v || v === 'all') continue;
+    n++;
+    s += '<span class="' + P + '-chip ' + P + '-chipro"><span class="' + P + '-ddl">' + esc(CFG.cuts[i].label) + ':</span><span class="' + P + '-ddv">' + esc(cutName(v)) + '</span></span>';
+  }
+  if (d.mode === 'add' && d.multi && d.multi.length) s += '<span class="' + P + '-kerr">Несколько значений в разрезе: ' + esc(d.multi.join(', ')) + ' — цель ставится на одно значение или на всех.</span>';
+  return (n ? s + '<span class="' + P + '-us">остальные разрезы — все</span>' : '<span class="' + P + '-kval0">вся численность юнита — разрезы в «Фильтрах» не выбраны</span>');
 }
 // Сейчас у юнита и база — чтобы цель ставили с оглядкой на факт (только для юнита отчёта: его ряд есть в ответе).
 function kdNow(d) {
@@ -4398,7 +4409,7 @@ function kdEditorHTML() {
   var P = CFG.ns, M = MODEL, d = kdDraft(), K = CFG.kpiForm, m = METRIC[d.metric], err = kdErrors(d), del = d.mode === 'del';
   var mOpts = [];
   for (var k = 0; k < CFG.metrics.length; k++) if (targetable(CFG.metrics[k])) mOpts.push([CFG.metrics[k].key, CFG.metrics[k].name]);
-  var unitH = d.unit ? '<b>' + esc(unitName(M, d.unit)) + '</b>' + (M.units[d.unit] ? '<span class="' + P + '-us">' + esc(levelLabel(M.units[d.unit].lvl)) + ' · цель действует на юнит и его подразделения</span>' : '')
+  var unitH = d.unit ? '<span class="' + P + '-chip ' + P + '-chipro"><span class="' + P + '-ddv">' + esc(unitName(M, d.unit)) + '</span></span>' + (M.units[d.unit] ? '<span class="' + P + '-us">' + esc(levelLabel(M.units[d.unit].lvl)) + ' · цель действует на юнит и его подразделения</span>' : '')
     : '<span class="' + P + '-kerr">Выберите один юнит в «Фильтрах»</span> <button type="button" class="' + P + '-lnk" data-action="drawer">Открыть фильтры</button>';
   var title = del ? 'Удалить KPI' : (d.mode === 'update' ? 'Изменить KPI' : 'Новый KPI');
   var body = '<div class="' + P + '-kform">'
@@ -4407,12 +4418,6 @@ function kdEditorHTML() {
     body += '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">Цель</span><span class="' + P + '-kval">' + esc((m ? m.name : d.metric) + ': ' + (m ? (m.better === 'higher' ? '≥ ' : '≤ ') + fmtVal(m, kdNum(d.target)) : d.target)) + '</span></div>'
       + '<div class="' + P + '-note ' + P + '-warn ' + P + '-kwide">Цель перестанет действовать на юнит и его подразделения.</div>';
   } else {
-    var cutsH = '';
-    for (var c = 0; c < CFG.cuts.length; c++) {
-      var ck = CFG.cuts[c].key, vals = kdCutValues(ck), opts = [['all', 'все']];
-      for (var v = 0; v < vals.length; v++) opts.push([vals[v], cutName(vals[v])]);
-      cutsH += '<div class="' + P + '-ctl"><span class="' + P + '-ctll">' + esc(CFG.cuts[c].label) + '</span>' + hSel('kdc:' + ck, opts, (d.cuts || {})[ck] || 'all') + '</div>';
-    }
     body += '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('kdm', mOpts, d.metric) + '</div>'
       + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Цель' + (m && m.fmt === 'pct' ? ', %' : '') + (m ? ' · ' + (m.better === 'higher' ? 'не ниже' : 'не выше') : '') + '</span>'
       // Ввод без ошибок (владелец 14.10): цель — только цифры и одна запятая, до двух знаков после неё (kdClean), у
@@ -4420,12 +4425,15 @@ function kdEditorHTML() {
       + '<span class="' + P + '-inpw"><input class="' + P + '-inp" type="text" inputmode="decimal" maxlength="6" autocomplete="off" data-kd="target" placeholder="' + (m && m.fmt === 'pct' ? '3,5' : '3') + '" value="' + esc(d.target) + '">'
       + (m && m.fmt === 'pct' ? '<i class="' + P + '-inps">%</i>' : '') + '</span></div>'
       + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span>'
-      + hDate('kdd:from', d.from, '2020-01-01', '2099-12-30', [[kpiFY()[0], 'Начало года'], [todayIso(), 'Сегодня']], 'выберите дату') + '</div>'
+      + hDate('kdd:from', d.from, '2020-01-01', '2099-12-30', [[kpiYear()[0], 'Начало года'], [todayIso(), 'Сегодня']], 'выберите дату') + '</div>'
       + '<div class="' + P + '-ctl"><span class="' + P + '-ctll"' + tip({ title: 'Без даты окончания', text: 'Цель действует по актуальную дату — последний закрытый месяц данных.' }) + '>Действует по</span>'
-      + hDate('kdd:to', d.to, isoOk(d.from) ? d.from : '2020-01-01', '2099-12-31', [[kpiFY()[1], 'Конец года'], ['', 'Без даты']], 'без даты') + '</div>'
+      + hDate('kdd:to', d.to, isoOk(d.from) ? d.from : '2020-01-01', '2099-12-31', [[kpiYear()[1], 'Конец года'], ['', 'Без даты']], 'без даты — действует всегда') + '</div>'
       + '<div class="' + P + '-know ' + P + '-kwide" data-kd-now="1">' + esc(kdNow(d)) + '</div>'
-      + '<div class="' + P + '-kcut ' + P + '-kwide"><span class="' + P + '-ctll">Для кого — разрезы численности</span><div class="' + P + '-kcuts">' + cutsH + '</div>'
-      + '<span class="' + P + '-us">«все» — вся численность юнита. Цель с разрезом работает в отчёте, когда выбран ровно этот разрез.</span></div>'
+      + '<div class="' + P + '-kcut ' + P + '-kwide"><span class="' + P + '-ctll">Для кого — разрезы численности'
+      + (d.mode === 'add' ? '<button type="button" class="' + P + '-lnk ' + P + '-kfl" data-action="drawer">Поменять в «Фильтрах»</button>' : '') + '</span>'
+      + '<div class="' + P + '-kfor">' + kdForHTML(d) + '</div>'
+      + '<span class="' + P + '-us">' + (d.mode === 'add' ? 'Берём из «Фильтров» отчёта. Цель с разрезом работает в отчёте, когда в «Фильтрах» выбран ровно этот разрез.'
+        : 'Разрезы цели не меняются. Для другого разреза — «+ Новый KPI».') + '</span></div>'
       + '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">Комментарий</span><input class="' + P + '-inp" type="text" data-kd="note" placeholder="зачем цель" value="' + esc(d.note) + '"></div>';
   }
   body += '</div>'
@@ -5820,7 +5828,6 @@ function buildHTML() {
         return;
       }
       if (sel === 'kdm' && state.kd) { state.kd.metric = v; render(); return; }
-      if (sel && sel.indexOf('kdc:') === 0 && state.kd) { state.kd.cuts[sel.slice(4)] = v; render(); return; }
       if (sel === 'kdd:from' && state.kd) { state.kd.from = v; if (isoOk(state.kd.to) && state.kd.to < v) state.kd.to = ''; render(); return; }
       if (sel === 'kdd:to' && state.kd) { state.kd.to = v; render(); return; }
       render();
