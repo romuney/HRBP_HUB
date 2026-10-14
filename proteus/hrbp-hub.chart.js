@@ -160,6 +160,9 @@ var CFG = {
     ]
   },
   deadZone: 0.05,
+  // Хитмап «Трансформеров»: ступени цвета — насколько хуже планки («Всего» за последний месяц), доля планки. У «меньше —
+  // лучше» (текучесть) разброс больше, чем у «больше — лучше» (закрепляемость 80–95%).
+  heat: { lower: [0.25, 0.6], higher: [0.1, 0.2] },
   // Маленькие команды (владелец, 06.10: «не смотреть закрепляемость и текучесть в командах
   // меньше чем 30 чел»): у юнита с численностью меньше min на последний закрытый месяц метрики
   // этих блоков не оцениваются — ни процента, ни цвета, ни графиков, ни фактов в «Что видно в данных».
@@ -4094,13 +4097,14 @@ function transformHTML() {
   var list = trSorted(axis), months = [];
   if (!list.length || !M.scope) return s + hEmpty('Нет данных для разбивки', 'В юните нет людей под текущими фильтрами.');
   for (var k = L - 11; k <= L; k++) months.push(k);
-  // Хитмап: ячейка — значение месяца, фон — только если оно хуже «Всего» юнита в том же месяце (heatDiv). Строка — клик выбирает значение: его линия на графике «Всего»,
+  // Хитмап: ячейка — значение месяца, фон — только если оно хуже планки (heatDiv): «Всего» за последний месяц, одна на таблицу. Строка — клик выбирает значение: его линия на графике «Всего»,
   // его доля на кольце; наведение подсвечивает строку и долю (trLink).
   var yt = m.ytd && ytdOn(m), flat = m.better === 'flat' || m.fmt === 'int', pick = -1;
   function cv(ser, k) { return yt && k < 12 ? null : mval(ser, 'm', m, k); }
   for (var q = 0; q < list.length; q++) {
     if (list[q].v === state.trPick) pick = q;
   }
+  var bar = cv(M.scope, L);
   // Узкая ячейка — колонки имён и «За 12 мес» уже: месяцам нужно место.
   var pie = trPie(m, list, pick), cg = '<colgroup><col style="width:' + (state.narrow ? 172 : TR_NAMEW) + 'px">';
   for (var cq = 0; cq < months.length; cq++) cg += '<col>';
@@ -4119,11 +4123,11 @@ function transformHTML() {
       + '><td class="' + P + '-l"' + (pie.col[idx] ? ' style="background:linear-gradient(90deg,' + pie.col[idx] + ' 3px,transparent 3px)"' : '') + (NOCOL ? tip({ title: m.name, text: smallWhy(ser, m) }) : '') + '>' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел' + (NOCOL ? ' · ' + smallShort(ser, m) : '') + '</span></td>';
     for (var c = 0; c < months.length; c++) {
       var k = months[c], v = cv(ser, k), t = cv(M.scope, k), bg = '';
-      if (v !== null && !tot && !NOCOL && !flat) bg = heatDiv(m, v, t);
+      if (v !== null && !tot && !NOCOL && !flat) bg = heatDiv(m, v, bar);
       var rows = [{ label: name.length > 28 ? name.slice(0, 27) + '…' : name, value: fmtVal(m, v), color: C0.cur, line: true }].concat(v === null ? [] : absRows(m, ser, k));
-      if (!tot && t !== null) rows.push({ label: 'Всего', value: fmtVal(m, t), color: C0.prev, line: true, dim: true });
+      if (!tot && t !== null) rows.push({ label: 'Всего в этом месяце', value: fmtVal(m, t), color: C0.prev, line: true, dim: true });
       r += '<td class="' + (c === months.length - 1 ? P + '-now' : '') + '"' + (bg ? ' style="background:' + bg + '"' : '')
-        + tip({ title: monthFull(k), rows: rows, note: tot ? null : (NOCOL ? 'Без цвета: мало людей.' : (v !== null && t !== null && !flat ? heatTxt(m, v, t) : null)) }) + '>' + esc(fmtVal(m, v)) + '</td>';
+        + tip({ title: monthFull(k), rows: rows, note: tot ? null : (NOCOL ? 'Без цвета: мало людей.' : (v !== null && bar !== null && !flat ? heatTxt(m, v, bar) : null)) }) + '>' + esc(fmtVal(m, v)) + '</td>';
     }
     if (isCum(m)) r += '<td class="' + P + '-vs"' + tip({ title: 'За 12 мес', text: 'С начала года значение копится, поэтому сравнивать с ' + monthDat(L - 11) + ' не имеет смысла.' }) + '>' + hPill('flat', '—') + '</td></tr>';
     else r += deltaTd(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.', P + '-vs', mval(ser, 'm', m, L - 11)) + '</tr>';
@@ -4136,7 +4140,7 @@ function transformHTML() {
   for (var rr = 0; rr < ord.length; rr++) th += prow(trName(list[ord[rr]]), list[ord[rr]].ser, list[ord[rr]].rest ? P + '-rest' : P + '-trr', ord[rr]);
   th += '</tbody></table>';
   var leg = '<div class="' + P + '-hleg">' + (flat ? '<span>У метрики нет «лучше» — ячейки без цвета.</span>'
-    : '<span>Хуже, чем «Всего» в том же месяце:</span><span><i style="background:' + HEAT_C[0] + '"></i>на 5–15%</span><span><i style="background:' + HEAT_C[1] + '"></i>на 15–30%</span><span><i style="background:' + HEAT_C[2] + '"></i>больше 30%</span>')
+    : '<span>Хуже, чем «Всего» за ' + esc(monthLow(L)) + ' (' + esc(fmtVal(m, bar)) + '):</span><span><i style="background:' + HEAT_C[0] + '"></i>' + heatSteps(m)[0] + '</span><span><i style="background:' + HEAT_C[1] + '"></i>' + heatSteps(m)[1] + '</span><span><i style="background:' + HEAT_C[2] + '"></i>' + heatSteps(m)[2] + '</span>')
     + (flat ? '' : '<span class="' + P + '-hlsm"' + tip({ title: 'Серые цифры — без цвета', text: 'В строке меньше людей, чем нужно для оценки: ' + smallRule() + '. Значение показано, но не раскрашено: один человек сдвигает процент на несколько пунктов.' }) + '>серые цифры — мало людей, без цвета</span>')
     + '<span class="' + P + '-us">Клик по строке — её линия на графике и доля на кольце.</span></div>';
   var sel = pick > -1 ? list[pick] : null;
@@ -4182,20 +4186,32 @@ function trOrder(m, list, yt) {
 // лучше, в пределах ±5 %, метрика без «лучше», маленькая строка — без заливки. Ступени — сплошные цвета, не прозрачность
 // поверх фона (от неё цвет «грязнел»); текст ячейки — всегда чернилами.
 var HEAT_C = ['#fef2f2', '#fde2e2', '#fbcfcf'];
-function heatDiv(m, v, t) {
-  if (v === null || t === null || !t || m.better === 'flat') return '';
-  var d = (v - t) / Math.abs(t), worse = (m.better === 'higher') ? d < 0 : d > 0, a = Math.abs(d);
-  if (!worse || a <= CFG.deadZone) return '';
-  return HEAT_C[a <= 0.15 ? 0 : (a <= 0.3 ? 1 : 2)];
+// Цвет — по самому значению (владелец 14.10, второй заход: «одинаковые 1,7% — одна с цветом, другая нет»): планка одна на
+// таблицу — «Всего» за последний месяц, поэтому одинаковые цифры — одного цвета, больше (у текучести) — краснее. Сравнение —
+// по округлённым, как на экране. Ступени — CFG.heat; лучше планки и ±5% — без цвета.
+function heatRnd(m, v) { return m.fmt === 'int' ? Math.round(v) : round1(v); }
+function heatStep(m, v, r) {
+  if (v === null || r === null || m.better === 'flat') return -1;
+  var rv = heatRnd(m, v), rr = heatRnd(m, r);
+  if (!rr) return -1;
+  var d = (rv - rr) / Math.abs(rr), a = Math.abs(d), st = CFG.heat[m.better === 'higher' ? 'higher' : 'lower'];
+  if ((m.better === 'higher' ? d >= 0 : d <= 0) || a <= CFG.deadZone) return -1;
+  return a <= st[0] ? 0 : (a <= st[1] ? 1 : 2);
 }
-// Подсказка ячейки хитмапа: на сколько (и во сколько раз) хуже «Всего» этого месяца и какая это ступень цвета.
-function heatTxt(m, v, t) {
-  var d = (v - t) / Math.abs(t || 1), a = Math.abs(d);
-  if (a <= CFG.deadZone) return 'Как «Всего» в этом месяце (±5%) — без цвета.';
-  var better = (m.better === 'higher') === (d > 0), x = Math.round(v / t * 10) / 10;
-  var rel = d >= 1 && t > 0 ? 'в ' + fmtNum1(x).replace(',0', '') + (x % 1 || (x % 10 >= 2 && x % 10 <= 4 && (x % 100 < 10 || x % 100 >= 20)) ? ' раза' : ' раз') : 'на ' + Math.round(a * 100) + '%';
-  return (better ? 'Лучше' : 'Хуже') + ', чем «Всего» в этом месяце: ' + fmtDelta(m, deltaOf(m, v, t)) + ' (' + rel + ').'
-    + (better ? '' : ' Цвет — ' + (a <= 0.15 ? 'самый светлый (5–15%)' : (a <= 0.3 ? 'средний (15–30%)' : 'самый тёмный (больше 30%)')) + '.');
+function heatDiv(m, v, r) { var i = heatStep(m, v, r); return i < 0 ? '' : HEAT_C[i]; }
+// Подписи ступеней для легенды и подсказки: «на 5–25%», «на 25–60%», «больше чем на 60%».
+function heatSteps(m) {
+  var st = CFG.heat[m.better === 'higher' ? 'higher' : 'lower'], p = function (x) { return Math.round(x * 100); };
+  return ['на ' + p(CFG.deadZone) + '–' + p(st[0]) + '%', 'на ' + p(st[0]) + '–' + p(st[1]) + '%', 'больше чем на ' + p(st[1]) + '%'];
+}
+// Подсказка ячейки хитмапа: на сколько хуже планки и какая это ступень цвета.
+function heatTxt(m, v, r) {
+  var L = MODEL.L, i = heatStep(m, v, r), rv = heatRnd(m, v), rr = heatRnd(m, r), lab = '«Всего» за ' + monthLow(L) + ' (' + fmtVal(m, r) + ')';
+  if (i < 0) return (m.better === 'higher' ? rv >= rr : rv <= rr) || !rr || Math.abs(rv - rr) / Math.abs(rr) <= CFG.deadZone
+    ? 'Не хуже, чем ' + lab + ' — без цвета.' : 'Без цвета.';
+  var x = Math.round(rv / rr * 10) / 10, d = Math.abs(rv - rr) / Math.abs(rr);
+  var rel = rv / rr >= 2 ? 'в ' + fmtNum1(x).replace(',0', '') + (x % 1 || (x % 10 >= 2 && x % 10 <= 4 && (x % 100 < 10 || x % 100 >= 20)) ? ' раза' : ' раз') : 'на ' + Math.round(d * 100) + '%';
+  return 'Хуже, чем ' + lab + ': ' + rel + '. Цвет — ' + ['самый светлый', 'средний', 'самый тёмный'][i] + ' (' + heatSteps(m)[i] + ').';
 }
 // График в шапке таблицы (владелец 14.10): «Всего» по юниту за 12 месяцев, точки — над колонками месяцев; выбрана
 // строка — её линия акцентом, «Всего» — серая.
