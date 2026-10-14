@@ -316,6 +316,7 @@ var STATE0 = {
   trPick: '',            // «Трансформеры»: выбранное значение разбивки (линия на графике, доля на кольце)
   trPie: 'hc',           // кольцо «Трансформеров»: доли в людях (hc) или в числителе метрики (num)
   dsel: '',              // открытый выпадающий список (hSel)
+  defHct: '',            // «Активная» по умолчанию при открытии: '' — ещё не решали, 'wait' — ждём ответ, 'done'
   axisTried: {},         // оси трансформеров, которые уже запрашивались
   kd: null,              // черновик формы KPI (вкладка «KPI»): add | update | del
   kdOpen: false,         // форма KPI открыта над списком
@@ -3302,7 +3303,11 @@ function opOpen(mk) { return !!state.openM[mk]; }
 // Доминирующее значение популяционного разреза в области без выбранных разрезов: {key, v, share} | null.
 function popHint() {
   var M = MODEL, best = null;
-  for (var i = 0; i < CFG.cuts.length; i++) if ((M.sel[CFG.cuts[i].key] || []).length) return null;
+  // Другие разрезы уже выбраны — подсказки нет; «Активная» по умолчанию (defaultActive) не в счёт.
+  for (var i = 0; i < CFG.cuts.length; i++) {
+    var ck = CFG.cuts[i].key, sv = M.sel[ck] || [];
+    if (sv.length && !(ck === 'hct' && sv.length === 1 && hqEq('hct', sv[0]))) return null;
+  }
   for (var c = 0; c < CFG.pop.cuts.length; c++) {
     var key = CFG.pop.cuts[c], f = M.facets[key] || [], tot = 0, top = null;
     for (var j = 0; j < f.length; j++) { tot += f[j].n; if (!isNoVal(f[j].v) && (!top || f[j].n > top.n)) top = f[j]; }
@@ -4632,6 +4637,8 @@ function accessHTML() {
   return hEmpty(CFG.text.noAccess, 'Логин: ' + (M.meta.me || '—') + '. Доступ выдаёт владелец отчёта — напишите ему.');
 }
 function tabHTML(v) {
+  // Пока едет ответ с «Активной» по умолчанию — заставка: цифры по всем типам не мелькают (defaultActive, БЛОК 6).
+  if (state.defHct === 'wait' && state.pend) return hEmpty('Открываю отчёт по активной численности', 'Так отчёт открывается по умолчанию. Другой тип численности — в «Фильтрах».');
   if (v === 'teams') return teamsHTML();
   if (v === 'transform') return transformHTML();
   if (v === 'goals') return goalsHTML();
@@ -5537,6 +5544,21 @@ function buildHTML() {
       render();
     }
     // Трансформеры: ось грузится лениво — один раз на ось, когда вкладку открыли.
+    // По умолчанию — активная численность (владелец 14.10): первый ответ после открытия борда без «Тип численности» —
+    // чарт сам ставит «Активная» (значение как в источнике, hqVal). Один раз за открытие: снятый руками фильтр не
+    // возвращается. Нет «Активной» в зоне, нет доступа или фильтр уже стоит — ничего не делаем.
+    function defaultActive() {
+      if (state.defHct === 'wait' && !state.pend) state.defHct = 'done';
+      if (state.defHct) return;
+      state.defHct = 'done';
+      if (typeof applyCrossFilter !== 'function' || MODEL.role === 'none' || !MODEL.meta || (MODEL.sel.hct || []).length || state.pend) return;
+      var v = hqVal('hct');
+      if (!v) return;
+      var n = reqNow();
+      n.cuts.hct = [v];
+      state.defHct = 'wait';
+      emit(n);
+    }
     function ensureAxis() {
       if ((state.view || 'onepager') !== 'transform' || state.pend) return;
       var want = wantAxis();
@@ -6287,6 +6309,7 @@ function buildHTML() {
     render();
     // Перезапуск скрипта с открытым окном фильтров — курсор в поле поиска юнита.
     if (state.drawer) focusPop('unit');
+    defaultActive();
     ensureAxis();
 
     // ResizeObserver только правит габариты. НЕ вызывать render() — зациклит.
