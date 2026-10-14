@@ -1734,6 +1734,24 @@ function buildCSS() {
     P + '-dsel ' + P + '-ddv{flex:1;text-align:left;}',
     P + '-dsp{position:fixed;z-index:60;display:flex;flex-direction:column;gap:6px;padding:6px;background:' + C.card + ';border:1px solid ' + C.line + ';border-radius:10px;box-shadow:0 10px 28px rgba(16,24,40,.16);min-width:200px;}',
     P + '-dsli{overflow-y:auto;overscroll-behavior:contain;min-height:0;}',
+    P + '-dsd{display:block;}',
+    P + '-dsd>' + P + '-ddb{width:100%;max-width:none;}',
+    P + '-ddi{display:inline-flex;color:' + C.muted + ';}',
+    P + '-ddp{color:' + C.muted + ';font-weight:400;}',
+    P + '-cal{padding:12px 12px 10px;gap:8px;width:272px;}',
+    P + '-calh{display:flex;align-items:center;justify-content:space-between;}',
+    P + '-calt{font-size:' + F.title + 'px;font-weight:600;color:' + C.ink + ';}',
+    P + '-calb{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;border:0;background:transparent;color:' + C.ink2 + ';cursor:pointer;}',
+    P + '-calb:hover{background:' + C.surface2 + ';}',
+    P + '-calg{display:grid;grid-template-columns:repeat(7,34px);gap:2px;justify-content:space-between;}',
+    P + '-calw{text-align:center;font-size:' + F.cap + 'px;color:' + C.muted + ';padding:4px 0 2px;}',
+    P + '-cald{width:34px;height:34px;border-radius:50%;border:0;background:transparent;font:inherit;font-size:' + F.control + 'px;color:' + C.ink2 + ';cursor:pointer;font-variant-numeric:tabular-nums;}',
+    P + '-cald' + P + '-we{color:' + C.muted + ';}',
+    P + '-cald:hover{background:' + C.blueBg + ';color:' + C.actInk + ';}',
+    P + '-cald' + P + '-tdy{box-shadow:inset 0 0 0 1px ' + C.act + ';}',
+    P + '-cald' + P + '-on,' + P + '-cald' + P + '-on:hover{background:' + C.act + ';color:#fff;font-weight:600;box-shadow:none;}',
+    P + '-cald:disabled{color:' + C.muted2 + ';background:transparent;cursor:default;}',
+    P + '-calq{display:flex;justify-content:space-between;border-top:1px solid ' + C.line2 + ';padding:8px 4px 0;}',
     P + '-dsp ' + P + '-opt' + P + '-on{color:#2b5fd0;background:' + C.blueBg + ';font-weight:500;}',
     P + '-inp{height:34px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:9px;padding:0 12px;font-size:' + F.chart + 'px;font-weight:400;color:' + C.ink + ';width:100%;}',
     P + '-inp:focus{outline:none;border-color:' + C.act + ';}',
@@ -2078,7 +2096,6 @@ function buildCSS() {
     P + '-inpw{position:relative;display:block;}',
     P + '-inpw ' + P + '-inp{padding-right:30px;}',
     P + '-inps{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:' + C.muted + ';pointer-events:none;}',
-    P + '-kclr{margin-left:8px;font-size:' + F.cap + 'px;text-transform:none;letter-spacing:0;}',
     P + '-kval{min-height:34px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:' + F.body + 'px;color:' + C.ink + ';}',
     P + '-kval b{font-weight:500;}',
     P + '-kcut{display:flex;flex-direction:column;gap:10px;padding-top:4px;}',
@@ -2207,6 +2224,52 @@ function hSel(name, options, value, cls) {
     s += '</div></div>';
   }
   return s + '</span>';
+}
+// Календарь — вместо системного <input type="date"> (владелец 14.10: «как из 2003 года»): кнопка как у списка (-ddb)
+// и карточка -dsp того же списка (открыт один, закрывают выбор, клик мимо, Esc): «‹ Октябрь 2025 ›», дни недели, дни —
+// кругами (выбранный — акцент, сегодня — кольцо, вне min…max — бледные и не жмутся), снизу — быстрый выбор quick
+// [[дата | '', подпись]]. Показанный месяц — state.calM[name]: стрелки листают, не закрывая карточку.
+var CAL_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+  + '<rect x="3.5" y="5" width="17" height="15.5" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
+function chevSvg(left) {
+  return '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="'
+    + (left ? 'M15 5l-7 7 7 7' : 'M9 5l7 7-7 7') + '"/></svg>';
+}
+function ymd(y, m, d) { return y + '-' + (m < 9 ? '0' : '') + (m + 1) + '-' + (d < 10 ? '0' : '') + d; }
+function todayIso() { var t = new Date(); return ymd(t.getFullYear(), t.getMonth(), t.getDate()); }
+function dateRu(v) { return isoOk(v) ? (+v.slice(8, 10)) + ' ' + MONTH_GEN[+v.slice(5, 7) - 1] + ' ' + v.slice(0, 4) : ''; }
+function hDate(name, value, min, max, quick, empty) {
+  var P = CFG.ns, open = state.dsel === name, has = isoOk(value), i;
+  var s = '<span class="' + P + '-dsel ' + P + '-dsd" data-dsel="' + esc(name) + '">'
+    + '<button type="button" class="' + P + '-ddb' + (open ? ' ' + P + '-on' : '') + '" data-action="dsel" data-key="' + esc(name) + '" aria-haspopup="dialog" aria-expanded="' + (open ? 'true' : 'false') + '">'
+    + '<span class="' + P + '-ddi">' + CAL_SVG + '</span><span class="' + P + '-ddv' + (has ? '' : ' ' + P + '-ddp') + '">' + esc(has ? dateRu(value) : empty) + '</span>'
+    + '<span class="' + P + '-ddc" aria-hidden="true">' + (open ? '▴' : '▾') + '</span></button>';
+  if (!open) return s + '</span>';
+  state.calM = state.calM || {};
+  var vm = state.calM[name] || (has ? value : todayIso()).slice(0, 7);
+  state.calM[name] = vm;
+  var y = +vm.slice(0, 4), m = +vm.slice(5, 7) - 1, today = todayIso();
+  var first = (new Date(Date.UTC(y, m, 1)).getUTCDay() + 6) % 7, days = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+  s += '<div class="' + P + '-dsp ' + P + '-cal" role="dialog" aria-label="Выбор даты"><div class="' + P + '-calh">'
+    + '<button type="button" class="' + P + '-calb" data-action="calm" data-key="' + esc(name) + '" data-id="-1" aria-label="Предыдущий месяц">' + chevSvg(true) + '</button>'
+    + '<span class="' + P + '-calt">' + MONTH_FULL[m].charAt(0).toUpperCase() + MONTH_FULL[m].slice(1) + ' ' + y + '</span>'
+    + '<button type="button" class="' + P + '-calb" data-action="calm" data-key="' + esc(name) + '" data-id="1" aria-label="Следующий месяц">' + chevSvg(false) + '</button></div>'
+    + '<div class="' + P + '-calg">';
+  var wd = ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'];
+  for (i = 0; i < 7; i++) s += '<span class="' + P + '-calw' + (i > 4 ? ' ' + P + '-we' : '') + '">' + wd[i] + '</span>';
+  for (i = 0; i < first; i++) s += '<span></span>';
+  for (var d = 1; d <= days; d++) {
+    var iso = ymd(y, m, d), off = (min && iso < min) || (max && iso > max);
+    s += '<button type="button" class="' + P + '-cald' + (iso === value ? ' ' + P + '-on' : '') + (iso === today ? ' ' + P + '-tdy' : '') + ((first + d - 1) % 7 > 4 ? ' ' + P + '-we' : '') + '"'
+      + (off ? ' disabled' : ' data-action="calv" data-key="' + esc(name) + '" data-id="' + iso + '"') + ' aria-label="' + esc(dateRu(iso)) + '"' + (iso === value ? ' aria-pressed="true"' : '') + '>' + d + '</button>';
+  }
+  s += '</div>';
+  if (quick && quick.length) {
+    s += '<div class="' + P + '-calq">';
+    for (i = 0; i < quick.length; i++) s += '<button type="button" class="' + P + '-lnk" data-action="calv" data-key="' + esc(name) + '" data-id="' + esc(quick[i][0]) + '">' + esc(quick[i][1]) + '</button>';
+    s += '</div>';
+  }
+  return s + '</div></span>';
 }
 // Пилюля — ОДНА на отчёт: изменение, отклонение от ориентира, значение в «Командах», пилюля
 // в подсказке. Размер у всех один (11,5 / 500, высота 22), различается только цвет.
@@ -3949,7 +4012,6 @@ function sumTr(list) {
   return out;
 }
 // Число значений оси (с учётом свёрнутых датасетом в '…').
-function trCount(axis) { var t = MODEL.trBy[axis] || [], n = 0; for (var i = 0; i < t.length; i++) n += t[i].v === '…' ? t[i].n : 1; return n; }
 function trSorted(axis) {
   var all = MODEL.trBy[axis] || [], list = [], rest = [], restN = 0, ord = CFG.order[axis];
   // Хвост мелких значений (город, офис) датасет уже свернул в '…' (n — сколько их); если значений
@@ -4323,9 +4385,10 @@ function kdEditorHTML() {
       // процентов — знак % в поле; даты — календарь браузера (type=date: формат задан, «по» не раньше «с»).
       + '<span class="' + P + '-inpw"><input class="' + P + '-inp" type="text" inputmode="decimal" maxlength="6" autocomplete="off" data-kd="target" placeholder="' + (m && m.fmt === 'pct' ? '3,5' : '3') + '" value="' + esc(d.target) + '">'
       + (m && m.fmt === 'pct' ? '<i class="' + P + '-inps">%</i>' : '') + '</span></div>'
-      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span><input class="' + P + '-inp" type="date" min="2020-01-01" max="2099-12-30" data-kd="from" value="' + esc(d.from) + '"></div>'
-      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует по<button type="button" class="' + P + '-lnk ' + P + '-kclr" data-action="kdnoto"' + tip({ title: 'Без даты окончания', text: 'Цель действует по актуальную дату — последний закрытый месяц данных.' }) + '>без даты</button></span>'
-      + '<input class="' + P + '-inp" type="date" min="' + esc(isoOk(d.from) ? d.from : '2020-01-01') + '" max="2099-12-31" data-kd="to" value="' + esc(d.to) + '"></div>'
+      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span>'
+      + hDate('kdd:from', d.from, '2020-01-01', '2099-12-30', [[kpiFY()[0], 'Начало года'], [todayIso(), 'Сегодня']], 'выберите дату') + '</div>'
+      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll"' + tip({ title: 'Без даты окончания', text: 'Цель действует по актуальную дату — последний закрытый месяц данных.' }) + '>Действует по</span>'
+      + hDate('kdd:to', d.to, isoOk(d.from) ? d.from : '2020-01-01', '2099-12-31', [[kpiFY()[1], 'Конец года'], ['', 'Без даты']], 'без даты') + '</div>'
       + '<div class="' + P + '-know ' + P + '-kwide" data-kd-now="1">' + esc(kdNow(d)) + '</div>'
       + '<div class="' + P + '-kcut ' + P + '-kwide"><span class="' + P + '-ctll">Для кого — разрезы численности</span><div class="' + P + '-kcuts">' + cutsH + '</div>'
       + '<span class="' + P + '-us">«все» — вся численность юнита. Цель с разрезом работает в отчёте, когда выбран ровно этот разрез.</span></div>'
@@ -5707,6 +5770,8 @@ function buildHTML() {
       }
       if (sel === 'kdm' && state.kd) { state.kd.metric = v; render(); return; }
       if (sel && sel.indexOf('kdc:') === 0 && state.kd) { state.kd.cuts[sel.slice(4)] = v; render(); return; }
+      if (sel === 'kdd:from' && state.kd) { state.kd.from = v; if (isoOk(state.kd.to) && state.kd.to < v) state.kd.to = ''; render(); return; }
+      if (sel === 'kdd:to' && state.kd) { state.kd.to = v; render(); return; }
       render();
     }
     // Карточка открытого списка — под кнопкой (или над ней, если снизу в видимой части мало места), не уже кнопки.
@@ -5714,10 +5779,11 @@ function buildHTML() {
       var P = CFG.ns, pop = state.dsel ? overlay.querySelector('.' + P + '-dsp') : null;
       if (!pop) return;
       var btn = pop.parentNode.querySelector('.' + P + '-ddb'), br = btn.getBoundingClientRect(), v = visV();
-      var below = v.b - br.bottom - 8, above = br.top - v.t - 8, up = below < 220 && above > below;
+      var cal = pop.className.indexOf(P + '-cal') > -1, need = cal ? pop.offsetHeight : Math.min(220, pop.scrollHeight);
+      var below = v.b - br.bottom - 8, above = br.top - v.t - 8, up = below < need && above > below;
       pop.style.left = Math.round(br.left) + 'px';
-      pop.style.minWidth = Math.round(br.width) + 'px';
-      pop.style.maxHeight = Math.round(Math.max(140, Math.min(340, up ? above : below))) + 'px';
+      pop.style.minWidth = cal ? '' : Math.round(br.width) + 'px';
+      pop.style.maxHeight = cal ? '' : Math.round(Math.max(140, Math.min(340, up ? above : below))) + 'px';
       pop.style.top = up ? '' : Math.round(br.bottom + 4) + 'px';
       pop.style.bottom = up ? Math.round(window.innerHeight - br.top + 4) + 'px' : '';
       var q = pop.querySelector('[data-dsq]');
@@ -6013,10 +6079,22 @@ function buildHTML() {
         }
         return;
       }
-      if (act === 'kdnoto') { if (state.kd) { state.kd.to = ''; render(); } return; }
       if (act === 'kclose') { state.kdOpen = false; state.kd = null; state.copied = ''; render(); return; }
       if (act === 'kcopy') { copyLine(); return; }
-      if (act === 'dsel') { state.dsel = state.dsel === key ? '' : key; render(); return; }
+      if (act === 'dsel') { state.dsel = state.dsel === key ? '' : key; if (state.calM) delete state.calM[key]; render(); return; }
+      if (act === 'calm') {
+        var cm = (state.calM || {})[key];
+        if (cm) { var cy = +cm.slice(0, 4), cmo = +cm.slice(5, 7) - 1 + (+a.getAttribute('data-id')); state.calM[key] = ymd(cy + Math.floor(cmo / 12), ((cmo % 12) + 12) % 12, 1).slice(0, 7); }
+        render();
+        return;
+      }
+      if (act === 'calv') {
+        state.dsel = '';
+        selPick(key, a.getAttribute('data-id') || '');
+        var cb = overlay.querySelector('[data-action="dsel"][data-key="' + cssq(key) + '"]');
+        if (cb) focusQuiet(cb);
+        return;
+      }
       if (act === 'dselv') {
         state.dsel = '';
         selPick(key, a.getAttribute('data-id'));
@@ -6072,7 +6150,6 @@ function buildHTML() {
       if (kd === 'target') { var cl = kdClean(t.value); if (cl !== t.value) t.value = cl; }
       if (kd && state.kd) {
         state.kd[kd] = t.value;
-        if (kd === 'from') { var tt = overlay.querySelector('[data-kd="to"]'); if (tt) tt.setAttribute('min', isoOk(t.value) ? t.value : '2020-01-01'); }
         updateKd();
       }
     }
