@@ -1930,7 +1930,6 @@ function buildCSS() {
     // Значение месяца — по центру колонки: под точкой графика в шапке.
     P + '-heat th:not(' + P + '-l):not(' + P + '-vs),' + P + '-heat td:not(' + P + '-l):not(' + P + '-vs){text-align:center;}',
     P + '-pie{display:block;margin:0 auto;}',
-    P + '-pdot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:7px;vertical-align:1px;}',
     P + '-trbox[data-trh] ' + P + '-pseg:not(' + P + '-trh){opacity:.35;}',
     P + '-pseg' + P + '-on{stroke:' + C.ink + ';}',
     P + '-heat td{transition:box-shadow .15s;}',
@@ -3998,17 +3997,17 @@ function transformHTML() {
   for (var cq = 0; cq < months.length; cq++) cg += '<col>';
   var th = '<table class="' + P + '-t ' + P + '-heat ' + P + '-fix">' + cg + '<col style="width:' + (state.narrow ? 92 : 118) + 'px"></colgroup><thead>'
     + '<tr class="' + P + '-trch"><td class="' + P + '-trpc">' + pie.svg + '</td><td colspan="' + months.length + '">' + trLineSlot(m, pick > -1 ? list[pick] : null, months) + '</td><td></td></tr>'
-    + '<tr><th class="' + P + '-l">' + esc(axisLabel(axis)) + '</th>';
+    + '<tr>' + trTh('name', axisLabel(axis), P + '-l');
   for (var hm = 0; hm < months.length; hm++) {
     var pp = dparts(M.cal.m[months[hm]].s);
-    th += '<th>' + esc(MONTH_ABBR[pp.m] + (hm === 0 || pp.m === 0 ? ' ' + String(pp.y).slice(2) : '')) + '</th>';
+    th += trTh('m' + months[hm], MONTH_ABBR[pp.m] + (hm === 0 || pp.m === 0 ? ' ' + String(pp.y).slice(2) : ''), '');
   }
-  th += '<th class="' + P + '-vs">За 12 мес<span class="' + P + '-hc">к ' + esc(monthDat(L - 11)) + '</span></th></tr></thead><tbody>';
+  th += (isCum(m) ? '<th class="' + P + '-vs">За 12 мес' : trTh('d', 'За 12 мес', P + '-vs', true)) + '<span class="' + P + '-hc">к ' + esc(monthDat(L - 11)) + '</span></th></tr></thead><tbody>';
   function prow(name, ser, cls, idx) {
     NOCOL = smallHide(ser, m);
     var tot = idx < 0, r = '<tr class="' + cls + (idx === pick && !tot ? ' ' + P + '-sel' : '') + '"'
       + (tot || list[idx].rest ? '' : ' data-trv="' + idx + '" data-action="trpick" data-key="' + idx + '" tabindex="0" aria-pressed="' + (idx === pick ? 'true' : 'false') + '"')
-      + '><td class="' + P + '-l"' + (NOCOL ? tip({ title: m.name, text: smallWhy(ser, m) }) : '') + '>' + (pie.col[idx] ? '<i class="' + P + '-pdot" style="background:' + pie.col[idx] + '"></i>' : '') + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел' + (NOCOL ? ' · без цвета' : '') + '</span></td>';
+      + '><td class="' + P + '-l"' + (pie.col[idx] ? ' style="background:linear-gradient(90deg,' + pie.col[idx] + ' 3px,transparent 3px)"' : '') + (NOCOL ? tip({ title: m.name, text: smallWhy(ser, m) }) : '') + '>' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел' + (NOCOL ? ' · без цвета' : '') + '</span></td>';
     for (var c = 0; c < months.length; c++) {
       var k = months[c], v = cv(ser, k), t = cv(M.scope, k), bg = '';
       if (v !== null && !tot && !NOCOL && !flat) bg = heatDiv(m, v, t);
@@ -4024,7 +4023,8 @@ function transformHTML() {
   }
   var C0 = CFG.colors;
   th += prow('ИТОГО · ' + scopeLabel(), M.scope, P + '-tot', -1);
-  for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr]), list[rr].ser, list[rr].rest ? P + '-rest' : P + '-trr', rr);
+  var ord = trOrder(m, list, yt);
+  for (var rr = 0; rr < ord.length; rr++) th += prow(trName(list[ord[rr]]), list[ord[rr]].ser, list[ord[rr]].rest ? P + '-rest' : P + '-trr', ord[rr]);
   th += '</tbody></table>';
   var leg = '<div class="' + P + '-hleg">' + (flat ? '<span>У метрики нет «лучше» — ячейки без цвета.</span>'
     : '<span>Хуже, чем «Всего» в том же месяце:</span><span><i style="background:' + HEAT_C[0] + '"></i>на 5–15%</span><span><i style="background:' + HEAT_C[1] + '"></i>на 15–30%</span><span><i style="background:' + HEAT_C[2] + '"></i>больше 30%</span>')
@@ -4037,6 +4037,35 @@ function transformHTML() {
       body: th + leg, tbl: true, tabs: '<span class="' + P + '-pbtn">' + lg + trPieSw(m)
         + (sel ? '<button type="button" class="' + P + '-btn ' + P + '-ghost" data-action="trpick" data-key="-1">Сбросить</button>' : '') + copyBtn('tr') + '</span>' })
     + '</div>';
+}
+// Сортировка «Трансформеров» (14.10): клик по заголовку — по названию (А→Я), по месяцу или «За 12 мес» (сначала
+// большие); повторный — обратный порядок, третий — как было (порядок оси). «Остальные» — всегда внизу, ИТОГО — вверху.
+// Индексы строк не меняются: выбор строки и доля на кольце держатся при пересортировке.
+function trTh(key, label, cls, open) {
+  var P = CFG.ns, ts = state.trSort || {}, on = ts.key === key, first = key === 'name' ? 'asc' : 'desc';
+  var note = on ? (ts.dir === first ? 'Клик — в обратном порядке.' : 'Клик — как было.') : (key === 'name' ? 'Клик — по алфавиту.' : 'Клик — сначала большие значения.');
+  return '<th class="' + P + '-sth' + (cls ? ' ' + cls : '') + (on ? ' ' + P + '-son' : '') + '" data-action="trsort" data-key="' + key + '" tabindex="0" aria-sort="'
+    + (on ? (ts.dir === 'asc' ? 'ascending' : 'descending') : 'none') + '"' + tip({ title: label, text: 'Сортировка строк таблицы.', note: note }) + '>'
+    + esc(label) + (on ? '<span class="' + P + '-sa">' + (ts.dir === 'asc' ? '↑' : '↓') + '</span>' : '') + (open ? '' : '</th>');
+}
+function trOrder(m, list, yt) {
+  var ts = state.trSort || {}, ord = [], rest = [], L = MODEL.L, i;
+  for (i = 0; i < list.length; i++) (list[i].rest ? rest : ord).push(i);
+  if (ts.key) {
+    var val = function (r) {
+      if (ts.key === 'd') return deltaOf(m, mval(r.ser, 'm', m, L), mval(r.ser, 'm', m, L - 11));
+      var k = +ts.key.slice(1);
+      return yt && k < 12 ? null : mval(r.ser, 'm', m, k);
+    };
+    var sg = ts.dir === 'asc' ? 1 : -1;
+    ord.sort(function (a, b) {
+      if (ts.key === 'name') return sg * trName(list[a]).localeCompare(trName(list[b]), 'ru', { numeric: true });
+      var x = val(list[a]), y = val(list[b]);
+      if (x === null || y === null) return x === null ? (y === null ? a - b : 1) : -1;
+      return sg * (x - y) || a - b;
+    });
+  }
+  return ord.concat(rest);
 }
 // Хитмап — один цвет и только там, куда смотреть (владелец 14.10: «одноцветный, акцент только на нужное»): ячейка
 // хуже «Всего» того же месяца больше чем на 5 % — светлый красный, три ступени по отклонению (до 15 %, до 30 %, больше);
@@ -4442,7 +4471,7 @@ function tourSteps(view) {
     add({ sel: P + '-trpc', title: 'Доли значений',
       html: 'Пять крупнейших значений и «Остальные» — в людях или в числителе метрики (переключатель справа вверху). Цветная точка у строки таблицы — её доля. Наведите на долю — подсветится строка, клик — её линия на графике.' });
     add({ sel: P + '-heat', title: 'Таблица-хитмап',
-      html: 'Строки — значения разбивки, колонки — 12 месяцев. Цветом отмечено только то, куда смотреть: месяц, где значение хуже, чем «Всего» в том же месяце; чем темнее — тем хуже. Клик по строке выбирает её.' });
+      html: 'Строки — значения разбивки, колонки — 12 месяцев. Цветом отмечено только то, куда смотреть: месяц, где значение хуже, чем «Всего» в том же месяце; чем темнее — тем хуже. Клик по заголовку колонки сортирует, клик по строке выбирает её.' });
     add({ sel: P + '-trbox [data-action="copy"]', pad: 4, title: 'Копировать',
       html: 'Сводная — в буфер обмена: вставьте в Excel или письмо.' });
   } else if (view === 'goals') {
@@ -5895,6 +5924,14 @@ function buildHTML() {
         return;
       }
       if (act === 'trpie') { state.trPie = key; render(); return; }
+      if (act === 'trsort') {
+        var tso = state.trSort || {}, tf = key === 'name' ? 'asc' : 'desc';
+        if (tso.key !== key) state.trSort = { key: key, dir: tf };
+        else if (tso.dir === tf) state.trSort = { key: key, dir: tf === 'asc' ? 'desc' : 'asc' };
+        else state.trSort = null;
+        render();
+        return;
+      }
       if (act === 'tfp') {
         var pr = CFG.trPresets[+key];
         if (!pr) return;
