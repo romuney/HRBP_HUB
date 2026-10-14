@@ -108,7 +108,7 @@ var CFG = {
       hint: 'Уходы сотрудников, которых жаль потерять.',
       frac: ['regrettable-уходы за 12 месяцев', 'средняя активная численность HQ за 12 месяцев'],
       fracY: ['regrettable-уходы месяца', 'средняя активная численность HQ за месяц', 'сумма по месяцам с января'],
-      notes: ['Цель годовая: к каждому месяцу она набирается по частям — к сентябрю 9/12 цели.'],
+      notes: ['KPI годовой: к каждому месяцу он набирается по частям — к сентябрю 9/12 KPI.'],
       numL: 'regrettable-уходов за 12 мес', denL: 'средняя численность за 12 мес', cnt: { n: ['уход', 'ухода', 'уходов'], tail: 'за год' },
       numLy: 'regrettable-уходов с начала года', denLy: 'средняя активная численность HQ', tailY: 'с начала года',
       exL: 'уходов сверх ориентира', exA: 'сверх ориентира' },
@@ -1134,7 +1134,7 @@ function tipHtml(o) {
   return s;
 }
 function tip(o) { return ' data-tip="' + esc(tipHtml(o)) + '"'; }
-var STATE_TXT = { good: 'лучше ориентира', bad: 'хуже ориентира', warn: 'в пределах ±5% от цели', neutral: 'в пределах ±5% или без оценки' };
+var STATE_TXT = { good: 'лучше ориентира', bad: 'хуже ориентира', warn: 'в пределах ±5% от KPI', neutral: 'в пределах ±5% или без оценки' };
 function stTxt(st) { return NOCOL ? 'Без цвета: в юните мало людей, чтобы оценивать.' : STATE_TXT[st]; }
 
 // ---- шкала для линий: подобрана по данным (у линии читают наклон), ось Y обязательна ----
@@ -1864,6 +1864,9 @@ function buildCSS() {
     // Метка строки (флаг): 9 / 500, радиус 4, поля 1/5
     P + '-tag{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.surface2 + ';color:' + C.ink2 + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
     P + '-tag' + P + '-own{background:' + C.warnBg + ';color:' + C.warnTx + ';}',
+    // KPI у юнита — только звёздочка (владелец 14.10: без «Фокус»): ★ — свой KPI, ☆ — KPI с уровня выше; подробности — в подсказке.
+    P + '-star{display:inline-block;margin-left:6px;color:' + C.kpi + ';font-size:' + F.body + 'px;line-height:1;cursor:help;vertical-align:0;}',
+    P + '-star' + P + '-star0{color:' + C.muted + ';}',
     P + '-more{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;letter-spacing:.3px;padding:0 5px;border-radius:4px;border:1px dashed ' + C.line + ';color:' + C.muted + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
     // Без ориентира — словами в пунктирной рамке, а не прочерком (ДС 4.8).
     P + '-nocmp{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px dashed ' + C.line + ';border-radius:999px;font-size:' + F.note + 'px;font-weight:400;color:' + C.muted + ';white-space:nowrap;}',
@@ -2319,14 +2322,14 @@ function focusTag(m, bl) {
   var P = CFG.ns;
   if (!bl || bl.kind !== 'kpi') return '';
   if (!bl.inherited) {
-    return ' <span class="' + P + '-tag ' + P + '-own"' + tip({ title: 'Фокус юнита',
-      text: 'Цель поставлена на этот юнит и действует на все его подразделения.',
-      rows: [{ label: 'цель', value: fmtVal(m, bl.ref) }, { label: 'правило', value: bl.rule.id }],
-      note: ruleCuts(bl.rule).length ? 'Действует при разрезах: ' + ruleCuts(bl.rule).join('; ') : null }) + '>★ Фокус</span>';
+    return ' <span class="' + P + '-star"' + tip({ title: 'KPI юнита',
+      text: 'KPI поставлен на этот юнит и действует на все его подразделения.',
+      rows: [{ label: 'KPI', value: fmtVal(m, bl.ref) }],
+      note: ruleCuts(bl.rule).length ? 'Действует при разрезах: ' + ruleCuts(bl.rule).join('; ') : null }) + ' aria-label="KPI юнита">★</span>';
   }
-  return ' <span class="' + P + '-tag"' + tip({ title: 'Фокус через родителя',
-    text: 'Своей цели у юнита нет — действует цель юнита выше.',
-    rows: [{ label: 'цель с уровня', value: unitName(MODEL, bl.owner) }, { label: 'цель', value: fmtVal(m, bl.ref) }] }) + '>Фокус через родителя</span>';
+  return ' <span class="' + P + '-star ' + P + '-star0"' + tip({ title: 'KPI с уровня выше',
+    text: 'Своего KPI у юнита нет — действует KPI юнита выше.',
+    rows: [{ label: 'KPI с уровня', value: unitName(MODEL, bl.owner) }, { label: 'KPI', value: fmtVal(m, bl.ref) }] }) + ' aria-label="KPI с уровня выше">☆</span>';
 }
 // Цели, закрытые текущими разрезами: называем поимённо, КАКИЕ разрезы выбрать.
 function moreFocus(rules, withMetric) {
@@ -2337,20 +2340,20 @@ function moreFocus(rules, withMetric) {
     var r = rules[i], m = METRIC[r.metric];
     rows.push({ label: (withMetric && m ? m.short + ' · ' : '') + (ruleCuts(r).join('; ') || 'вся численность'), value: m ? fmtVal(m, r.target) : String(r.target) });
   }
-  var notes = ['Цель заработает, когда в «Фильтрах» выбраны эти разрезы.'];
+  var notes = ['KPI заработает, когда в «Фильтрах» выбраны эти разрезы.'];
   if (rules.length > 3) notes.unshift('Показаны 3 из ' + rules.length + '.');
-  return ' <span class="' + P + '-more"' + tip({ title: 'Ещё ' + rules.length + ' ' + plural(rules.length, 'цель', 'цели', 'целей') + ' по разрезам численности',
+  return ' <span class="' + P + '-more"' + tip({ title: 'Ещё ' + rules.length + ' ' + 'KPI по разрезам численности',
     rows: rows, note: notes }) + '>+' + rules.length + ' по разрезам</span>';
 }
 // Легенда светофора — одна на отчёт, над таблицами и справа, на вертикали цвета.
 // short — в строке инструментов «Команд»: без заголовка, подписи короче (целиком — в подсказках).
 function legendHTML(right, small, short) {
   var P = CFG.ns, C = CFG.colors;
-  var dz = 'Отклонение до 5% от ориентира не считаем значимым. Например, при цели 4,0% серым будет всё от 3,8 до 4,2%.';
+  var dz = 'Отклонение до 5% от ориентира не считаем значимым. Например, при KPI 4,0% серым будет всё от 3,8 до 4,2%.';
   return '<div class="' + P + '-legend' + (right ? ' ' + P + '-r' : '') + '">' + (short ? '' : '<span class="' + P + '-lh">Цвет значения</span>')
-    + '<span class="' + P + '-sw"' + tip({ title: 'Лучше ориентира', text: 'Лучше цели или базы больше чем на 5%.' })
+    + '<span class="' + P + '-sw"' + tip({ title: 'Лучше ориентира', text: 'Лучше KPI или базы больше чем на 5%.' })
     + '><span class="' + P + '-dot" style="background:' + C.green + '"></span> ' + (short ? 'лучше' : 'лучше ориентира') + '</span>'
-    + '<span class="' + P + '-sw"' + tip({ title: 'Хуже ориентира', text: 'Хуже цели или базы больше чем на 5%.', note: '«Лучше» у каждой метрики своё: у текучести — меньше, у закрепляемости — больше.' })
+    + '<span class="' + P + '-sw"' + tip({ title: 'Хуже ориентира', text: 'Хуже KPI или базы больше чем на 5%.', note: '«Лучше» у каждой метрики своё: у текучести — меньше, у закрепляемости — больше.' })
     + '><span class="' + P + '-dot" style="background:' + C.red + '"></span> ' + (short ? 'хуже' : 'хуже ориентира') + '</span>'
     + '<span class="' + P + '-sw"' + tip({ title: 'В пределах ±5%', text: dz, note: 'Серые и метрики без оценки — например, численность.' })
     + '><span class="' + P + '-dot" style="background:' + C.neutral + '"></span> ' + (short ? '±5% или без ориентира' : 'в пределах ±5% или без ориентира') + '</span>'
@@ -2365,14 +2368,14 @@ function cmpTd(m, v, bl) {
   var P = CFG.ns;
   if (bl.kind === 'kpi') {
     var dk = deltaOf(m, v, bl.ref);
-    return '<td class="' + P + '-vs"' + tip({ title: 'Сравнение с целью',
-        text: 'У метрики есть цель — сравниваем с ней.',
-        rows: [{ label: 'факт', value: fmtVal(m, v) }, { label: 'цель', value: fmtVal(m, bl.ref), color: CFG.colors.kpi, dash: true },
+    return '<td class="' + P + '-vs"' + tip({ title: 'Сравнение с KPI',
+        text: 'У метрики есть KPI — сравниваем с ним.',
+        rows: [{ label: 'факт', value: fmtVal(m, v) }, { label: 'KPI', value: fmtVal(m, bl.ref), color: CFG.colors.kpi, dash: true },
                { label: 'отклонение', value: fmtDelta(m, dk) }],
-        note: [(bl.inherited ? 'Цель унаследована с уровня «' : 'Цель стоит на юните «') + unitName(MODEL, bl.owner) + '».',
-               m.ytd && ytdOn(m) && bl.rule ? 'Годовая цель — ' + fmtVal(m, bl.rule.target) + '; к ' + monthDat(MODEL.L) + ' — ' + ((MODEL.L % 12) + 1) + '/12 от неё.' : null,
+        note: [(bl.inherited ? 'KPI унаследован с уровня «' : 'KPI стоит на юните «') + unitName(MODEL, bl.owner) + '».',
+               m.ytd && ytdOn(m) && bl.rule ? 'Годовой KPI — ' + fmtVal(m, bl.rule.target) + '; к ' + monthDat(MODEL.L) + ' — ' + ((MODEL.L % 12) + 1) + '/12 от неё.' : null,
                stTxt(bl.state)] }) + '>'
-      + '<div class="' + P + '-tgt ' + P + '-tgtk"><span class="' + P + '-hlk"><span class="' + P + '-tgl">Цель ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</span></div>'
+      + '<div class="' + P + '-tgt ' + P + '-tgtk"><span class="' + P + '-hlk"><span class="' + P + '-tgl">KPI ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</span></div>'
       + hPill(bl.state, fmtDelta(m, dk)) + '</td>';
   }
   if (bl.kind === 'bench' && benchSelf()) {
@@ -2786,7 +2789,7 @@ function viewZoneHTML() {
   for (var i = 0; i < all; i++) if (!sv.off[CFG.metrics[i].key]) on++;
   return '<div class="' + P + '-mdz" data-tz="view">'
     + '<button type="button" class="' + P + '-ft ' + P + '-ftw' + (fo ? ' ' + P + '-on' : '') + '" data-action="focus" aria-pressed="' + (fo ? 'true' : 'false') + '">'
-    + '<span class="' + P + '-ft-tr"><span class="' + P + '-ft-kn"></span></span><span class="' + P + '-ft-tx">Только фокусные — метрики и юниты с целью</span></button>'
+    + '<span class="' + P + '-ft-tr"><span class="' + P + '-ft-kn"></span></span><span class="' + P + '-ft-tx">Только с KPI — метрики и юниты, где он стоит</span></button>'
     + zoneHead('Метрики', on + ' из ' + all, false,
         '<button class="' + P + '-btn ' + P + '-ghost ' + P + '-sm" data-action="mall"' + (on === all ? ' disabled' : '') + '>Все</button>'
         + '<button class="' + P + '-btn ' + P + '-ghost ' + P + '-sm" data-action="mnone"' + (on ? '' : ' disabled') + '>Снять все</button>')
@@ -2850,7 +2853,7 @@ function filterChips() {
   }
   var on = selMetrics('').length;
   if (on < CFG.metrics.length) out.push({ key: 'metrics', label: 'Метрики', value: on + ' из ' + CFG.metrics.length, list: [] });
-  if (state.focusOnly) out.push({ key: 'focus', label: '', value: 'Только фокусные', list: [] });
+  if (state.focusOnly) out.push({ key: 'focus', label: '', value: 'Только с KPI', list: [] });
   return out;
 }
 // Кнопка «Фильтры» — в шапке справа, рядом с «Как работать» (владелец 12.10: «как настроить свой дашборд»).
@@ -2883,7 +2886,7 @@ function filterBarHTML() {
   if (chips.length > 1) s += '<button class="' + P + '-lnk" data-action="reset">Сбросить всё</button>';
   s += '<span class="' + P + '-sp"></span>' + (state.view === 'onepager' || !state.view ? popHintBtn() : '');
   s += '<span class="' + P + '-bench"' + tip({ title: 'База сравнения',
-    text: 'Вся компания под теми же разрезами. С ней сравниваем метрики, у которых нет цели.' }) + '>База: <b>' + esc(benchLabel()) + '</b></span>';
+    text: 'Вся компания под теми же разрезами. С ней сравниваем метрики, у которых нет KPI.' }) + '>База: <b>' + esc(benchLabel()) + '</b></span>';
   return s + '</div>';
 }
 // Сколько ждём ответ: «12 с» (секундомер — БЛОК 6, раз в секунду), только про текущий запрос.
@@ -2948,10 +2951,10 @@ function yoySpec(unitId, ser, m) {
   } else if (rk === 'bench') { ref = []; for (var b = 0; b < 12; b++) ref.push(12 + b <= L ? val(M.base, 12 + b) : null); }
   var y = dparts(M.cal.m[L].s).y;
   return { m: m, nocol: NOCOL, ytd: ytd, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: L - 12, heads: heads, prevHeads: null,
-           curName: String(y), prevName: String(y - 1), refName: rk === 'kpi' ? 'цель' : 'база · ' + benchLabel(),
+           curName: String(y), prevName: String(y - 1), refName: rk === 'kpi' ? 'KPI' : 'база · ' + benchLabel(),
            tips: { cur: ytd ? y + ' год, с начала года: значение копится с января.' : y + ' год по месяцам.',
                    prev: (y - 1) + ' год — те же месяцы.',
-                   ref: rk === 'kpi' ? 'Цель юнита на каждый месяц.' : 'Вся компания под теми же фильтрами.' } };
+                   ref: rk === 'kpi' ? 'KPI юнита на каждый месяц.' : 'Вся компания под теми же фильтрами.' } };
 }
 // Заголовок графика — капитель серым (как «ПОЛЬЗОВАТЕЛИ ПО ПЕРИОДАМ» в Proteus Adoption),
 // справа легенда-кнопки: клик выключает линию на всех графиках, наведение подсвечивает её.
@@ -2960,7 +2963,7 @@ function yoySpec(unitId, ser, m) {
 function cmpRef(spec) { return !!spec.ref && state.cmp === 'ref'; }
 function chartBlock(kind, key, title, spec, H) {
   var P = CFG.ns, C = CFG.colors, useRef = cmpRef(spec);
-  var refL = spec.refKind === 'kpi' ? 'цель' : 'база', refC = spec.refKind === 'kpi' ? C.kpi : C.bench;
+  var refL = spec.refKind === 'kpi' ? 'KPI' : 'база', refC = spec.refKind === 'kpi' ? C.kpi : C.bench;
   var cur = '<span class="' + P + '-lg ' + P + '-lgs"' + tip({ title: spec.curName, text: spec.tips ? spec.tips.cur : '' }) + '>'
     + '<i class="' + P + '-lgk" style="border-top-color:' + C.cur + '"></i>' + esc(spec.curName) + '</span>';
   var sw = '';
@@ -2996,7 +2999,7 @@ function sparkHTML(unitId, ser, m) {
     refK.push(b.kind === 'kpi');
     var rows = [{ label: 'факт', value: fmtVal(m, v) }].concat(v === null ? [] : absRows(m, ser, idx[k]));
     if (b.ref !== null && b.ref !== undefined) {
-      rows.push({ label: b.kind === 'kpi' ? 'цель' : 'база', value: fmtVal(m, b.ref), dash: true, color: b.kind === 'kpi' ? CFG.colors.kpi : CFG.colors.bench });
+      rows.push({ label: b.kind === 'kpi' ? 'KPI' : 'база', value: fmtVal(m, b.ref), dash: true, color: b.kind === 'kpi' ? CFG.colors.kpi : CFG.colors.bench });
       rows.push({ label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, b.ref)) });
     }
     tips.push({ title: monthFull(idx[k]), rows: rows, note: b.ref === null || b.ref === undefined ? 'Без ориентира — без цвета.' : stTxt(states[k] || 'neutral') });
@@ -3050,13 +3053,13 @@ function kpiCardsHTML() {
           + (mv ? '<span class="' + P + '-ks">с начала года <b class="' + P + '-mvn">' + esc(signed(mv.to - mv.from)) + '</b></span>' : ''),
         row2: mv ? '<span class="' + P + '-ks">найм ' + fmtInt(mv.hire) + ' · уходы ' + fmtInt(mv.fire) + ' · переводы ' + esc(signed(mv.other)) + '</span>'
           : '<span class="' + P + '-ks">разрез: ' + esc(selLabel()) + '</span>' })
-    + kpiCard({ label: M.single ? 'Целей на юните' : 'Целей внутри зоны', value: String(own.length),
-        q: hInfo({ title: 'Свои цели', text: 'Цели, поставленные на этот юнит. Цель с разрезом работает, когда этот разрез выбран в «Фильтрах».' }),
-        row1: live ? '<span class="' + P + '-tag ' + P + '-own">' + live + ' в фокусе сейчас</span>' : '<span class="' + P + '-ks"' + (soon ? tip({ title: 'Почему цель не видна', text: dataTill() }) : '') + '>' + esc(own.length ? whyNot : 'своих целей нет') + '</span>',
+    + kpiCard({ label: M.single ? 'KPI на юните' : 'KPI внутри зоны', value: String(own.length),
+        q: hInfo({ title: 'Свои KPI', text: 'KPI, поставленные на этот юнит. KPI с разрезом работает, когда этот разрез выбран в «Фильтрах».' }),
+        row1: live ? '<span class="' + P + '-tag ' + P + '-own">' + live + ' действуют сейчас</span>' : '<span class="' + P + '-ks"' + (soon ? tip({ title: 'Почему KPI не виден', text: dataTill() }) : '') + '>' + esc(own.length ? whyNot : 'своих KPI нет') + '</span>',
         row2: '<button type="button" class="' + P + '-lnk" data-view="goals">задать во вкладке «KPI»</button>' })
-    + kpiCard({ label: 'Наследуемых целей', value: String(inh),
-        q: hInfo({ title: 'Наследуемые цели', text: 'Цели юнитов выше: они действуют, пока у юнита нет своей.' }),
-        row1: inh ? '<span class="' + P + '-tag">Фокус через родителя</span>' : '<span class="' + P + '-ks">—</span>',
+    + kpiCard({ label: 'Наследуемых KPI', value: String(inh),
+        q: hInfo({ title: 'Наследуемые KPI', text: 'KPI юнитов выше: действуют, пока у юнита нет своего.' }),
+        row1: inh ? '<span class="' + P + '-tag">☆ с уровня выше</span>' : '<span class="' + P + '-ks">—</span>',
         row2: '<span class="' + P + '-ks">' + esc(from.length ? (from.length === 1 ? 'с уровня «' + from[0] + '»' : 'с уровней: ' + from.slice(0, 2).join(', ') + (from.length > 2 ? ' и ещё ' + (from.length - 2) : '')) : 'наследовать не от кого') + '</span>' })
     + '</div>';
 }
@@ -3120,7 +3123,7 @@ function obsBase(unitId, m, v) {
   return bl;
 }
 function relDev(v, ref) { return ref ? Math.abs(v - ref) / Math.abs(ref) : (v ? 1 : 0); }
-function refWord(bl) { return bl.kind === 'kpi' ? 'цели' : 'базы'; }
+function refWord(bl) { return bl.kind === 'kpi' ? 'KPI' : 'базы'; }
 // Имя команды в тексте: «Напрямую в «…»» уже в кавычках.
 function qName(r) { return r.id === '·' ? rowName(r) : '«' + rowName(r) + '»'; }
 // Текст факта — сегменты: строка или команда {r, mk} (в списке — ссылка в «Команды», в подсказке — имя).
@@ -3204,7 +3207,7 @@ function metricFact(m, teams) {
   }
   if (tr) {
     return { sev: 'mid', pri: 3, w: 0, rule: 'ухудшение ' + O.trend + ' месяца подряд, за них — на ' + Math.round(O.dev * 100) + '% и больше',
-      body: [capFirst(trendText(m, tr)) + (bl ? ', ' + (bl.kind === 'kpi' ? 'цель ' : 'база ') + fmtVal(m, bl.ref) : '') + '.'],
+      body: [capFirst(trendText(m, tr)) + (bl ? ', ' + (bl.kind === 'kpi' ? 'KPI ' : 'база ') + fmtVal(m, bl.ref) : '') + '.'],
       lead: m.name + ': ' + trendWord(m) };
   }
   if (bt.length) {
@@ -3368,7 +3371,7 @@ function popHintBtn() {
     + '<button type="button" class="' + P + '-lnk ' + P + '-popx" data-action="pophint" data-key="" aria-label="Скрыть"' + tip({ title: 'Скрыть', text: 'Подсказка вернётся при другом выборе юнита или фильтров.' }) + '>×</button></span>';
 }
 function sumInfo() {
-  return hInfo({ title: 'Как читать сводку', text: 'Значения за ' + monthLow(MODEL.L) + ' сравниваем с целью юнита, а если цели нет — с базой.',
+  return hInfo({ title: 'Как читать сводку', text: 'Значения за ' + monthLow(MODEL.L) + ' сравниваем с KPI юнита, а если KPI нет — с базой.',
     rows: [{ label: 'база', value: benchLabel() }],
     note: 'Нажмите на строку метрики — откроется график и пояснения.' });
 }
@@ -3408,7 +3411,7 @@ function aboutHTML(m) {
 }
 // «Сколько это людей» до ориентира — по-русски для каждой метрики (null — меньше одного человека).
 function gapText(m, ex, bl) {
-  var n = Math.round(ex), w = bl.kind === 'kpi' ? 'цели' : 'базы';
+  var n = Math.round(ex), w = bl.kind === 'kpi' ? 'KPI' : 'базы';
   if (n < 1) return null;
   if (m.num === 'r3n' || m.num === 'r6n') return 'Чтобы выйти на уровень ' + w + ', нужно было удержать ещё ≈' + NBSP + n + ' ' + plural(n, 'новичка', 'новичков', 'новичков') + '.';
   if (m.num === 'nr') return '≈' + NBSP + n + ' ' + plural(n, 'увольнение', 'увольнения', 'увольнений') + ' без причины сверх ' + w + '.';
@@ -3417,7 +3420,7 @@ function gapText(m, ex, bl) {
 }
 // Сравнение словами: «лучше цели 5,0 %», «хуже базы 92,0 %», «на уровне цели» (мёртвая зона ±5 %).
 function cmpWords(m, bl) {
-  var w = bl.kind === 'kpi' ? 'цели' : 'базы', r = fmtVal(m, bl.ref);
+  var w = bl.kind === 'kpi' ? 'KPI' : 'базы', r = fmtVal(m, bl.ref);
   if (bl.state === 'good') return 'лучше ' + w + ' ' + r;
   if (bl.state === 'bad') return 'хуже ' + w + ' ' + r;
   return 'на уровне ' + w + ' ' + r;
@@ -3481,7 +3484,7 @@ function storyItems(u, ser, m, spec) {
   // 5. С начала года — темп к декабрю; иначе — сколько месяцев года хуже ориентира
   if (spec.cum && b < 11 && v > 0) {
     var pace = v * 12 / (b + 1), tail = '';
-    if (bl.kind === 'kpi') tail = (m.ytd ? ' Годовая цель — ' + esc(fmtVal(m, bl.ref * 12 / (b + 1))) : ' Цель — ' + esc(fmtVal(m, bl.ref))) + '.';
+    if (bl.kind === 'kpi') tail = (m.ytd ? ' Годовой KPI — ' + esc(fmtVal(m, bl.ref * 12 / (b + 1))) : ' KPI — ' + esc(fmtVal(m, bl.ref))) + '.';
     else if (bl.kind === 'bench' && bl.ref) tail = ' У базы темп ≈' + NBSP + esc(fmtVal(m, bl.ref * 12 / (b + 1))) + '.';
     out.push({ i: -1, html: '<b>К декабрю при таком темпе — ≈' + NBSP + esc(fmtVal(m, pace)) + '</b>.' + tail });
   } else if (!spec.cum && !flat && bl.kind !== 'none' && b >= 2) {
@@ -3519,7 +3522,7 @@ function storyRow(u, ser, m) {
   spec.marks = [];
   for (var i = 0; i < items.length; i++) if (items[i].n) spec.marks.push({ i: items[i].i, s: items[i].s, n: items[i].n });
   return '<tr class="' + P + '-det"><td colspan="6"><div class="' + P + '-story" data-story="1">'
-    + '<div class="' + P + '-stc">' + chartBlock('story', 'op:' + m.key + ':yoy:' + u, cmpRef(spec) ? 'Помесячно: этот год и ' + (spec.refKind === 'kpi' ? 'цель' : 'база') : 'Помесячно: этот год и прошлый', spec, CFG.chart.story) + '</div>'
+    + '<div class="' + P + '-stc">' + chartBlock('story', 'op:' + m.key + ':yoy:' + u, cmpRef(spec) ? 'Помесячно: этот год и ' + (spec.refKind === 'kpi' ? 'KPI' : 'база') : 'Помесячно: этот год и прошлый', spec, CFG.chart.story) + '</div>'
     + '<div class="' + P + '-sts">' + storyHTML(items) + '<div class="' + P + '-sta">' + aboutHTML(m) + '</div></div>'
     + '</div></td></tr>';
 }
@@ -3584,7 +3587,7 @@ function onepagerHTML() {
       + '<thead><tr><th class="' + P + '-l"><span class="' + P + '-rl">'
       + (nExp ? hCaret(allOpen, 'openall', blk.key, allOpen ? 'Свернуть все' : 'Раскрыть все', { title: allOpen ? 'Свернуть все' : 'Раскрыть все', text: 'График и пояснения по всем метрикам группы.' }) : '<span class="' + P + '-cars"></span>')
       + '<span class="' + P + '-rb">Метрика</span></span></th><th>Значение<span class="' + P + '-hc">' + esc(monthFull(L)) + '</span></th>'
-      + '<th class="' + P + '-vs">Ориентир<span class="' + P + '-hc">цель или база</span></th>'
+      + '<th class="' + P + '-vs">Ориентир<span class="' + P + '-hc">KPI или база</span></th>'
       + '<th>Изменение<span class="' + P + '-hc">к ' + esc(monthDat(L - 1)) + '</span></th>'
       + '<th>Год к году<span class="' + P + '-hc">к ' + esc(monthDat(L - 12)) + '</span></th>'
       + '<th class="' + P + '-c">12 мес<span class="' + P + '-hc">точка — к ориентиру месяца</span></th></tr></thead><tbody>' + rows + '</tbody></table>';
@@ -3593,7 +3596,7 @@ function onepagerHTML() {
       tabs: legOn ? '' : '<span class="' + P + '-pbtn">' + legendHTML(false, smallScope && gatedOn, true) + '</span>' }) + '</div>';
     legOn = true;
   }
-  if (!any) s += hEmpty('С «Только фокусные» метрик не осталось', 'Целей по выбранным метрикам здесь нет. Выключите «Только фокусные» в «Фильтрах».');
+  if (!any) s += hEmpty('С «Только с KPI» метрик не осталось', 'KPI по выбранным метрикам здесь нет. Выключите «Только с KPI» в «Фильтрах».');
   return s;
 }
 
@@ -3695,10 +3698,10 @@ function unitCell(unitId, ser, m, selected, cls) {
   var bl = baseline(unitId, m, v, 'm', L), fact = [{ label: 'факт', value: txt }].concat(absRows(m, ser, L));
   if (bl.kind === 'none') return '<td' + c + tip({ title: m.name, text: 'Ориентира у метрики нет: ' + (m.better === 'flat' ? '«больше» не значит «лучше».' : 'абсолютная величина.'), rows: fact }) + '>' + esc(txt) + '</td>';
   var t = bl.kind === 'kpi'
-    ? { title: m.name, text: bl.inherited ? 'Цель унаследована с уровня «' + unitName(MODEL, bl.owner) + '».' : 'Цель стоит на этом юните.',
-        rows: fact.concat([{ label: 'цель', value: fmtVal(m, bl.ref), dash: true, color: CFG.colors.kpi }, { label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, bl.ref)) }]),
+    ? { title: m.name, text: bl.inherited ? 'KPI унаследован с уровня «' + unitName(MODEL, bl.owner) + '».' : 'KPI стоит на этом юните.',
+        rows: fact.concat([{ label: 'KPI', value: fmtVal(m, bl.ref), dash: true, color: CFG.colors.kpi }, { label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, bl.ref)) }]),
         note: stTxt(bl.state) }
-    : { title: m.name, text: 'Утверждённой цели нет — сравнение с базой.',
+    : { title: m.name, text: 'KPI нет — сравнение с базой.',
         rows: fact.concat([{ label: benchLabel(), value: fmtVal(m, bl.ref), dash: true, color: CFG.colors.bench }, { label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, bl.ref)) }]),
         note: stTxt(bl.state) };
   return '<td' + c + tip(t) + '>' + hPill(bl.state, txt) + (selected ? crefHTML(m, bl) : '') + '</td>';
@@ -3707,7 +3710,7 @@ function unitCell(unitId, ser, m, selected, cls) {
 // «нажал на юнит — вижу, на каких метриках стоят цели»).
 function crefHTML(m, bl) {
   var P = CFG.ns, k = bl.kind === 'kpi';
-  return '<span class="' + P + '-cref' + (k ? ' ' + P + '-crefk' : '') + '">' + (k ? '<span class="' + P + '-hlk">цель ' + esc(fmtVal(m, bl.ref)) + '</span>' : 'база ' + esc(fmtVal(m, bl.ref))) + '</span>';
+  return '<span class="' + P + '-cref' + (k ? ' ' + P + '-crefk' : '') + '">' + (k ? '<span class="' + P + '-hlk">KPI ' + esc(fmtVal(m, bl.ref)) + '</span>' : 'база ' + esc(fmtVal(m, bl.ref))) + '</span>';
 }
 // Маленькая команда: значение без цвета, в подсказке — почему и сколько это людей.
 function smallWhy(ser, m) {
@@ -3880,7 +3883,7 @@ function teamsTableHTML(tc) {
       + '<td class="' + P + '-l"><span class="' + P + '-rl">' + ind
       + (canExp && !tc.sr ? hCaret(open, 'exp', row.pfx, 'Раскрыть детализацию', { title: 'Детализация', text: 'Подразделения «' + unitName(M, row.id) + '».' }) : '<span class="' + P + '-cars"></span>')
       + '<span class="' + P + '-rb"><span class="' + P + '-nml"><span class="' + P + '-nm"' + nmTip + '>' + (row.id !== '·' && tc.tq ? hlText(rowName(row), tc.tq) : esc(rowName(row))) + '</span>'
-      + (nOwn ? '<span class="' + P + '-tag ' + P + '-own"' + tip({ title: 'Фокус юнита', text: 'На юнит поставлены цели — они действуют и на его подразделения.', rows: [{ label: 'целей в фокусе', value: String(nOwn) }] }) + '>★ Фокус</span>' : '')
+      + (nOwn ? '<span class="' + P + '-star"' + tip({ title: 'KPI юнита', text: 'На юнит поставлены KPI — они действуют и на его подразделения.', rows: [{ label: 'KPI на юните', value: String(nOwn) }] }) + ' aria-label="KPI юнита">★</span>' : '')
       + moreFocus(hidOwn, true)
       + (unit && !unit.cur ? '<span class="' + P + '-gone">нет в структуре</span>' : '') + '</span>'
       + '<span class="' + P + '-us">' + (unit ? esc(levelShort(unit.lvl)) + ' · ' : '') + fmtInt(hcOf(row.ser)) + ' чел'
@@ -3893,7 +3896,7 @@ function teamsTableHTML(tc) {
   if (!rows.length) {
     t += '<tr><td class="' + P + '-l" colspan="' + (mets.length + 1) + '"><span class="' + P + '-muted">'
       + (tc.tq ? 'В таблице нет юнитов с «' + esc(state.tq) + '». Поиск по всей зоне — в «Фильтрах».'
-        : (state.focusOnly ? 'С «Только фокусные» юнитов не осталось: своих целей здесь нет.' : 'У юнита нет подразделений с людьми под текущими фильтрами.'))
+        : (state.focusOnly ? 'С «Только с KPI» юнитов не осталось: своих KPI здесь нет.' : 'У юнита нет подразделений с людьми под текущими фильтрами.'))
       + '</span></td></tr>';
   }
   return t + '</tbody></table>';
@@ -3921,8 +3924,8 @@ function teamsHTML() {
   }
   var right = '<div class="' + P + '-dyn">'
     + (gated ? '<div class="' + P + '-snote">' + 'В строке ' + fmtInt(hcOf(cur.ser)) + ' чел.: ' + gated + ' ' + plural(gated, 'метрика', 'метрики', 'метрик') + ' без цвета (' + esc(smallRule()) + ').</div>' : '') + charts + '</div>';
-  var info = hInfo({ title: 'Как читать таблицу', text: 'Значения за ' + monthLow(L) + '. Цвет — сравнение с целью юнита, а без цели — с базой.',
-    note: ['Клик по строке — её графики справа, а под значениями — ориентир: «цель» тёмно-жёлтым — на метрике стоит цель, серая «база» — цели нет.', '«Напрямую в …» — люди самого юнита, без подразделений.'] });
+  var info = hInfo({ title: 'Как читать таблицу', text: 'Значения за ' + monthLow(L) + '. Цвет — сравнение с KPI юнита, а без KPI — с базой.',
+    note: ['Клик по строке — её графики справа, а под значениями — ориентир: «KPI» на жёлтом — на метрике стоит KPI, серая «база» — KPI нет.', '«Напрямую в …» — люди самого юнита, без подразделений.'] });
   var mode = state.narrow ? 'both' : (state.splitMode || 'both');
   var search = '<span class="' + P + '-tsw">' + SEARCH_SVG + '<input class="' + P + '-srch" type="text" data-tsearch="1" placeholder="Поиск юнита в таблице" value="' + esc(state.tq || '') + '"></span>';
   var left = hPanel({ cls: P + '-tpan', title: 'Юниты', info: info,
@@ -4339,8 +4342,8 @@ function kdErrors(d) {
   if (d.multi && d.multi.length) e.push('в «Фильтрах» оставьте одно значение (или ни одного) в разрезе: ' + d.multi.join(', '));
   if (d.mode !== 'del') {
     var tn = kdNum(d.target), tm = METRIC[d.metric];
-    if (tn === null) e.push('укажите цель');
-    else if (tm && tm.fmt === 'pct' && tn > 100) e.push('цель — не больше 100 %');
+    if (tn === null) e.push('укажите значение KPI');
+    else if (tm && tm.fmt === 'pct' && tn > 100) e.push('KPI — не больше 100 %');
     if (!isoOk(d.from)) e.push('укажите дату «действует с»');
     if (d.to && !isoOk(d.to)) e.push('дата «действует по» неполная');
     if (isoOk(d.from) && isoOk(d.to) && d.to < d.from) e.push('«по» раньше, чем «с»');
@@ -4371,12 +4374,12 @@ function kdLink(d) {
 // когда закроется её первый месяц (данные за октябрь — в начале ноября).
 function dataTill() {
   var d = MODEL.cal.m[MODEL.L] ? MODEL.cal.m[MODEL.L].e : '';
-  return 'Отчёт показывает данные по ' + fmtDay(d) + ' — последний закрытый месяц. Цель со сроком позже появится в отчёте, когда закроется её первый месяц. Чтобы видеть её сейчас, поставьте «Действует с» раньше — например, с начала года.';
+  return 'Отчёт показывает данные по ' + fmtDay(d) + ' — последний закрытый месяц. KPI со сроком позже появится в отчёте, когда закроется её первый месяц. Чтобы видеть её сейчас, поставьте «Действует с» раньше — например, с начала года.';
 }
 function ruleStatus(r, day) {
   if (!ruleActive(r, day)) return r.from > day ? ['soon', 'с ' + fmtDay(r.from)] : ['neutral', 'истекла'];
   if (!ruleMatches(r)) return ['wait', 'ждёт разреза'];
-  return ['good', 'в фокусе'];
+  return ['good', 'действует'];
 }
 function ruleSpan(r) {
   var a = r.from > '2000-01-01' ? 'с ' + fmtDay(r.from) : '';
@@ -4393,7 +4396,7 @@ function kdForHTML(d) {
     n++;
     s += '<span class="' + P + '-chip ' + P + '-chipro"><span class="' + P + '-ddl">' + esc(CFG.cuts[i].label) + ':</span><span class="' + P + '-ddv">' + esc(cutName(v)) + '</span></span>';
   }
-  if (d.mode === 'add' && d.multi && d.multi.length) s += '<span class="' + P + '-kerr">Несколько значений в разрезе: ' + esc(d.multi.join(', ')) + ' — цель ставится на одно значение или на всех.</span>';
+  if (d.mode === 'add' && d.multi && d.multi.length) s += '<span class="' + P + '-kerr">Несколько значений в разрезе: ' + esc(d.multi.join(', ')) + ' — KPI ставится на одно значение или на всех.</span>';
   return (n ? s + '<span class="' + P + '-us">остальные разрезы — все</span>' : '<span class="' + P + '-kval0">вся численность юнита — разрезы в «Фильтрах» не выбраны</span>');
 }
 // Сейчас у юнита и база — чтобы цель ставили с оглядкой на факт (только для юнита отчёта: его ряд есть в ответе).
@@ -4402,39 +4405,39 @@ function kdNow(d) {
   if (!m || !M.scope || !(M.single && M.scopeIds[0] === d.unit)) return '';
   var v = mval(M.scope, 'm', m, M.L), b = comparable(m) ? mval(M.base, 'm', m, M.L) : null;
   var last = M.cal.m[M.L] ? M.cal.m[M.L].e : '';
-  return 'Сейчас у юнита — ' + fmtVal(m, v) + (b !== null ? ', база — ' + fmtVal(m, b) : '') + (m.ytd ? ' (с начала года; цель — годовая)' : '') + '.'
-    + (isoOk(d.from) && last && d.from > last ? ' Данные отчёта — по ' + fmtDay(last) + ': цель с ' + fmtDay(d.from) + ' появится, когда закроется её первый месяц. Видеть сейчас — «Действует с» раньше.' : '');
+  return 'Сейчас у юнита — ' + fmtVal(m, v) + (b !== null ? ', база — ' + fmtVal(m, b) : '') + (m.ytd ? ' (с начала года; KPI — годовой)' : '') + '.'
+    + (isoOk(d.from) && last && d.from > last ? ' Данные отчёта — по ' + fmtDay(last) + ': KPI с ' + fmtDay(d.from) + ' появится, когда закроется её первый месяц. Видеть сейчас — «Действует с» раньше.' : '');
 }
 function kdEditorHTML() {
   var P = CFG.ns, M = MODEL, d = kdDraft(), K = CFG.kpiForm, m = METRIC[d.metric], err = kdErrors(d), del = d.mode === 'del';
   var mOpts = [];
   for (var k = 0; k < CFG.metrics.length; k++) if (targetable(CFG.metrics[k])) mOpts.push([CFG.metrics[k].key, CFG.metrics[k].name]);
-  var unitH = d.unit ? '<span class="' + P + '-chip ' + P + '-chipro"><span class="' + P + '-ddv">' + esc(unitName(M, d.unit)) + '</span></span>' + (M.units[d.unit] ? '<span class="' + P + '-us">' + esc(levelLabel(M.units[d.unit].lvl)) + ' · цель действует на юнит и его подразделения</span>' : '')
+  var unitH = d.unit ? '<span class="' + P + '-chip ' + P + '-chipro"><span class="' + P + '-ddv">' + esc(unitName(M, d.unit)) + '</span></span>' + (M.units[d.unit] ? '<span class="' + P + '-us">' + esc(levelLabel(M.units[d.unit].lvl)) + ' · KPI действует на юнит и его подразделения</span>' : '')
     : '<span class="' + P + '-kerr">Выберите один юнит в «Фильтрах»</span> <button type="button" class="' + P + '-lnk" data-action="drawer">Открыть фильтры</button>';
   var title = del ? 'Удалить KPI' : (d.mode === 'update' ? 'Изменить KPI' : 'Новый KPI');
   var body = '<div class="' + P + '-kform">'
     + '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">Юнит</span><span class="' + P + '-kval">' + unitH + '</span></div>';
   if (del) {
-    body += '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">Цель</span><span class="' + P + '-kval">' + esc((m ? m.name : d.metric) + ': ' + (m ? (m.better === 'higher' ? '≥ ' : '≤ ') + fmtVal(m, kdNum(d.target)) : d.target)) + '</span></div>'
-      + '<div class="' + P + '-note ' + P + '-warn ' + P + '-kwide">Цель перестанет действовать на юнит и его подразделения.</div>';
+    body += '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">KPI</span><span class="' + P + '-kval">' + esc((m ? m.name : d.metric) + ': ' + (m ? (m.better === 'higher' ? '≥ ' : '≤ ') + fmtVal(m, kdNum(d.target)) : d.target)) + '</span></div>'
+      + '<div class="' + P + '-note ' + P + '-warn ' + P + '-kwide">KPI перестанет действовать на юнит и его подразделения.</div>';
   } else {
     body += '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('kdm', mOpts, d.metric) + '</div>'
-      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Цель' + (m && m.fmt === 'pct' ? ', %' : '') + (m ? ' · ' + (m.better === 'higher' ? 'не ниже' : 'не выше') : '') + '</span>'
+      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Значение KPI' + (m && m.fmt === 'pct' ? ', %' : '') + (m ? ' · ' + (m.better === 'higher' ? 'не ниже' : 'не выше') : '') + '</span>'
       // Ввод без ошибок (владелец 14.10): цель — только цифры и одна запятая, до двух знаков после неё (kdClean), у
       // процентов — знак % в поле; даты — календарь браузера (type=date: формат задан, «по» не раньше «с»).
       + '<span class="' + P + '-inpw"><input class="' + P + '-inp" type="text" inputmode="decimal" maxlength="6" autocomplete="off" data-kd="target" placeholder="' + (m && m.fmt === 'pct' ? '3,5' : '3') + '" value="' + esc(d.target) + '">'
       + (m && m.fmt === 'pct' ? '<i class="' + P + '-inps">%</i>' : '') + '</span></div>'
       + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span>'
       + hDate('kdd:from', d.from, '2020-01-01', '2099-12-30', [[kpiYear()[0], 'Начало года'], [todayIso(), 'Сегодня']], 'выберите дату') + '</div>'
-      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll"' + tip({ title: 'Без даты окончания', text: 'Цель действует по актуальную дату — последний закрытый месяц данных.' }) + '>Действует по</span>'
+      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll"' + tip({ title: 'Без даты окончания', text: 'KPI действует по актуальную дату — последний закрытый месяц данных.' }) + '>Действует по</span>'
       + hDate('kdd:to', d.to, isoOk(d.from) ? d.from : '2020-01-01', '2099-12-31', [[kpiYear()[1], 'Конец года'], ['', 'Без даты']], 'без даты — действует всегда') + '</div>'
       + '<div class="' + P + '-know ' + P + '-kwide" data-kd-now="1">' + esc(kdNow(d)) + '</div>'
       + '<div class="' + P + '-kcut ' + P + '-kwide"><span class="' + P + '-ctll">Для кого — разрезы численности'
       + (d.mode === 'add' ? '<button type="button" class="' + P + '-lnk ' + P + '-kfl" data-action="drawer">Поменять в «Фильтрах»</button>' : '') + '</span>'
       + '<div class="' + P + '-kfor">' + kdForHTML(d) + '</div>'
-      + '<span class="' + P + '-us">' + (d.mode === 'add' ? 'Берём из «Фильтров» отчёта. Цель с разрезом работает в отчёте, когда в «Фильтрах» выбран ровно этот разрез.'
-        : 'Разрезы цели не меняются. Для другого разреза — «+ Новый KPI».') + '</span></div>'
-      + '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">Комментарий</span><input class="' + P + '-inp" type="text" data-kd="note" placeholder="зачем цель" value="' + esc(d.note) + '"></div>';
+      + '<span class="' + P + '-us">' + (d.mode === 'add' ? 'Берём из «Фильтров» отчёта. KPI с разрезом работает в отчёте, когда в «Фильтрах» выбран ровно этот разрез.'
+        : 'Разрезы KPI не меняются. Для другого разреза — «+ Новый KPI».') + '</span></div>'
+      + '<div class="' + P + '-ctl ' + P + '-kwide"><span class="' + P + '-ctll">Комментарий</span><input class="' + P + '-inp" type="text" data-kd="note" placeholder="зачем этот KPI" value="' + esc(d.note) + '"></div>';
   }
   body += '</div>'
     + '<div class="' + P + '-chh"><span class="' + P + '-cht">Форма KPI</span><span class="' + P + '-chl"><span class="' + P + '-kmsg" data-kd-msg="1">' + esc(state.copied || '') + '</span>'
@@ -4448,13 +4451,13 @@ function kdEditorHTML() {
     + ' (на Mac — клик двумя пальцами или с Ctrl). Обычным кликом форма не откроется: Proteus не даёт отчёту открывать вкладки. Не выходит — «Скопировать ссылку» и вставьте её в адресную строку новой вкладки.</div>'
     + '<textarea class="' + P + '-code" readonly data-kd-out="1" style="display:none">' + esc(err.length ? '' : kdLink(d)) + '</textarea>'
     + '<ol class="' + P + '-steps"><li>Откройте форму в новой вкладке (правой кнопкой) — все поля уже заполнены.</li>'
-    + '<li>Проверьте и нажмите «Отправить».</li><li>' + (del ? 'Цель исчезнет' : 'Цель появится') + ' в отчёте в течение ' + K.lag + ' минут — обновите борд.</li></ol>';
+    + '<li>Проверьте и нажмите «Отправить».</li><li>' + (del ? 'KPI исчезнет' : 'KPI появится') + ' в отчёте в течение ' + K.lag + ' минут — обновите борд.</li></ol>';
   return hPanel({ title: title, sub: 'отчёт заполнит форму за вас — останется открыть её и отправить', body: body,
     tabs: '<span class="' + P + '-pbtn"><button type="button" class="' + P + '-btn ' + P + '-ghost" data-action="kclose">Закрыть</button></span>' });
 }
 function goalsHTML() {
   var P = CFG.ns, M = MODEL, L = M.L, day = M.cal.m[L] ? M.cal.m[L].e : '';
-  var s = pageHead('KPI', 'Цели на юниты: цель действует на юнит и все его подразделения, пока ниже нет своей. Добавить, изменить и удалить — здесь.');
+  var s = pageHead('KPI', 'KPI на юнитах: KPI действует на юнит и все его подразделения, пока ниже нет своего. Добавить, изменить и удалить — здесь.');
   s += '<div class="' + P + '-tools"><button type="button" class="' + P + '-btn ' + P + '-pri" data-action="kadd" data-tour="kadd">+ Новый KPI</button>'
     + '<span class="' + P + '-us">' + (M.single ? 'для юнита «' + esc(unitName(M, M.scopeIds[0])) + '»' : 'юнит выбирается в «Фильтрах»') + '</span></div>';
   if (state.kdOpen) s += '<div class="' + P + '-gap" data-kd-ed="1">' + kdEditorHTML() + '</div>';
@@ -4463,7 +4466,7 @@ function goalsHTML() {
     var da = pathTo(a.unit).length, db = pathTo(b.unit).length;
     return da - db || (unitName(M, a.unit) < unitName(M, b.unit) ? -1 : (unitName(M, a.unit) > unitName(M, b.unit) ? 1 : (a.metric < b.metric ? -1 : 1)));
   });
-  var t = '<table class="' + P + '-t"><thead><tr><th class="' + P + '-l">Юнит</th><th class="' + P + '-l">Метрика</th><th>Цель</th>'
+  var t = '<table class="' + P + '-t"><thead><tr><th class="' + P + '-l">Юнит</th><th class="' + P + '-l">Метрика</th><th>KPI</th>'
     + '<th class="' + P + '-l">Для кого</th><th class="' + P + '-l">Действует</th><th class="' + P + '-l">Статус</th><th class="' + P + '-l">Автор · комментарий</th><th></th></tr></thead><tbody>';
   for (var i = 0; i < rules.length; i++) {
     var r = rules[i], m = METRIC[r.metric], st = ruleStatus(r, day), cuts = ruleCuts(r), unit = M.units[r.unit];
@@ -4475,13 +4478,13 @@ function goalsHTML() {
       + '<td>' + esc(m ? (m.better === 'higher' ? '≥ ' : '≤ ') + fmtVal(m, r.target) : String(r.target)) + '</td>'
       + '<td class="' + P + '-l">' + (chips || '<span class="' + P + '-muted">вся численность</span>') + '</td>'
       + '<td class="' + P + '-l"><span class="' + P + '-muted">' + esc(ruleSpan(r)) + '</span></td>'
-      + '<td class="' + P + '-l"><span class="' + P + '-st ' + P + '-' + (st[0] === 'soon' ? 'neutral' : st[0]) + '"' + tip({ title: st[1], text: st[0] === 'wait' ? 'Цель задана для разреза — выберите его в «Фильтрах» или нажмите «Показать».' : (st[0] === 'good' ? 'Цель действует при текущих фильтрах.' : (st[0] === 'soon' ? dataTill() : 'Срок цели закончился до последнего закрытого месяца.')), note: cuts.length ? cuts.join('; ') : null }) + '>' + esc(st[1]) + '</span></td>'
+      + '<td class="' + P + '-l"><span class="' + P + '-st ' + P + '-' + (st[0] === 'soon' ? 'neutral' : st[0]) + '"' + tip({ title: st[1], text: st[0] === 'wait' ? 'KPI задан для разреза — выберите его в «Фильтрах» или нажмите «Показать».' : (st[0] === 'good' ? 'KPI действует при текущих фильтрах.' : (st[0] === 'soon' ? dataTill() : 'Срок KPI закончился до последнего закрытого месяца.')), note: cuts.length ? cuts.join('; ') : null }) + '>' + esc(st[1]) + '</span></td>'
       + '<td class="' + P + '-l"><span class="' + P + '-muted">' + esc((r.author || '—') + (r.note ? ' · ' + r.note : '')) + '</span></td>'
-      + '<td class="' + P + '-kact">' + (above ? '' : '<button class="' + P + '-lnk" data-action="gorule" data-key="' + esc(r.id) + '"' + tip({ title: 'Показать в отчёте', text: 'Открыть юнит цели с её разрезами.' }) + '>Показать</button>'
+      + '<td class="' + P + '-kact">' + (above ? '' : '<button class="' + P + '-lnk" data-action="gorule" data-key="' + esc(r.id) + '"' + tip({ title: 'Показать в отчёте', text: 'Открыть юнит KPI с его разрезами.' }) + '>Показать</button>'
         + '<button class="' + P + '-lnk" data-action="kedit" data-key="' + esc(r.id) + '">Изменить</button>'
         + '<button class="' + P + '-lnk ' + P + '-kdel" data-action="kdel" data-key="' + esc(r.id) + '">Удалить</button>') + '</td></tr>';
   }
-  if (!rules.length) t += '<tr><td class="' + P + '-l" colspan="8"><span class="' + P + '-muted">В вашей зоне целей пока нет. Нажмите «+ Новый KPI».</span></td></tr>';
+  if (!rules.length) t += '<tr><td class="' + P + '-l" colspan="8"><span class="' + P + '-muted">В вашей зоне KPI пока нет. Нажмите «+ Новый KPI».</span></td></tr>';
   t += '</tbody></table>';
   s += '<div class="' + P + '-gap">' + hPanel({ title: 'Все KPI', sub: 'на юнитах вашей зоны и выше по дереву · статус на ' + fmtDay(day), body: t, tbl: true }) + '</div>';
   return s;
@@ -4506,7 +4509,7 @@ function catalogHTML() {
       for (var r = 0; r < MODEL.rules.length; r++) if (MODEL.rules[r].metric === m.key) n++;
       list += '<li><span class="' + P + '-cn">' + esc(m.name) + hInfo(metricTip(m))
         + (state.metricOff[m.key] ? '' : '<span class="' + P + '-cb">показывается</span>') + '</span>'
-        + '<span class="' + P + '-cm">' + esc(dirText(m) + (targetable(m) ? ' · цели ставятся' : ' · без целей и цвета') + (n ? ' · целей в зоне: ' + n : '')) + '</span>'
+        + '<span class="' + P + '-cm">' + esc(dirText(m) + (targetable(m) ? ' · KPI ставятся' : ' · без KPI и цвета') + (n ? ' · KPI в зоне: ' + n : '')) + '</span>'
         + '<span class="' + P + '-cd">' + esc(m.hint) + '</span>' + catFrac(m) + '</li>';
     }
     s += hPanel({ cls: P + '-catp', title: CFG.blocks[b].name, sub: 'действующие', body: list + '</ul>' });
@@ -4536,7 +4539,7 @@ function tabLabel(v) { for (var i = 0; i < CFG.tabs.length; i++) if (CFG.tabs[i]
 function tourIntroHTML() {
   return '<ul class="' + CFG.ns + '-tul">'
     + '<li>Цифры — за последний полный месяц: <b>' + esc(monthLow(MODEL.L)) + '</b>.</li>'
-    + '<li>Цвет — сравнение с ориентиром: с целью юнита, а если цели нет — со всей компанией.'
+    + '<li>Цвет — сравнение с ориентиром: с KPI юнита, а если KPI нет — со всей компанией.'
     + '<span class="' + CFG.ns + '-tpl">' + hPill('good', 'лучше') + hPill('bad', 'хуже') + hPill('neu', 'в пределах ±5 %') + '</span></li>'
     + '<li>Юнит, разрезы и метрики — в окне «Фильтры». Изменения применяются кнопкой «Применить».</li>'
     + '<li>Наведите на число или ⓘ — подсказка объяснит, что это и как посчитано.</li></ul>';
@@ -4560,7 +4563,7 @@ function tourSteps(view) {
     add({ sel: P + '-mdl [data-tz="cuts"]', drawer: true, lock: true, title: 'Разрезы',
       html: 'Покраска, IT / nonIT, стрим, специализация, штат, тип численности. Можно отметить несколько значений — метрики пересчитаются только по этим людям. Цифры рядом — сколько людей попадёт в выбор.' });
     add({ sel: P + '-mdl [data-tz="view"]', drawer: true, lock: true, title: 'Что показывать',
-      html: 'Какие метрики показывать: флажок группы включает или выключает её целиком. <b>Только фокусные</b> — метрики с целью.' });
+      html: 'Какие метрики показывать: флажок группы включает или выключает её целиком. <b>Только с KPI</b> — метрики, где он стоит.' });
     add({ sel: P + '-mdf', drawer: true, lock: true, title: 'Применить',
       html: '«Применить» пересчитывает отчёт, «Отменить» возвращает как было. Закрыли окно, не применив, — над отчётом останется напоминание.' });
     add({ sel: P + '-fbar', lock: true, title: 'Юнит, фильтры и база',
@@ -4577,7 +4580,7 @@ function tourSteps(view) {
       html: 'Значение за последний полный месяц, под ним — сколько это людей: «9 уходов с начала года», «16 из 17 новичков».' });
     add({ sel: function (R) { var t = firstOp(R); return t ? [t.querySelector(P + '-vs')].concat(slice(t.querySelectorAll(P + '-row>' + P + '-vs'))) : null; },
       all: true, title: 'Ориентир',
-      html: 'С чем сравниваем: «Цель» — утверждённая цель юнита, «База» — вся компания. Пилюля — насколько лучше или хуже.' });
+      html: 'С чем сравниваем: «KPI» — KPI юнита, «База» — вся компания. Пилюля — насколько лучше или хуже.' });
     add({ sel: function (R) { var t = firstOp(R); return t ? t.querySelectorAll(P + '-spk') : null; }, all: true, title: '12 месяцев',
       html: '12 месяцев. Пунктир — ориентир, цвет точки — лучше или хуже ориентира в этом месяце.' });
     add({ sel: 'tr[data-action="openm"]', demo: true, at: 'left', done: function (k) { return opOpen(k); }, title: 'Динамика метрики',
@@ -4600,7 +4603,7 @@ function tourSteps(view) {
     add({ sel: P + '-dpan', title: 'Динамика строки',
       html: 'Помесячно: синяя линия — этот год, серая — прошлый, пунктир — ориентир. Наведите на график, чтобы увидеть значения месяца.' });
     add({ sel: function (R) { var b = R.querySelector(P + '-dpan [data-action="cmp"]'); return b ? b.parentNode : null; }, title: 'С чем сравнить',
-      html: 'На графике две линии: этот год и ориентир — цель юнита, а без цели база (так по умолчанию), — или этот год и прошлый. Переключатель действует на все графики.' });
+      html: 'На графике две линии: этот год и ориентир — KPI юнита, а без KPI база (так по умолчанию), — или этот год и прошлый. Переключатель действует на все графики.' });
     add({ sel: P + '-tsw', title: 'Поиск в таблице',
       html: 'Ищет по трём уровням таблицы. По всей зоне — поиск в «Фильтрах».' });
     add({ sel: P + '-tpan [data-action="copy"]', pad: 4, title: 'Копировать таблицу',
@@ -4628,16 +4631,16 @@ function tourSteps(view) {
       html: 'Сводная — в буфер обмена: вставьте в Excel или письмо.' });
   } else if (view === 'goals') {
     add({ sel: function (R) { var ps = R.querySelectorAll(P + '-content ' + P + '-panel'); return ps.length ? ps[ps.length - 1] : null; }, title: 'Все KPI',
-      html: 'KPI на юнитах вашей зоны и выше по дереву. KPI действует на юнит и все его подразделения, пока ниже нет своего. Статус: «в фокусе», «ждёт разреза» или вне срока.' });
+      html: 'KPI на юнитах вашей зоны и выше по дереву. KPI действует на юнит и все его подразделения, пока ниже нет своего. Статус: «действует», «ждёт разреза» или вне срока.' });
     add({ sel: '[data-tour="kadd"]', pad: 4, title: 'Новый KPI',
-      html: 'Откроет форму для юнита, выбранного в «Фильтрах»: метрика, цель, срок, для кого (разрезы). Отчёт заполнит форму n8n за вас: правой кнопкой по «Открыть форму» → «Открыть ссылку в новой вкладке», проверить и нажать «Отправить».' });
+      html: 'Откроет форму для юнита, выбранного в «Фильтрах»: метрика, значение KPI, срок; для кого — из «Фильтров». Отчёт заполнит форму n8n за вас: правой кнопкой по «Открыть форму» → «Открыть ссылку в новой вкладке», проверить и нажать «Отправить».' });
     add({ sel: '[data-action="kedit"]', lock: true, pad: 4, title: 'Изменить и удалить',
       html: 'У каждого KPI — «Изменить» и «Удалить»: та же форма, ссылка сразу с нужным действием. Изменения появятся в отчёте в течение ' + CFG.kpiForm.lag + ' минут.' });
     add({ sel: '[data-action="gorule"]', lock: true, pad: 4, title: 'Показать в отчёте',
       html: 'Откроет юнит KPI и выставит его разрезы в фильтрах.' });
   } else if (view === 'catalog') {
     add({ sel: P + '-cgrid ' + P + '-panel', title: 'Метрики по группам',
-      html: 'Что значит метрика, в какую сторону лучше и ставятся ли на неё цели. Как считаем — в ⓘ.' });
+      html: 'Что значит метрика, в какую сторону лучше и ставятся ли на неё KPI. Как считаем — в ⓘ.' });
   }
   add({ sel: '[data-tour="help"]', pad: 4, last: true, title: 'Тур всегда под рукой',
     html: 'Кнопка «Как работать» покажет такой тур по вкладке, на которой вы сейчас.' });
