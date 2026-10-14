@@ -237,7 +237,7 @@ var CFG = {
     surface2: '#f3f4f6', hover: '#fafbfc',
     // Линии «период к периоду»: текущий — акцент, прошлый — светлый сине-серый,
     // база — серый пунктир, цель — тёмный пунктир; заливка под текущим — 8 % акцента.
-    cur: '#2b6cff', curArea: 'rgba(43,108,255,.08)', prev: '#b4bdcc', bench: '#98a1b1', kpi: '#4b5262',
+    cur: '#2b6cff', curArea: 'rgba(43,108,255,.08)', prev: '#b4bdcc', bench: '#98a1b1', kpi: '#9a6500',
     label: '#2f3440', axis: '#6b7280', axisLine: '#9ba4b5', axisStrong: '#3a3f4a', grid: '#e9ecf1', xh: '#b9c6de',
     series: ['#5f86c2', '#97dece', '#ac87c5', '#cdbf97', '#85cdfd', '#9fae6a', '#c98aa6', '#686d76']
   },
@@ -1356,7 +1356,7 @@ function svgLine0(spec, W, H, ctx) {
 // (цель или база месяца), последняя точка крупнее. Шкала — по значениям и ориентиру, но не
 // уже 8 % от величины: удержание 91–92 % не раздувается на всю высоту. Колонка месяца —
 // группа с полосой на всю высоту (без щелей): тултип едет по месяцам не мигая.
-function svgSpark(vals, states, tips, refs) {
+function svgSpark(vals, states, tips, refs, refK) {
   var P = CFG.ns, w = 240, h = 48, n = vals.length, px = 6, pt = 8, pb = 8, lo = null, hi = null, i;
   function take(v) { if (v === null || v === undefined || isNaN(v)) return; lo = lo === null ? v : Math.min(lo, v); hi = hi === null ? v : Math.max(hi, v); }
   for (i = 0; i < n; i++) { take(vals[i]); if (refs) take(refs[i]); }
@@ -1382,7 +1382,14 @@ function svgSpark(vals, states, tips, refs) {
     return d;
   }
   var s = '';
-  if (refs) { var rd = path(refs); if (rd) s += '<path d="' + rd + '" class="' + P + '-sref"/>'; }
+  // Пунктир ориентира: месяцы с целью — тёмно-жёлтым (владелец 14.10: «видно, где цели есть»), с базой — серым.
+  if (refs) {
+    var rb = [], rk = [];
+    for (i = 0; i < n; i++) { var isK = refK && refK[i]; rb.push(isK ? null : refs[i]); rk.push(isK ? refs[i] : null); }
+    var rd = path(rb), rdk = path(rk);
+    if (rd) s += '<path d="' + rd + '" class="' + P + '-sref"/>';
+    if (rdk) s += '<path d="' + rdk + '" class="' + P + '-sref ' + P + '-srefk"/>';
+  }
   var vd = path(vals);
   if (vd) s += '<path d="' + vd + '" class="' + P + '-sline"/>';
   var last = -1;
@@ -1821,10 +1828,11 @@ function buildCSS() {
     P + '-pill' + P + '-warn,' + P + '-pill' + P + '-neutral,' + P + '-pill' + P + '-neu{background:' + C.neutralBg + ';color:' + C.neutralTx + ';}',
     P + '-pill' + P + '-flat{background:' + C.neutralBg + ';color:' + C.muted + ';}',
     P + '-cref{display:block;font-size:' + F.cap + 'px;color:' + C.muted + ';font-weight:400;margin-top:3px;font-variant-numeric:tabular-nums;}',
-    P + '-cref' + P + '-crefk{color:' + C.warnTx + ';font-weight:600;}',
+    P + '-cref' + P + '-crefk{color:' + C.kpi + ';font-weight:600;}',
     // Ориентир: «Цель ≤ 2,0%» / «База 92,0%» одной строкой, под ней пилюля отклонения.
     P + '-tgt{font-size:' + F.body + 'px;color:' + C.ink2 + ';font-weight:500;line-height:1.3;white-space:nowrap;text-align:right;margin-bottom:4px;font-variant-numeric:tabular-nums;}',
     P + '-tgl{color:' + C.muted + ';font-weight:400;font-size:' + F.note + 'px;margin-right:5px;}',
+    P + '-tgt' + P + '-tgtk,' + P + '-tgt' + P + '-tgtk ' + P + '-tgl{color:' + C.kpi + ';font-weight:600;}',
     P + '-same{font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;white-space:nowrap;}',
     // Метка строки (флаг): 9 / 500, радиус 4, поля 1/5
     P + '-tag{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.surface2 + ';color:' + C.ink2 + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
@@ -1859,6 +1867,7 @@ function buildCSS() {
     // Линия спарклайна — акцент текущего периода, как «2026» в «Динамике»; ориентир — пунктир.
     P + '-sline{fill:none;stroke:' + C.cur + ';stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round;opacity:.85;}',
     P + '-sref{fill:none;stroke:' + C.prev + ';stroke-width:1;stroke-dasharray:3 3;}',
+    P + '-sref' + P + '-srefk{stroke:' + C.kpi + ';stroke-width:1.4;}',
     // Точки светофора — тон того же сигнала, что у пилюли (тот, что был у столбиков), с белой обводкой.
     P + '-sdot{stroke:#fff;stroke-width:1.2;transform-box:fill-box;transform-origin:center;transition:transform .12s;}',
     // «Лучше» — кольцо, «хуже» — сплошная тёмная точка: различаются формой, не только цветом (дальтонизм, ч/б; ревью 13.10).
@@ -2285,7 +2294,7 @@ function cmpTd(m, v, bl) {
         note: [(bl.inherited ? 'Цель унаследована с уровня «' : 'Цель стоит на юните «') + unitName(MODEL, bl.owner) + '».',
                m.ytd && ytdOn(m) && bl.rule ? 'Годовая цель — ' + fmtVal(m, bl.rule.target) + '; к ' + monthDat(MODEL.L) + ' — ' + ((MODEL.L % 12) + 1) + '/12 от неё.' : null,
                stTxt(bl.state)] }) + '>'
-      + '<div class="' + P + '-tgt"><span class="' + P + '-tgl">Цель ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</div>'
+      + '<div class="' + P + '-tgt ' + P + '-tgtk"><span class="' + P + '-tgl">Цель ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</div>'
       + hPill(bl.state, fmtDelta(m, dk)) + '</td>';
   }
   if (bl.kind === 'bench' && benchSelf()) {
@@ -2885,7 +2894,8 @@ function chartBlock(kind, key, title, spec, H) {
       var on = (opts[i][0] === 'ref') === useRef;
       sw += '<button type="button" class="' + P + '-segb' + (on ? ' ' + P + '-on' : '') + '" data-action="cmp" data-key="' + opts[i][0] + '" aria-pressed="' + (on ? 'true' : 'false') + '"'
         + tip({ title: 'Сравнить с: ' + opts[i][1], text: spec.tips ? spec.tips[opts[i][0]] : '', note: 'Действует на все графики отчёта.' }) + '>'
-        + '<i class="' + P + '-lgk' + (opts[i][3] ? ' ' + P + '-dash' : '') + '" style="border-top-color:' + opts[i][2] + '"></i>' + esc(opts[i][1]) + '</button>';
+        + '<i class="' + P + '-lgk' + (opts[i][3] ? ' ' + P + '-dash' : '') + '" style="border-top-color:' + opts[i][2] + '"></i>'
+        + (opts[i][0] === 'ref' && spec.refKind === 'kpi' ? '<span style="color:' + C.kpi + ';font-weight:600">' + esc(opts[i][1]) + '</span>' : esc(opts[i][1])) + '</button>';
     }
     sw += '</span>';
   } else {
@@ -2899,12 +2909,13 @@ function chartBlock(kind, key, title, spec, H) {
 }
 // Спарклайн строки: 12 закрытых месяцев, цвет — оценка каждого месяца.
 function sparkHTML(unitId, ser, m) {
-  var L = MODEL.L, vals = [], idx = [], tips = [], refs = [];
+  var L = MODEL.L, vals = [], idx = [], tips = [], refs = [], refK = [];
   for (var i = L - 11; i <= L; i++) { idx.push(i); vals.push(mval(ser, 'm', m, i)); }
   var states = statesOver(unitId, ser, 'm', m, idx);
   for (var k = 0; k < idx.length; k++) {
     var v = vals[k], b = v === null ? { kind: 'none', ref: null } : baseline(unitId, m, v, 'm', idx[k]);
     refs.push(b.ref === null || b.ref === undefined ? null : b.ref);
+    refK.push(b.kind === 'kpi');
     var rows = [{ label: 'факт', value: fmtVal(m, v) }].concat(v === null ? [] : absRows(m, ser, idx[k]));
     if (b.ref !== null && b.ref !== undefined) {
       rows.push({ label: b.kind === 'kpi' ? 'цель' : 'база', value: fmtVal(m, b.ref), dash: true, color: b.kind === 'kpi' ? CFG.colors.kpi : CFG.colors.bench });
@@ -2912,7 +2923,7 @@ function sparkHTML(unitId, ser, m) {
     }
     tips.push({ title: monthFull(idx[k]), rows: rows, note: b.ref === null || b.ref === undefined ? 'Без ориентира — без цвета.' : stTxt(states[k] || 'neutral') });
   }
-  return svgSpark(vals, states, tips, refs);
+  return svgSpark(vals, states, tips, refs, refK);
 }
 
 // ---- вкладка «Сводка» ----
