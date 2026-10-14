@@ -2062,6 +2062,10 @@ function buildCSS() {
     // пока в полях ошибка (style.display: .hidden ненадёжен, RETRO 8 скилла).
     P + '-kform{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;margin-bottom:14px;}',
     P + '-kwide{grid-column:1/-1;}',
+    P + '-inpw{position:relative;display:block;}',
+    P + '-inpw ' + P + '-inp{padding-right:30px;}',
+    P + '-inps{position:absolute;right:12px;top:50%;transform:translateY(-50%);font-style:normal;color:' + C.muted + ';pointer-events:none;}',
+    P + '-kclr{margin-left:8px;font-size:' + F.cap + 'px;text-transform:none;letter-spacing:0;}',
     P + '-kval{min-height:34px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:' + F.body + 'px;color:' + C.ink + ';}',
     P + '-kval b{font-weight:500;}',
     P + '-kcut{display:flex;flex-direction:column;gap:6px;}',
@@ -4186,8 +4190,14 @@ function kdNew() {
 function kdFromRule(r, mode) {
   var cuts = {};
   for (var i = 0; i < CFG.cuts.length; i++) cuts[CFG.cuts[i].key] = r.f[CFG.cuts[i].key] || 'all';
-  return { mode: mode, id: r.id, unit: r.unit, metric: r.metric, target: String(r.target).replace('.', ','), from: r.from > '2000-01-01' ? r.from : kpiFY()[0],
+  return { mode: mode, id: r.id, unit: r.unit, metric: r.metric, target: kdClean(String(r.target)), from: r.from > '2000-01-01' ? r.from : kpiFY()[0],
            to: r.open ? '' : r.to, cuts: cuts, note: r.note || '' };
+}
+// Цель: только цифры и одна запятая (точка → запятая), до 2 знаков после неё, до 3 знаков до неё; «,5» → «0,5».
+function kdClean(v) {
+  var c = String(v || '').replace(/\./g, ',').replace(/[^\d,]/g, ''), i = c.indexOf(',');
+  var ip = (i > -1 ? c.slice(0, i) : c).slice(0, 3), fp = i > -1 ? c.slice(i + 1).replace(/,/g, '').slice(0, 2) : null;
+  return (i > -1 ? (ip || '0') + ',' + fp : ip);
 }
 function kdNum(v) { var t = String(v === undefined || v === null ? '' : v).replace(',', '.').replace(/\s/g, ''); return t !== '' && !isNaN(Number(t)) ? Number(t) : null; }
 function isoOk(v) { return /^\d{4}-\d{2}-\d{2}$/.test(String(v || '')); }
@@ -4196,9 +4206,11 @@ function kdErrors(d) {
   var e = [];
   if (!d.unit) e.push('выберите юнит');
   if (d.mode !== 'del') {
-    if (kdNum(d.target) === null) e.push('цель — число');
-    if (!isoOk(d.from)) e.push('«действует с» — дата ГГГГ-ММ-ДД');
-    if (d.to && !isoOk(d.to)) e.push('«действует по» — дата ГГГГ-ММ-ДД');
+    var tn = kdNum(d.target), tm = METRIC[d.metric];
+    if (tn === null) e.push('укажите цель');
+    else if (tm && tm.fmt === 'pct' && tn > 100) e.push('цель — не больше 100 %');
+    if (!isoOk(d.from)) e.push('укажите дату «действует с»');
+    if (d.to && !isoOk(d.to)) e.push('дата «действует по» неполная');
     if (isoOk(d.from) && isoOk(d.to) && d.to < d.from) e.push('«по» раньше, чем «с»');
   }
   return e;
@@ -4276,9 +4288,13 @@ function kdEditorHTML() {
     }
     body += '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('kdm', mOpts, d.metric) + '</div>'
       + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Цель' + (m && m.fmt === 'pct' ? ', %' : '') + (m ? ' · ' + (m.better === 'higher' ? 'не ниже' : 'не выше') : '') + '</span>'
-      + '<input class="' + P + '-inp" type="text" inputmode="decimal" data-kd="target" placeholder="например, 3,5" value="' + esc(d.target) + '"></div>'
-      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span><input class="' + P + '-inp" type="text" data-kd="from" placeholder="ГГГГ-ММ-ДД" value="' + esc(d.from) + '"></div>'
-      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует по</span><input class="' + P + '-inp" type="text" data-kd="to" placeholder="ГГГГ-ММ-ДД, пусто — по актуальную дату" value="' + esc(d.to) + '"></div>'
+      // Ввод без ошибок (владелец 14.10): цель — только цифры и одна запятая, до двух знаков после неё (kdClean), у
+      // процентов — знак % в поле; даты — календарь браузера (type=date: формат задан, «по» не раньше «с»).
+      + '<span class="' + P + '-inpw"><input class="' + P + '-inp" type="text" inputmode="decimal" maxlength="6" autocomplete="off" data-kd="target" placeholder="' + (m && m.fmt === 'pct' ? '3,5' : '3') + '" value="' + esc(d.target) + '">'
+      + (m && m.fmt === 'pct' ? '<i class="' + P + '-inps">%</i>' : '') + '</span></div>'
+      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует с</span><input class="' + P + '-inp" type="date" min="2020-01-01" max="2099-12-30" data-kd="from" value="' + esc(d.from) + '"></div>'
+      + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Действует по<button type="button" class="' + P + '-lnk ' + P + '-kclr" data-action="kdnoto"' + tip({ title: 'Без даты окончания', text: 'Цель действует по актуальную дату — последний закрытый месяц данных.' }) + '>без даты</button></span>'
+      + '<input class="' + P + '-inp" type="date" min="' + esc(isoOk(d.from) ? d.from : '2020-01-01') + '" max="2099-12-31" data-kd="to" value="' + esc(d.to) + '"></div>'
       + '<div class="' + P + '-know ' + P + '-kwide" data-kd-now="1">' + esc(kdNow(d)) + '</div>'
       + '<div class="' + P + '-kcut ' + P + '-kwide"><span class="' + P + '-ctll">Для кого — разрезы численности</span><div class="' + P + '-kcuts">' + cutsH + '</div>'
       + '<span class="' + P + '-us">«все» — вся численность юнита. Цель с разрезом работает в отчёте, когда выбран ровно этот разрез.</span></div>'
@@ -5966,6 +5982,7 @@ function buildHTML() {
         }
         return;
       }
+      if (act === 'kdnoto') { if (state.kd) { state.kd.to = ''; render(); } return; }
       if (act === 'kclose') { state.kdOpen = false; state.kd = null; state.copied = ''; render(); return; }
       if (act === 'kcopy') { copyLine(); return; }
       if (act === 'dsel') { state.dsel = state.dsel === key ? '' : key; render(); return; }
@@ -6021,7 +6038,12 @@ function buildHTML() {
         return;
       }
       var kd = t.getAttribute('data-kd');
-      if (kd && state.kd) { state.kd[kd] = t.value; updateKd(); }
+      if (kd === 'target') { var cl = kdClean(t.value); if (cl !== t.value) t.value = cl; }
+      if (kd && state.kd) {
+        state.kd[kd] = t.value;
+        if (kd === 'from') { var tt = overlay.querySelector('[data-kd="to"]'); if (tt) tt.setAttribute('min', isoOk(t.value) ? t.value : '2020-01-01'); }
+        updateKd();
+      }
     }
     function refreshTeams() {
       var box = overlay.querySelector('[data-tbox]');
