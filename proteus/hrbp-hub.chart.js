@@ -1976,6 +1976,7 @@ function buildCSS() {
     // Один цвет в хитмапе: последний месяц — жирным, без голубой заливки колонки.
     P + '-heat td' + P + '-now{background:transparent;font-weight:500;}',
     P + '-heat tr' + P + '-trr{cursor:pointer;}',
+    P + '-heat td' + P + '-l,' + P + '-heat td' + P + '-l ' + P + '-us{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
     P + '-heat tr' + P + '-trsm td:not(' + P + '-l){color:' + C.muted + ';}',
     P + '-hlsm{color:' + C.muted + ';cursor:help;}',
     P + '-heat tr' + P + '-trh td{box-shadow:inset 0 1px 0 ' + C.act + ',inset 0 -1px 0 ' + C.act + ';}',
@@ -4111,7 +4112,7 @@ function transformHTML() {
   }
   var bar = cv(M.scope, L);
   // Узкая ячейка — колонки имён и «За 12 мес» уже: месяцам нужно место.
-  var pie = trPie(m, list, pick), cg = '<colgroup><col style="width:' + (state.narrow ? 172 : TR_NAMEW) + 'px">';
+  var pie = trPie(m, list, pick), cg = '<colgroup><col style="width:' + (state.narrow ? 230 : TR_NAMEW) + 'px">';
   for (var cq = 0; cq < months.length; cq++) cg += '<col>';
   var th = '<table class="' + P + '-t ' + P + '-heat ' + P + '-fix">' + cg + '<col style="width:' + (state.narrow ? 92 : 118) + 'px"></colgroup><thead>'
     + '<tr class="' + P + '-trch"><td class="' + P + '-trpc">' + pie.svg + '</td><td colspan="' + months.length + '">' + trLineSlot(m, pick > -1 ? list[pick] : null, months) + '</td><td></td></tr>'
@@ -4220,7 +4221,9 @@ function heatTxt(m, v, r) {
 }
 // График в шапке таблицы (владелец 14.10): «Всего» по юниту за 12 месяцев, точки — над колонками месяцев; выбрана
 // строка — её линия акцентом, «Всего» — серая.
-var TR_NAMEW = 250;
+// Колонка имён шире (владелец 14.10: «больше места левой части — таблица компактнее»): имя и подпись под ним — в одну
+// строку, без переноса, поэтому строки ниже.
+var TR_NAMEW = 360;
 function trLineSlot(m, sel, months) {
   var M = MODEL, yt = m.ytd && ytdOn(m), cur = [], prev = [], labels = [], heads = [];
   function cv(ser, k) { return yt && k < 12 ? null : mval(ser, 'm', m, k); }
