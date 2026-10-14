@@ -3233,20 +3233,24 @@ function popHint() {
 }
 // Текучесть нормативна только для активной численности HQ (HRBP 13.10): пометка над таблицей «Текучести» и кнопка,
 // которая ставит оба разреза. Уже выбраны ровно они — пометки нет. Значений нет в зоне — без кнопки.
+// Значения сравниваются без регистра и пробелов: в источнике покраска — «Hq», не «HQ» (14.10).
+function hqEq(key, v) { return String(v == null ? '' : v).trim().toLowerCase() === String(CFG.hq[key]).toLowerCase(); }
+function hqIn(key, list) { for (var i = 0; i < list.length; i++) if (hqEq(key, list[i])) return true; return false; }
 function hqOn() {
-  var s = MODEL.sel || {}, h = CFG.hq;
-  return (s.hct || []).length === 1 && s.hct[0] === h.hct && (s.paint || []).length === 1 && s.paint[0] === h.paint;
+  var s = MODEL.sel || {};
+  return (s.hct || []).length === 1 && hqEq('hct', s.hct[0]) && (s.paint || []).length === 1 && hqEq('paint', s.paint[0]);
 }
-function hasVal(key, v) { var f = MODEL.facets[key] || []; for (var i = 0; i < f.length; i++) if (f[i].v === v) return true; return false; }
+// Значение разреза в зоне, совпадающее с нормативом HQ (как оно записано в источнике); нет — ''.
+function hqVal(key) { var f = MODEL.facets[key] || []; for (var i = 0; i < f.length; i++) if (hqEq(key, f[i].v)) return f[i].v; return ''; }
 // Алерт перед блоком «Текучесть» (HRBP 13.10, Дьяченко: «если настройки отличаются — явно подсвечивать перед
 // блоком»): знаменатель regrettable и non-regrettable — всегда активная HQ. Фильтры исключают её — жёлтый,
 // иначе — синий; выбраны ровно «Активная» и «HQ» — алерта нет.
 function hqAlertHTML() {
-  var P = CFG.ns, h = CFG.hq, sel = MODEL.sel || {};
+  var P = CFG.ns, sel = MODEL.sel || {};
   if (hqOn()) return '';
   var ps = sel.paint || [], ts = sel.hct || [];
-  var none = (ps.length && ps.indexOf(h.paint) < 0) || (ts.length && ts.indexOf(h.hct) < 0);
-  var can = hasVal('hct', h.hct) && hasVal('paint', h.paint);
+  var none = (ps.length && !hqIn('paint', ps)) || (ts.length && !hqIn('hct', ts));
+  var can = hqVal('hct') && hqVal('paint');
   var btn = can ? ' <button type="button" class="' + P + '-lnk" data-action="hqact">Показать по активной HQ</button>' : '';
   if (none) {
     return '<div class="' + P + '-note ' + P + '-warn ' + P + '-hqa" data-hqnote="1"><b>Regrettable и non-regrettable не считаются:</b> их знаменатель — активная численность HQ, '
@@ -3256,7 +3260,7 @@ function hqAlertHTML() {
 }
 // Подзаголовок «Текучести»: норматив HQ одной фразой и ссылка «показать по активной HQ», если фильтры не ровно она.
 function hqSub() {
-  var P = CFG.ns, h = CFG.hq, can = hasVal('hct', h.hct) && hasVal('paint', h.paint);
+  var P = CFG.ns, can = hqVal('hct') && hqVal('paint');
   return ' · <span' + tip({ title: 'Regrettable и non-regrettable', text: 'Знаменатель — всегда активная численность HQ, какие бы фильтры ни были выбраны. Остальные метрики — по выбранной численности: ' + selLabel() + '.' }) + '>regrettable — по активной HQ</span>'
     + (!hqOn() && can ? ' · <button type="button" class="' + P + '-lnk" data-action="hqact">показать всё по активной HQ</button>' : '');
 }
@@ -5905,8 +5909,8 @@ function buildHTML() {
       }
       if (act === 'hqact') {
         var nq = reqNow();
-        nq.cuts.hct = [CFG.hq.hct];
-        nq.cuts.paint = [CFG.hq.paint];
+        nq.cuts.hct = [hqVal('hct') || CFG.hq.hct];
+        nq.cuts.paint = [hqVal('paint') || CFG.hq.paint];
         emit(nq);
         return;
       }

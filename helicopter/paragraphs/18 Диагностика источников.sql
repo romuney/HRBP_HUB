@@ -35,7 +35,7 @@ order by 1, 3 desc;
 -- 1в. Приход в активную численность по месяцам (HRBP 13.10): найм в компанию с типом «Активная», переходы
 --     кандидатов, внутренние переводы — сверить с ожиданием HRBP.
 select date_trunc('month', e.business_dt)::date as month,
-       sum(case when coalesce(e.company_hire_flg, 0) = 1 and e.active_type_nm = p.active_type_value then 1 else 0 end) as hire_active,
+       sum(case when coalesce(e.company_hire_flg, 0) = 1 and lower(trim(e.active_type_nm)) = lower(trim(p.active_type_value)) then 1 else 0 end) as hire_active,
        sum(case when coalesce(e.candidate_transfer_flg, 0) = 1 then 1 else 0 end) as candidate_transfer,
        sum(case when coalesce(e.internal_transfer_flg, 0) = 1 then 1 else 0 end)  as internal_transfer,
        sum(case when coalesce(e.company_hire_flg, 0) = 1 then 1 else 0 end)       as hire_company

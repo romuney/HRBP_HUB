@@ -41,7 +41,7 @@ select
     case when sd.d is not null then 1 else 0 end                                as is_slot_row,
     case when coalesce(e.company_fire_flg, 0) = 1 then 1 else 0 end            as is_fire_row,
     case when coalesce(e.company_hire_flg, 0) = 1 then 1 else 0 end            as is_hire_row,
-    case when (coalesce(e.company_hire_flg, 0) = 1 and e.active_type_nm = pa.active_type_value)
+    case when (coalesce(e.company_hire_flg, 0) = 1 and lower(trim(e.active_type_nm)) = lower(trim(pa.active_type_value)))
            or coalesce(e.candidate_transfer_flg, 0) = 1
            or coalesce(e.internal_transfer_flg, 0) = 1 then 1 else 0 end      as is_ahire_row,
     case when coalesce(e.company_hire_dt, e.business_dt) <= e.business_dt

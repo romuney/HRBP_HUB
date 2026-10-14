@@ -8,7 +8,8 @@
 --   найм       hire             в слоте дня найма в компанию (company_hire_flg)
 --              hirea            в слоте прихода в активную численность (когорта 'a': найм с типом
 --                               «Активная» + переход кандидата + внутренний перевод; HRBP 13.10)
---   hch        численность активной HQ на конец слота — знаменатель текучести (HRBP 13.10)
+--   hch        численность активной HQ на конец слота — знаменатель текучести (HRBP 13.10);
+--              значения сравниваются без регистра и пробелов: в источнике покраска — «Hq» (14.10)
 --   когорты    r3d / r3n        новичок созрел (найм + 3 мес / + 13 нед) в этом слоте
 --              r6d / r6n        и дожил ли (+ 6 мес / + 26 нед); суффикс a — база
 --                               прихода в активную численность. Незрелые (срок позже data_dt) — не в счёт.
@@ -18,7 +19,7 @@ drop table if exists hh_evt;
 create table hh_evt as
 select c.grain, c.idx, s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct, s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head, s.a_legal, s.a_macro, s.a_city,
        1 as hc, coalesce(j.jun, 0) as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
-       case when s.hct = p.active_type_value and s.paint = p.hq_paint_value then 1 else 0 end as hch, 0 as hirea
+       case when lower(trim(s.hct)) = lower(trim(p.active_type_value)) and lower(trim(s.paint)) = lower(trim(p.hq_paint_value)) then 1 else 0 end as hch, 0 as hirea
 from hh_src s
 join hh_calendar c on c.slot_end = s.business_dt
 left join hh_seniority j on j.seniority = s.seniority
