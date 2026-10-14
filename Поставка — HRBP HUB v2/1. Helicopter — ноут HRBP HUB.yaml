@@ -95,15 +95,28 @@ paragraphs:
       create table hh_param_junior (pattern text) distributed replicated;
       insert into hh_param_junior values ('intern%'), ('jun%');
 
-      -- Администраторы отчёта: видят всю компанию, как супер-HRBP. Логины — как в Proteus.
-      drop table if exists hh_param_admin;
-      create table hh_param_admin (login text) distributed replicated;
-      insert into hh_param_admin values ('r.kazantsev');
+      -- Администраторы отчёта — в следующем параграфе «HH · админы отчёта» (ваш, поставки его не меняют).
 
       -- Стоп, если источник пуст или не обновился: дальше все массивы съехали бы на месяц.
       select 1 / (case when data_dt is null or data_dt < current_date - 7 then 0 else 1 end) as data_dt_check
       from hh_param;
     isEnabled: true
+  - sid: 01a0c821-05c4-7493-8b6b-0952b4868210
+    title: HH · админы отчёта
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · админы отчёта — ВАШ параграф: поставки его не заменяют и не трогают (14.10: замена
+      -- «HH · параметры» целиком стёрла добавленных админов — список переехал сюда).
+      -- Админ видит всю компанию, как супер-HRBP. Логин — как в Proteus (регистр и пробелы не важны).
+      -- Добавить или убрать админа — строкой в values, затем запустить ноут целиком.
+      -- ============================================================================
+      drop table if exists hh_param_admin;
+      create table hh_param_admin (login text) distributed replicated;
+      insert into hh_param_admin values
+          ('r.kazantsev');
+    isEnabled: true
+    color: '#FDC454'
   - sid: 01a0c821-07b8-7ef5-9f50-f8e0afced59a
     title: HH · календарь
     shebang: gp

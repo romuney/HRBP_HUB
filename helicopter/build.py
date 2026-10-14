@@ -22,6 +22,7 @@ OUT = os.path.join(HERE, 'HRBP HUB.yaml')
 # номер параграфа → (shebang для .py, включён, цвет)
 SPECIAL = {
     '01': ('python_condition', True, None),
+    '02a': (None, True, '#FDC454'),         # админы отчёта — правятся руками, поставки не трогают
     '12': (None, True, '#FDC454'),          # реестр целей — правится руками
     '15': ('python', True, '#1BA6CE'),
     '16': ('python', True, None),
@@ -33,7 +34,7 @@ BASE_MS = 1790064000000                     # 2026-09-22 12:00 UTC — осно�
 
 def sid(num, title):
     h = hashlib.md5((num + '|' + title).encode()).hexdigest()
-    ms = BASE_MS + int(num) * 1000
+    ms = BASE_MS + int(num[:2]) * 1000 + (500 if len(num) > 2 else 0)
     t = '%012x' % ms
     return '%s-%s-7%s-%s%s-%s' % (t[:8], t[8:12], h[:3], '89ab'[int(h[3], 16) % 4], h[4:7], h[7:19])
 
@@ -58,7 +59,7 @@ Dumper.add_representer(Literal, literal)
 def build():
     paras = []
     for fn in sorted(os.listdir(PAR)):
-        m = re.match(r'^(\d\d) (.+)\.(sql|py|md)$', fn)
+        m = re.match(r'^(\d\d[a-z]?) (.+)\.(sql|py|md)$', fn)   # 02a — параграф между 02 и 03
         if not m:
             continue
         num, title, ext = m.groups()

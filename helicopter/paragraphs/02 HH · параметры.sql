@@ -39,10 +39,7 @@ drop table if exists hh_param_junior;
 create table hh_param_junior (pattern text) distributed replicated;
 insert into hh_param_junior values ('intern%'), ('jun%');
 
--- Администраторы отчёта: видят всю компанию, как супер-HRBP. Логины — как в Proteus.
-drop table if exists hh_param_admin;
-create table hh_param_admin (login text) distributed replicated;
-insert into hh_param_admin values ('r.kazantsev');
+-- Администраторы отчёта — в следующем параграфе «HH · админы отчёта» (ваш, поставки его не меняют).
 
 -- Стоп, если источник пуст или не обновился: дальше все массивы съехали бы на месяц.
 select 1 / (case when data_dt is null or data_dt < current_date - 7 then 0 else 1 end) as data_dt_check
