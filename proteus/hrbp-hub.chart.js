@@ -1735,6 +1735,7 @@ function buildCSS() {
     P + '-dsel ' + P + '-ddv{flex:1;text-align:left;}',
     P + '-dsp{position:fixed;z-index:60;display:flex;flex-direction:column;gap:6px;padding:6px;background:' + C.card + ';border:1px solid ' + C.line + ';border-radius:10px;box-shadow:0 10px 28px rgba(16,24,40,.16);min-width:200px;}',
     P + '-dsli{overflow-y:auto;overscroll-behavior:contain;min-height:0;}',
+    P + '-dsp>' + P + '-psearch{margin:0;flex:none;}',
     P + '-dsd{display:block;}',
     P + '-dsd>' + P + '-ddb{width:100%;max-width:none;}',
     P + '-ddi{display:inline-flex;color:' + C.muted + ';}',
@@ -2218,7 +2219,7 @@ function hSel(name, options, value, cls) {
     + '<button type="button" class="' + P + '-ddb' + (open ? ' ' + P + '-on' : '') + '" data-action="dsel" data-key="' + esc(name) + '" aria-haspopup="listbox" aria-expanded="' + (open ? 'true' : 'false') + '">'
     + '<span class="' + P + '-ddv">' + esc(cur) + '</span><span class="' + P + '-ddc" aria-hidden="true">' + (open ? '▴' : '▾') + '</span></button>';
   if (open) {
-    s += '<div class="' + P + '-dsp" role="listbox">' + (options.length > 10 ? '<input class="' + P + '-inp ' + P + '-dsq" type="text" data-dsq="1" placeholder="Поиск">' : '') + '<div class="' + P + '-dsli">';
+    s += '<div class="' + P + '-dsp" role="listbox">' + (options.length > 10 ? '<div class="' + P + '-psearch">' + SEARCH_SVG + '<input class="' + P + '-srch" type="text" data-dsq="1" placeholder="Поиск" autocomplete="off"></div>' : '') + '<div class="' + P + '-dsli">';
     for (i = 0; i < options.length; i++) {
       var on = options[i][0] === value;
       s += '<div class="' + P + '-opt' + (on ? ' ' + P + '-on' : '') + '" role="option" tabindex="0" aria-selected="' + (on ? 'true' : 'false') + '" data-action="dselv" data-key="' + esc(name) + '" data-id="' + esc(options[i][0]) + '">'
@@ -6175,7 +6176,7 @@ function buildHTML() {
       }
       if (t.getAttribute('data-tsearch') !== null) { state.tq = t.value; refreshTeams(); return; }
       if (t.getAttribute('data-dsq') !== null) {
-        var q = t.value.replace(/^\s+|\s+$/g, '').toLowerCase(), os = t.parentNode.querySelectorAll('[data-action="dselv"]');
+        var q = t.value.replace(/^\s+|\s+$/g, '').toLowerCase(), os = t.parentNode.parentNode.querySelectorAll('[data-action="dselv"]');
         for (var oi = 0; oi < os.length; oi++) os[oi].style.display = !q || os[oi].textContent.toLowerCase().indexOf(q) > -1 ? '' : 'none';
         return;
       }
