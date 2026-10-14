@@ -1934,6 +1934,8 @@ function buildCSS() {
     P + '-trbox[data-trh] ' + P + '-pseg:not(' + P + '-trh){opacity:.35;}',
     P + '-pseg' + P + '-on{stroke:' + C.ink + ';}',
     P + '-heat td{transition:box-shadow .15s;}',
+    // Один цвет в хитмапе: последний месяц — жирным, без голубой заливки колонки.
+    P + '-heat td' + P + '-now{background:transparent;font-weight:500;}',
     P + '-heat tr' + P + '-trr{cursor:pointer;}',
     P + '-heat tr' + P + '-trh td{box-shadow:inset 0 1px 0 ' + C.act + ',inset 0 -1px 0 ' + C.act + ';}',
     P + '-heat tr' + P + '-sel td' + P + '-l{box-shadow:inset 3px 0 0 ' + C.act + ';font-weight:500;}',
@@ -3984,15 +3986,12 @@ function transformHTML() {
   var list = trSorted(axis), months = [];
   if (!list.length || !M.scope) return s + hEmpty('Нет данных для разбивки', 'В юните нет людей под текущими фильтрами.');
   for (var k = L - 11; k <= L; k++) months.push(k);
-  // Хитмап (13.10): ячейка — значение месяца, фон — насколько оно лучше или хуже «Всего» юнита в том же месяце
-  // (зелёный / красный, сильнее — дальше; ±5 % и маленькие строки — без цвета); у метрик без «лучше» (численность,
-  // non-regrettable) — один синий по величине. Строка — клик выбирает значение: его линия на графике «Всего»,
+  // Хитмап: ячейка — значение месяца, фон — только если оно хуже «Всего» юнита в том же месяце (heatDiv). Строка — клик выбирает значение: его линия на графике «Всего»,
   // его доля на кольце; наведение подсвечивает строку и долю (trLink).
-  var yt = m.ytd && ytdOn(m), flat = m.better === 'flat' || m.fmt === 'int', mx = 0, pick = -1;
+  var yt = m.ytd && ytdOn(m), flat = m.better === 'flat' || m.fmt === 'int', pick = -1;
   function cv(ser, k) { return yt && k < 12 ? null : mval(ser, 'm', m, k); }
   for (var q = 0; q < list.length; q++) {
     if (list[q].v === state.trPick) pick = q;
-    for (var q2 = 0; q2 < months.length; q2++) mx = Math.max(mx, Math.abs(cv(list[q].ser, months[q2]) || 0));
   }
   // Узкая ячейка — колонки имён и «За 12 мес» уже: месяцам нужно место.
   var pie = trPie(m, list, pick), cg = '<colgroup><col style="width:' + (state.narrow ? 172 : TR_NAMEW) + 'px">';
@@ -4012,7 +4011,7 @@ function transformHTML() {
       + '><td class="' + P + '-l"' + (NOCOL ? tip({ title: m.name, text: smallWhy(ser, m) }) : '') + '>' + (pie.col[idx] ? '<i class="' + P + '-pdot" style="background:' + pie.col[idx] + '"></i>' : '') + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел' + (NOCOL ? ' · без цвета' : '') + '</span></td>';
     for (var c = 0; c < months.length; c++) {
       var k = months[c], v = cv(ser, k), t = cv(M.scope, k), bg = '';
-      if (v !== null && !tot && !NOCOL) bg = flat ? heatSeq(v, mx) : heatDiv(m, v, t);
+      if (v !== null && !tot && !NOCOL && !flat) bg = heatDiv(m, v, t);
       var rows = [{ label: name.length > 28 ? name.slice(0, 27) + '…' : name, value: fmtVal(m, v), color: C0.cur, line: true }].concat(v === null ? [] : absRows(m, ser, k));
       if (!tot && t !== null) rows.push({ label: 'Всего', value: fmtVal(m, t), color: C0.prev, line: true, dim: true });
       r += '<td class="' + (c === months.length - 1 ? P + '-now' : '') + '"' + (bg ? ' style="background:' + bg + '"' : '')
@@ -4027,8 +4026,8 @@ function transformHTML() {
   th += prow('ИТОГО · ' + scopeLabel(), M.scope, P + '-tot', -1);
   for (var rr = 0; rr < list.length; rr++) th += prow(trName(list[rr]), list[rr].ser, list[rr].rest ? P + '-rest' : P + '-trr', rr);
   th += '</tbody></table>';
-  var leg = '<div class="' + P + '-hleg">' + (flat ? '<span><i style="background:' + heatSeq(1, 1) + '"></i>больше — темнее</span>'
-    : '<span><i style="background:' + heatDiv(m, m.better === 'higher' ? 1.3 : 0.7, 1) + '"></i>лучше, чем «Всего»</span><span><i style="background:' + heatDiv(m, m.better === 'higher' ? 0.7 : 1.3, 1) + '"></i>хуже</span><span><i></i>±5% или мало людей</span>')
+  var leg = '<div class="' + P + '-hleg">' + (flat ? '<span>У метрики нет «лучше» — ячейки без цвета.</span>'
+    : '<span>Хуже, чем «Всего» в том же месяце:</span><span><i style="background:' + HEAT_C[0] + '"></i>на 5–15%</span><span><i style="background:' + HEAT_C[1] + '"></i>на 15–30%</span><span><i style="background:' + HEAT_C[2] + '"></i>больше 30%</span>')
     + '<span class="' + P + '-us">Клик по строке — её линия на графике и доля на кольце.</span></div>';
   var sel = pick > -1 ? list[pick] : null;
   var lg = '<span class="' + P + '-lgd">' + (sel ? '<span class="' + P + '-lg"><i class="' + P + '-lgk" style="border-top-color:' + C0.cur + '"></i>' + esc(trName(sel)) + '</span>' : '')
@@ -4039,16 +4038,17 @@ function transformHTML() {
         + (sel ? '<button type="button" class="' + P + '-btn ' + P + '-ghost" data-action="trpick" data-key="-1">Сбросить</button>' : '') + copyBtn('tr') + '</span>' })
     + '</div>';
 }
-// Цвет ячейки хитмапа: два полюса (лучше — зелёный, хуже — красный) от «Всего» того же месяца, серая середина ±5 %;
-// насыщенность — по отклонению до 30 %. Текст ячейки — всегда чернилами (цвет — только фон).
+// Хитмап — один цвет и только там, куда смотреть (владелец 14.10: «одноцветный, акцент только на нужное»): ячейка
+// хуже «Всего» того же месяца больше чем на 5 % — светлый красный, три ступени по отклонению (до 15 %, до 30 %, больше);
+// лучше, в пределах ±5 %, метрика без «лучше», маленькая строка — без заливки. Ступени — сплошные цвета, не прозрачность
+// поверх фона (от неё цвет «грязнел»); текст ячейки — всегда чернилами.
+var HEAT_C = ['#fef2f2', '#fde2e2', '#fbcfcf'];
 function heatDiv(m, v, t) {
-  if (v === null || t === null || !t) return '';
-  var d = (v - t) / Math.abs(t);
-  if (Math.abs(d) <= CFG.deadZone) return '';
-  var good = (m.better === 'higher') === (d > 0), a = 0.08 + 0.26 * Math.min(1, (Math.abs(d) - CFG.deadZone) / 0.25);
-  return (good ? 'rgba(17,128,74,' : 'rgba(203,46,46,') + a.toFixed(2) + ')';
+  if (v === null || t === null || !t || m.better === 'flat') return '';
+  var d = (v - t) / Math.abs(t), worse = (m.better === 'higher') ? d < 0 : d > 0, a = Math.abs(d);
+  if (!worse || a <= CFG.deadZone) return '';
+  return HEAT_C[a <= 0.15 ? 0 : (a <= 0.3 ? 1 : 2)];
 }
-function heatSeq(v, mx) { return mx > 0 ? 'rgba(43,108,255,' + (0.05 + 0.25 * Math.min(1, Math.abs(v) / mx)).toFixed(2) + ')' : ''; }
 function heatTxt(m, v, t) {
   var d = (v - t) / Math.abs(t || 1);
   if (Math.abs(d) <= CFG.deadZone) return 'Как «Всего» (±5%).';
@@ -4442,7 +4442,7 @@ function tourSteps(view) {
     add({ sel: P + '-trpc', title: 'Доли значений',
       html: 'Пять крупнейших значений и «Остальные» — в людях или в числителе метрики (переключатель справа вверху). Цветная точка у строки таблицы — её доля. Наведите на долю — подсветится строка, клик — её линия на графике.' });
     add({ sel: P + '-heat', title: 'Таблица-хитмап',
-      html: 'Строки — значения разбивки, колонки — 12 месяцев. Зелёный — лучше, чем «Всего» в том же месяце, красный — хуже; чем ярче, тем дальше. Клик по строке выбирает её.' });
+      html: 'Строки — значения разбивки, колонки — 12 месяцев. Цветом отмечено только то, куда смотреть: месяц, где значение хуже, чем «Всего» в том же месяце; чем темнее — тем хуже. Клик по строке выбирает её.' });
     add({ sel: P + '-trbox [data-action="copy"]', pad: 4, title: 'Копировать',
       html: 'Сводная — в буфер обмена: вставьте в Excel или письмо.' });
   } else if (view === 'goals') {
