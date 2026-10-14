@@ -1821,6 +1821,7 @@ function buildCSS() {
     P + '-pill' + P + '-warn,' + P + '-pill' + P + '-neutral,' + P + '-pill' + P + '-neu{background:' + C.neutralBg + ';color:' + C.neutralTx + ';}',
     P + '-pill' + P + '-flat{background:' + C.neutralBg + ';color:' + C.muted + ';}',
     P + '-cref{display:block;font-size:' + F.cap + 'px;color:' + C.muted + ';font-weight:400;margin-top:3px;font-variant-numeric:tabular-nums;}',
+    P + '-cref' + P + '-crefk{color:' + C.warnTx + ';font-weight:600;}',
     // Ориентир: «Цель ≤ 2,0%» / «База 92,0%» одной строкой, под ней пилюля отклонения.
     P + '-tgt{font-size:' + F.body + 'px;color:' + C.ink2 + ';font-weight:500;line-height:1.3;white-space:nowrap;text-align:right;margin-bottom:4px;font-variant-numeric:tabular-nums;}',
     P + '-tgl{color:' + C.muted + ';font-weight:400;font-size:' + F.note + 'px;margin-right:5px;}',
@@ -3591,8 +3592,12 @@ function rowName(r) {
 function unitCell(unitId, ser, m, selected, cls) {
   var P = CFG.ns, L = MODEL.L, v = mval(ser, 'm', m, L), txt = fmtVal(m, v), c = cls ? ' class="' + cls + '"' : '';
   // «Команды» (HRBP 13.10, Дьяченко): значения — у всех команд, у маленьких — без цвета.
-  if (smallHide(ser, m)) return v === null ? smallTd(m, ser, cls)
-    : '<td class="' + P + '-sm1' + (cls ? ' ' + cls : '') + '"' + tip({ title: m.name, text: smallWhy(ser, m), rows: [{ label: 'факт', value: txt }].concat(absRows(m, ser, L)) }) + '>' + esc(txt) + '</td>';
+  if (smallHide(ser, m)) {
+    if (v === null) return smallTd(m, ser, cls);
+    var sb = selected && m.better !== 'flat' ? baseline(unitId, m, v, 'm', L) : null;
+    return '<td class="' + P + '-sm1' + (cls ? ' ' + cls : '') + '"' + tip({ title: m.name, text: smallWhy(ser, m), rows: [{ label: 'факт', value: txt }].concat(absRows(m, ser, L)) }) + '>' + esc(txt)
+      + (sb && sb.kind === 'kpi' ? crefHTML(m, sb) : '') + '</td>';
+  }
   if (v === null) return '<td class="' + P + '-muted' + (cls ? ' ' + cls : '') + '">' + esc(txt) + '</td>';
   var bl = baseline(unitId, m, v, 'm', L), fact = [{ label: 'факт', value: txt }].concat(absRows(m, ser, L));
   if (bl.kind === 'none') return '<td' + c + tip({ title: m.name, text: 'Ориентира у метрики нет: ' + (m.better === 'flat' ? '«больше» не значит «лучше».' : 'абсолютная величина.'), rows: fact }) + '>' + esc(txt) + '</td>';
@@ -3603,8 +3608,13 @@ function unitCell(unitId, ser, m, selected, cls) {
     : { title: m.name, text: 'Утверждённой цели нет — сравнение с базой.',
         rows: fact.concat([{ label: benchLabel(), value: fmtVal(m, bl.ref), dash: true, color: CFG.colors.bench }, { label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, bl.ref)) }]),
         note: stTxt(bl.state) };
-  return '<td' + c + tip(t) + '>' + hPill(bl.state, txt)
-    + (selected ? '<span class="' + P + '-cref">' + (bl.kind === 'kpi' ? 'цель ' : 'база ') + esc(fmtVal(m, bl.ref)) + '</span>' : '') + '</td>';
+  return '<td' + c + tip(t) + '>' + hPill(bl.state, txt) + (selected ? crefHTML(m, bl) : '') + '</td>';
+}
+// Подпись ориентира под значением выбранной строки: цель — тёмно-жёлтым полужирным, база — серым (владелец 14.10:
+// «нажал на юнит — вижу, на каких метриках стоят цели»).
+function crefHTML(m, bl) {
+  var P = CFG.ns, k = bl.kind === 'kpi';
+  return '<span class="' + P + '-cref' + (k ? ' ' + P + '-crefk' : '') + '">' + (k ? 'цель ' : 'база ') + esc(fmtVal(m, bl.ref)) + '</span>';
 }
 // Маленькая команда: значение без цвета, в подсказке — почему и сколько это людей.
 function smallWhy(ser, m) {
@@ -3815,7 +3825,7 @@ function teamsHTML() {
   var right = '<div class="' + P + '-dyn">'
     + (gated ? '<div class="' + P + '-snote">' + 'В строке ' + fmtInt(hcOf(cur.ser)) + ' чел.: ' + gated + ' ' + plural(gated, 'метрика', 'метрики', 'метрик') + ' без цвета (' + esc(smallRule()) + ').</div>' : '') + charts + '</div>';
   var info = hInfo({ title: 'Как читать таблицу', text: 'Значения за ' + monthLow(L) + '. Цвет — сравнение с целью юнита, а без цели — с базой.',
-    note: ['Клик по строке — её графики справа.', '«Напрямую в …» — люди самого юнита, без подразделений.'] });
+    note: ['Клик по строке — её графики справа, а под значениями — ориентир: «цель» тёмно-жёлтым — на метрике стоит цель, серая «база» — цели нет.', '«Напрямую в …» — люди самого юнита, без подразделений.'] });
   var mode = state.narrow ? 'both' : (state.splitMode || 'both');
   var search = '<span class="' + P + '-tsw">' + SEARCH_SVG + '<input class="' + P + '-srch" type="text" data-tsearch="1" placeholder="Поиск юнита в таблице" value="' + esc(state.tq || '') + '"></span>';
   var left = hPanel({ cls: P + '-tpan', title: 'Юниты', info: info,
