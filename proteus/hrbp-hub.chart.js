@@ -104,7 +104,7 @@ var CFG = {
       notes: ['Новичок, у которого 6 месяцев ещё не прошло, в расчёт пока не входит.'],
       numL: 'работают через 6 мес', denL: 'новичков (найм за 12 мес, прошло 6 мес)', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
     { key: 'regret', block: 'turnover', name: 'Regrettable текучесть', short: 'Regret',
-      fmt: 'pct', better: 'lower', num: 'rg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'rgs', minHc: 50, hq: true,
+      fmt: 'pct', better: 'lower', num: 'rg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'rgs', hq: true,
       hint: 'Уходы сотрудников, которых жаль потерять.',
       frac: ['regrettable-уходы за 12 месяцев', 'средняя активная численность HQ за 12 месяцев'],
       fracY: ['regrettable-уходы месяца', 'средняя активная численность HQ за месяц', 'сумма по месяцам с января'],
@@ -113,7 +113,7 @@ var CFG = {
       numLy: 'regrettable-уходов с начала года', denLy: 'средняя активная численность HQ', tailY: 'с начала года',
       exL: 'уходов сверх ориентира', exA: 'сверх ориентира' },
     { key: 'nonregret', block: 'turnover', name: 'Non regrettable текучесть', short: 'Non-reg.',
-      fmt: 'pct', better: 'flat', num: 'nrg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'nrgs', minHc: 100, hq: true,
+      fmt: 'pct', better: 'flat', num: 'nrg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'nrgs', hq: true,
       hint: 'Уходы, о которых не жалеем: управляемая текучесть.',
       frac: ['non-regrettable-уходы за 12 месяцев', 'средняя активная численность HQ за 12 месяцев'],
       fracY: ['non-regrettable-уходы месяца', 'средняя активная численность HQ за месяц', 'сумма по месяцам с января'],
@@ -170,7 +170,8 @@ var CFG = {
   // разрезы не выбраны, одно значение «популяционного» разреза — share и больше людей области → предложить
   // сравнить с ним. Тип численности и штат — не популяции: «Активная» и «Штат» почти везде большинство.
   pop: { share: 0.6, cuts: ['paint', 'it', 'stream', 'spec'] },
-  // min — порог численности по умолчанию; у метрики свой minHc (HRBP 13.10: regrettable 50, non-regrettable 100).
+  // min — порог численности для цвета, один на все метрики (владелец 14.10: 30, не 50 / 100); у метрики можно задать свой minHc.
+  // У regrettable / non-regrettable считаем по активной HQ (popOf).
   small: { min: 30, blocks: ['retention', 'turnover'] },
   // Норматив текучести — активная численность HQ (HRBP 13.10): кнопка на «Сводке» ставит оба разреза.
   hq: { hct: 'Активная', paint: 'HQ' },
@@ -3234,7 +3235,7 @@ function exitSpike(ser) {
 function obsFacts() {
   var M = MODEL, L = M.L, O = CFG.obs, all = teamRows(true), teams = [], leaves = [], out = [], i;
   for (i = 0; i < all.length; i++) {
-    if (!isSmall(all[i].ser)) teams.push(all[i]);  // порог метрики (50 / 100 у текучести) — ниже, в metricFact
+    if (!isSmall(all[i].ser)) teams.push(all[i]);  // порог метрики (у текучести — по активной HQ) — ниже, в metricFact
     if (all[i].id === '·' || !rowCanExp(all[i])) leaves.push(all[i]);
   }
   var mets = selMetrics('');
@@ -3717,7 +3718,7 @@ function smallWhy(ser, m) {
 function smallShort(ser, m) {
   return (m.hq && MODEL.hqOk ? 'активной HQ ' + fmtInt(popOf(ser, m)) + ' из нужных ' + smallMin(m) : 'меньше ' + smallMin(m) + ' человек') + ' — без цвета';
 }
-function smallRule() { return 'закрепляемость и причины — от ' + CFG.small.min + ' человек, regrettable — от 50, non-regrettable — от 100'; }
+function smallRule() { return 'от ' + CFG.small.min + ' человек, у regrettable и non-regrettable — ' + CFG.small.min + ' человек активной HQ'; }
 function smallTd(m, ser, cls) {
   var P = CFG.ns;
   return '<td class="' + P + '-muted ' + P + '-sm0' + (cls ? ' ' + cls : '') + '"' + tip({ title: m.name, text: smallWhy(ser, m), rows: absRows(m, ser, MODEL.L) }) + '>—</td>';
