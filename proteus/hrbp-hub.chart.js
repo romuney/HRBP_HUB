@@ -236,8 +236,9 @@ var CFG = {
     blue: '#3b6fe0', blueBg: '#eef3fe', act: '#2b6cff', actInk: '#1f55d6',
     surface2: '#f3f4f6', hover: '#fafbfc',
     // Линии «период к периоду»: текущий — акцент, прошлый — светлый сине-серый,
-    // база — серый пунктир, цель — тёмный пунктир; заливка под текущим — 8 % акцента.
-    cur: '#2b6cff', curArea: 'rgba(43,108,255,.08)', prev: '#b4bdcc', bench: '#98a1b1', kpi: '#9a6500',
+    // база — серый пунктир, цель — жёлтый пунктир (kpi); текст цели — тёмный на жёлтом маркере kpiBg = плашка «Фокус»
+    // (владелец 14.10: тёмно-жёлтый текст «некрасивый»); заливка под текущим — 8 % акцента.
+    cur: '#2b6cff', curArea: 'rgba(43,108,255,.08)', prev: '#b4bdcc', bench: '#98a1b1', kpi: '#e09400', kpiBg: '#ffe6a0',
     label: '#2f3440', axis: '#6b7280', axisLine: '#9ba4b5', axisStrong: '#3a3f4a', grid: '#e9ecf1', xh: '#b9c6de',
     series: ['#5f86c2', '#97dece', '#ac87c5', '#cdbf97', '#85cdfd', '#9fae6a', '#c98aa6', '#686d76']
   },
@@ -1226,7 +1227,7 @@ function svgLine0(spec, W, H, ctx) {
     if (refY === null || Math.abs(refY - y) > 12) s += '<text x="' + (gl - 8) + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="end" class="' + P + '-ax">' + esc(axisFmt(m, ticks[t])) + '</text>';
   }
   if (refY !== null && refY >= gt - 2 && refY <= gt + ph + 2) {
-    s += '<text x="' + (gl - 8) + '" y="' + (refY + 3.5).toFixed(1) + '" text-anchor="end" class="' + P + '-ax ' + P + '-axk" style="fill:' + refC + '" data-s="ref">' + esc(axisFmt(m, refNow)) + '</text>';
+    s += '<text x="' + (gl - 8) + '" y="' + (refY + 3.5).toFixed(1) + '" text-anchor="end" class="' + P + '-ax ' + P + '-axk" style="fill:' + (spec.refKind === 'kpi' ? C.ink2 : refC) + '" data-s="ref">' + esc(axisFmt(m, refNow)) + '</text>';
   }
   // ось X: линия по ширине области, месяцы; текущий — 600
   s += '<line x1="' + (gl - 4) + '" x2="' + (gl + pw + 4) + '" y1="' + (gt + ph + 0.5) + '" y2="' + (gt + ph + 0.5) + '" stroke="' + C.axisLine + '"/>';
@@ -1258,7 +1259,7 @@ function svgLine0(spec, W, H, ctx) {
     var pr = rRef[rr], dr = '';
     for (var q2 = 0; q2 < pr.length; q2++) dr += (q2 ? 'L' : 'M') + pr[q2][0].toFixed(1) + ' ' + pr[q2][1].toFixed(1);
     if (pr.length === 1) dr += 'l0.1 0';
-    s += '<path class="' + P + '-fd" data-d="120" d="' + dr + '" fill="none" stroke="' + refC + '" stroke-width="1.6" stroke-dasharray="' + (spec.refKind === 'kpi' ? '6 4' : '4 3') + '" data-s="ref"/>';
+    s += '<path class="' + P + '-fd" data-d="120" d="' + dr + '" fill="none" stroke="' + refC + '" stroke-width="' + (spec.refKind === 'kpi' ? '2' : '1.6') + '" stroke-dasharray="' + (spec.refKind === 'kpi' ? '6 4' : '4 3') + '" data-s="ref"/>';
   }
   // текущий — акцентная линия с точками
   for (var rc = 0; rc < rCur.length; rc++) {
@@ -1828,11 +1829,13 @@ function buildCSS() {
     P + '-pill' + P + '-warn,' + P + '-pill' + P + '-neutral,' + P + '-pill' + P + '-neu{background:' + C.neutralBg + ';color:' + C.neutralTx + ';}',
     P + '-pill' + P + '-flat{background:' + C.neutralBg + ';color:' + C.muted + ';}',
     P + '-cref{display:block;font-size:' + F.cap + 'px;color:' + C.muted + ';font-weight:400;margin-top:3px;font-variant-numeric:tabular-nums;}',
-    P + '-cref' + P + '-crefk{color:' + C.kpi + ';font-weight:600;}',
+    P + '-cref' + P + '-crefk{color:' + C.ink + ';font-weight:600;}',
+    P + '-hlk{background:linear-gradient(transparent 45%,' + C.kpiBg + ' 45%);border-radius:2px;padding:0 2px;color:' + C.ink + ';}',
     // Ориентир: «Цель ≤ 2,0%» / «База 92,0%» одной строкой, под ней пилюля отклонения.
     P + '-tgt{font-size:' + F.body + 'px;color:' + C.ink2 + ';font-weight:500;line-height:1.3;white-space:nowrap;text-align:right;margin-bottom:4px;font-variant-numeric:tabular-nums;}',
     P + '-tgl{color:' + C.muted + ';font-weight:400;font-size:' + F.note + 'px;margin-right:5px;}',
-    P + '-tgt' + P + '-tgtk,' + P + '-tgt' + P + '-tgtk ' + P + '-tgl{color:' + C.kpi + ';font-weight:600;}',
+    P + '-tgt' + P + '-tgtk{color:' + C.ink + ';font-weight:600;}',
+    P + '-tgt' + P + '-tgtk ' + P + '-tgl{color:' + C.ink2 + ';}',
     P + '-same{font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:400;white-space:nowrap;}',
     // Метка строки (флаг): 9 / 500, радиус 4, поля 1/5
     P + '-tag{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.surface2 + ';color:' + C.ink2 + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
@@ -1867,7 +1870,7 @@ function buildCSS() {
     // Линия спарклайна — акцент текущего периода, как «2026» в «Динамике»; ориентир — пунктир.
     P + '-sline{fill:none;stroke:' + C.cur + ';stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round;opacity:.85;}',
     P + '-sref{fill:none;stroke:' + C.prev + ';stroke-width:1;stroke-dasharray:3 3;}',
-    P + '-sref' + P + '-srefk{stroke:' + C.kpi + ';stroke-width:1.4;}',
+    P + '-sref' + P + '-srefk{stroke:' + C.kpi + ';stroke-width:1.6;}',
     // Точки светофора — тон того же сигнала, что у пилюли (тот, что был у столбиков), с белой обводкой.
     P + '-sdot{stroke:#fff;stroke-width:1.2;transform-box:fill-box;transform-origin:center;transition:transform .12s;}',
     // «Лучше» — кольцо, «хуже» — сплошная тёмная точка: различаются формой, не только цветом (дальтонизм, ч/б; ревью 13.10).
@@ -2078,8 +2081,11 @@ function buildCSS() {
     P + '-kclr{margin-left:8px;font-size:' + F.cap + 'px;text-transform:none;letter-spacing:0;}',
     P + '-kval{min-height:34px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:' + F.body + 'px;color:' + C.ink + ';}',
     P + '-kval b{font-weight:500;}',
-    P + '-kcut{display:flex;flex-direction:column;gap:6px;}',
-    P + '-kcuts{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;}',
+    P + '-kcut{display:flex;flex-direction:column;gap:10px;padding-top:4px;}',
+    // Разрезы цели (владелец 14.10: «прилипли друг к другу»): колонка не уже списка, список — по ширине колонки.
+    P + '-kcuts{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px 16px;}',
+    P + '-kcuts>' + P + '-ctl{min-width:0;}',
+    P + '-kcuts ' + P + '-dsel>' + P + '-ddb{min-width:0;}',
     P + '-kerr{font-size:' + F.note + 'px;color:' + C.redTx + ';margin:6px 0;}',
     P + '-kerr:empty{display:none;}',
     P + '-know{font-size:' + F.note + 'px;color:' + C.muted + ';}',
@@ -2294,7 +2300,7 @@ function cmpTd(m, v, bl) {
         note: [(bl.inherited ? 'Цель унаследована с уровня «' : 'Цель стоит на юните «') + unitName(MODEL, bl.owner) + '».',
                m.ytd && ytdOn(m) && bl.rule ? 'Годовая цель — ' + fmtVal(m, bl.rule.target) + '; к ' + monthDat(MODEL.L) + ' — ' + ((MODEL.L % 12) + 1) + '/12 от неё.' : null,
                stTxt(bl.state)] }) + '>'
-      + '<div class="' + P + '-tgt ' + P + '-tgtk"><span class="' + P + '-tgl">Цель ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</div>'
+      + '<div class="' + P + '-tgt ' + P + '-tgtk"><span class="' + P + '-hlk"><span class="' + P + '-tgl">Цель ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</span></div>'
       + hPill(bl.state, fmtDelta(m, dk)) + '</td>';
   }
   if (bl.kind === 'bench' && benchSelf()) {
@@ -2895,7 +2901,7 @@ function chartBlock(kind, key, title, spec, H) {
       sw += '<button type="button" class="' + P + '-segb' + (on ? ' ' + P + '-on' : '') + '" data-action="cmp" data-key="' + opts[i][0] + '" aria-pressed="' + (on ? 'true' : 'false') + '"'
         + tip({ title: 'Сравнить с: ' + opts[i][1], text: spec.tips ? spec.tips[opts[i][0]] : '', note: 'Действует на все графики отчёта.' }) + '>'
         + '<i class="' + P + '-lgk' + (opts[i][3] ? ' ' + P + '-dash' : '') + '" style="border-top-color:' + opts[i][2] + '"></i>'
-        + (opts[i][0] === 'ref' && spec.refKind === 'kpi' ? '<span style="color:' + C.kpi + ';font-weight:600">' + esc(opts[i][1]) + '</span>' : esc(opts[i][1])) + '</button>';
+        + (opts[i][0] === 'ref' && spec.refKind === 'kpi' ? '<span class="' + P + '-hlk">' + esc(opts[i][1]) + '</span>' : esc(opts[i][1])) + '</button>';
     }
     sw += '</span>';
   } else {
@@ -3625,7 +3631,7 @@ function unitCell(unitId, ser, m, selected, cls) {
 // «нажал на юнит — вижу, на каких метриках стоят цели»).
 function crefHTML(m, bl) {
   var P = CFG.ns, k = bl.kind === 'kpi';
-  return '<span class="' + P + '-cref' + (k ? ' ' + P + '-crefk' : '') + '">' + (k ? 'цель ' : 'база ') + esc(fmtVal(m, bl.ref)) + '</span>';
+  return '<span class="' + P + '-cref' + (k ? ' ' + P + '-crefk' : '') + '">' + (k ? '<span class="' + P + '-hlk">цель ' + esc(fmtVal(m, bl.ref)) + '</span>' : 'база ' + esc(fmtVal(m, bl.ref))) + '</span>';
 }
 // Маленькая команда: значение без цвета, в подсказке — почему и сколько это людей.
 function smallWhy(ser, m) {
