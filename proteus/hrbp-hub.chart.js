@@ -1968,6 +1968,8 @@ function buildCSS() {
     // Один цвет в хитмапе: последний месяц — жирным, без голубой заливки колонки.
     P + '-heat td' + P + '-now{background:transparent;font-weight:500;}',
     P + '-heat tr' + P + '-trr{cursor:pointer;}',
+    P + '-heat tr' + P + '-trsm td:not(' + P + '-l){color:' + C.muted + ';}',
+    P + '-hlsm{color:' + C.muted + ';cursor:help;}',
     P + '-heat tr' + P + '-trh td{box-shadow:inset 0 1px 0 ' + C.act + ',inset 0 -1px 0 ' + C.act + ';}',
     P + '-heat tr' + P + '-sel td' + P + '-l{box-shadow:inset 3px 0 0 ' + C.act + ';font-weight:500;}',
     P + '-hleg{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:10px 16px 12px;font-size:' + F.note + 'px;color:' + C.muted + ';border-top:1px solid ' + C.line2 + ';}',
@@ -3707,6 +3709,10 @@ function smallWhy(ser, m) {
   return 'Без цвета: в команде ' + fmtInt(n) + ' ' + plural(n, 'человек', 'человека', 'человек') + (hq ? ' активной HQ' : '') + ', нужно от ' + smallMin(m)
     + '. Один человек здесь сдвигает процент на несколько пунктов.';
 }
+// Коротко под именем строки: по каким людям порог (у regrettable — активная HQ, не все «N чел» строки).
+function smallShort(ser, m) {
+  return (m.hq && MODEL.hqOk ? 'активной HQ ' + fmtInt(popOf(ser, m)) + ' из нужных ' + smallMin(m) : 'меньше ' + smallMin(m) + ' человек') + ' — без цвета';
+}
 function smallRule() { return 'закрепляемость и причины — от ' + CFG.small.min + ' человек, regrettable — от 50, non-regrettable — от 100'; }
 function smallTd(m, ser, cls) {
   var P = CFG.ns;
@@ -4107,9 +4113,9 @@ function transformHTML() {
   th += (isCum(m) ? '<th class="' + P + '-vs">За 12 мес' : trTh('d', 'За 12 мес', P + '-vs', true)) + '<span class="' + P + '-hc">к ' + esc(monthDat(L - 11)) + '</span></th></tr></thead><tbody>';
   function prow(name, ser, cls, idx) {
     NOCOL = smallHide(ser, m);
-    var tot = idx < 0, r = '<tr class="' + cls + (idx === pick && !tot ? ' ' + P + '-sel' : '') + '"'
+    var tot = idx < 0, r = '<tr class="' + cls + (idx === pick && !tot ? ' ' + P + '-sel' : '') + (NOCOL && !tot ? ' ' + P + '-trsm' : '') + '"'
       + (tot || list[idx].rest ? '' : ' data-trv="' + idx + '" data-action="trpick" data-key="' + idx + '" tabindex="0" aria-pressed="' + (idx === pick ? 'true' : 'false') + '"')
-      + '><td class="' + P + '-l"' + (pie.col[idx] ? ' style="background:linear-gradient(90deg,' + pie.col[idx] + ' 3px,transparent 3px)"' : '') + (NOCOL ? tip({ title: m.name, text: smallWhy(ser, m) }) : '') + '>' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел' + (NOCOL ? ' · без цвета' : '') + '</span></td>';
+      + '><td class="' + P + '-l"' + (pie.col[idx] ? ' style="background:linear-gradient(90deg,' + pie.col[idx] + ' 3px,transparent 3px)"' : '') + (NOCOL ? tip({ title: m.name, text: smallWhy(ser, m) }) : '') + '>' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел' + (NOCOL ? ' · ' + smallShort(ser, m) : '') + '</span></td>';
     for (var c = 0; c < months.length; c++) {
       var k = months[c], v = cv(ser, k), t = cv(M.scope, k), bg = '';
       if (v !== null && !tot && !NOCOL && !flat) bg = heatDiv(m, v, t);
@@ -4130,6 +4136,7 @@ function transformHTML() {
   th += '</tbody></table>';
   var leg = '<div class="' + P + '-hleg">' + (flat ? '<span>У метрики нет «лучше» — ячейки без цвета.</span>'
     : '<span>Хуже, чем «Всего» в том же месяце:</span><span><i style="background:' + HEAT_C[0] + '"></i>на 5–15%</span><span><i style="background:' + HEAT_C[1] + '"></i>на 15–30%</span><span><i style="background:' + HEAT_C[2] + '"></i>больше 30%</span>')
+    + (flat ? '' : '<span class="' + P + '-hlsm"' + tip({ title: 'Серые цифры — без цвета', text: 'В строке меньше людей, чем нужно для оценки: ' + smallRule() + '. Значение показано, но не раскрашено: один человек сдвигает процент на несколько пунктов.' }) + '>серые цифры — мало людей, без цвета</span>')
     + '<span class="' + P + '-us">Клик по строке — её линия на графике и доля на кольце.</span></div>';
   var sel = pick > -1 ? list[pick] : null;
   var lg = '<span class="' + P + '-lgd">' + (sel ? '<span class="' + P + '-lg"><i class="' + P + '-lgk" style="border-top-color:' + C0.cur + '"></i>' + esc(trName(sel)) + '</span>' : '')
@@ -4180,10 +4187,14 @@ function heatDiv(m, v, t) {
   if (!worse || a <= CFG.deadZone) return '';
   return HEAT_C[a <= 0.15 ? 0 : (a <= 0.3 ? 1 : 2)];
 }
+// Подсказка ячейки хитмапа: на сколько (и во сколько раз) хуже «Всего» этого месяца и какая это ступень цвета.
 function heatTxt(m, v, t) {
-  var d = (v - t) / Math.abs(t || 1);
-  if (Math.abs(d) <= CFG.deadZone) return 'Как «Всего» (±5%).';
-  return ((m.better === 'higher') === (d > 0) ? 'Лучше' : 'Хуже') + ', чем «Всего»: ' + fmtDelta(m, deltaOf(m, v, t)) + '.';
+  var d = (v - t) / Math.abs(t || 1), a = Math.abs(d);
+  if (a <= CFG.deadZone) return 'Как «Всего» в этом месяце (±5%) — без цвета.';
+  var better = (m.better === 'higher') === (d > 0), x = Math.round(v / t * 10) / 10;
+  var rel = d >= 1 && t > 0 ? 'в ' + fmtNum1(x).replace(',0', '') + (x % 1 || (x % 10 >= 2 && x % 10 <= 4 && (x % 100 < 10 || x % 100 >= 20)) ? ' раза' : ' раз') : 'на ' + Math.round(a * 100) + '%';
+  return (better ? 'Лучше' : 'Хуже') + ', чем «Всего» в этом месяце: ' + fmtDelta(m, deltaOf(m, v, t)) + ' (' + rel + ').'
+    + (better ? '' : ' Цвет — ' + (a <= 0.15 ? 'самый светлый (5–15%)' : (a <= 0.3 ? 'средний (15–30%)' : 'самый тёмный (больше 30%)')) + '.');
 }
 // График в шапке таблицы (владелец 14.10): «Всего» по юниту за 12 месяцев, точки — над колонками месяцев; выбрана
 // строка — её линия акцентом, «Всего» — серая.
