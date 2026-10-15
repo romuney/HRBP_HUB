@@ -1872,8 +1872,12 @@ function buildCSS() {
     P + '-tag{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;text-transform:uppercase;letter-spacing:.3px;padding:1px 5px;border-radius:4px;background:' + C.surface2 + ';color:' + C.ink2 + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
     P + '-tag' + P + '-own{background:' + C.warnBg + ';color:' + C.warnTx + ';}',
     // KPI у юнита — только звёздочка (владелец 14.10: без «Фокус»): ★ — свой KPI, ☆ — KPI с уровня выше; подробности — в подсказке.
-    P + '-star{display:inline-block;margin-left:6px;color:' + C.kpi + ';font-size:' + F.body + 'px;line-height:1;cursor:help;vertical-align:0;}',
-    P + '-star' + P + '-star0{color:' + C.muted + ';}',
+    // Плашка KPI у метрики и юнита (владелец 15.10: «звёздочка в обводке, как был «Фокус», и аккуратно KPI»): по средней
+    // линии с ⓘ (та же высота и vertical-align), фон — маркер KPI, ☆ с уровня выше — без заливки.
+    P + '-star{display:inline-flex;align-items:center;gap:3px;height:16px;padding:0 6px;margin-left:6px;border-radius:999px;border:1px solid #f3d58f;background:' + C.kpiBg + ';color:' + C.ink + ';font-size:' + F.micro + 'px;font-weight:600;letter-spacing:.2px;line-height:1;cursor:help;vertical-align:-3px;white-space:nowrap;}',
+    P + '-star i{font-style:normal;color:' + C.kpi + ';font-size:' + F.cap + 'px;line-height:1;}',
+    P + '-star' + P + '-star0{background:' + C.card + ';border-color:' + C.line + ';color:' + C.muted + ';}',
+    P + '-star' + P + '-star0 i{color:' + C.muted + ';}',
     P + '-more{display:inline-block;font-size:' + F.micro + 'px;font-weight:500;letter-spacing:.3px;padding:0 5px;border-radius:4px;border:1px dashed ' + C.line + ';color:' + C.muted + ';vertical-align:1px;cursor:help;white-space:nowrap;margin-left:5px;}',
     // Без ориентира — словами в пунктирной рамке, а не прочерком (ДС 4.8).
     P + '-nocmp{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px dashed ' + C.line + ';border-radius:999px;font-size:' + F.note + 'px;font-weight:400;color:' + C.muted + ';white-space:nowrap;}',
@@ -2333,11 +2337,11 @@ function focusTag(m, bl) {
     return ' <span class="' + P + '-star"' + tip({ title: 'KPI юнита',
       text: 'KPI поставлен на этот юнит и действует на все его подразделения.',
       rows: [{ label: 'KPI', value: fmtVal(m, bl.ref) }],
-      note: ruleCuts(bl.rule).length ? 'Действует при разрезах: ' + ruleCuts(bl.rule).join('; ') : null }) + ' aria-label="KPI юнита">★</span>';
+      note: ruleCuts(bl.rule).length ? 'Действует при разрезах: ' + ruleCuts(bl.rule).join('; ') : null }) + ' aria-label="KPI юнита"><i>★</i>KPI</span>';
   }
   return ' <span class="' + P + '-star ' + P + '-star0"' + tip({ title: 'KPI с уровня выше',
     text: 'Своего KPI у юнита нет — действует KPI юнита выше.',
-    rows: [{ label: 'KPI с уровня', value: unitName(MODEL, bl.owner) }, { label: 'KPI', value: fmtVal(m, bl.ref) }] }) + ' aria-label="KPI с уровня выше">☆</span>';
+    rows: [{ label: 'KPI с уровня', value: unitName(MODEL, bl.owner) }, { label: 'KPI', value: fmtVal(m, bl.ref) }] }) + ' aria-label="KPI с уровня выше"><i>☆</i>KPI</span>';
 }
 // Цели, закрытые текущими разрезами: называем поимённо, КАКИЕ разрезы выбрать.
 function moreFocus(rules, withMetric) {
@@ -3071,7 +3075,7 @@ function kpiCardsHTML() {
         row2: '<button type="button" class="' + P + '-lnk" data-view="goals">задать во вкладке «KPI»</button>' })
     + kpiCard({ label: 'Наследуемых KPI', value: String(inh),
         q: hInfo({ title: 'Наследуемые KPI', text: 'KPI юнитов выше: действуют, пока у юнита нет своего.' }),
-        row1: inh ? '<span class="' + P + '-tag">☆ с уровня выше</span>' : '<span class="' + P + '-ks">—</span>',
+        row1: inh ? '<span class="' + P + '-star ' + P + '-star0"><i>☆</i>KPI с уровня выше</span>' : '<span class="' + P + '-ks">—</span>',
         row2: '<span class="' + P + '-ks">' + esc(from.length ? (from.length === 1 ? 'с уровня «' + from[0] + '»' : 'с уровней: ' + from.slice(0, 2).join(', ') + (from.length > 2 ? ' и ещё ' + (from.length - 2) : '')) : 'наследовать не от кого') + '</span>' })
     + '</div>';
 }
@@ -3895,7 +3899,7 @@ function teamsTableHTML(tc) {
       + '<td class="' + P + '-l"><span class="' + P + '-rl">' + ind
       + (canExp && !tc.sr ? hCaret(open, 'exp', row.pfx, 'Раскрыть детализацию', { title: 'Детализация', text: 'Подразделения «' + unitName(M, row.id) + '».' }) : '<span class="' + P + '-cars"></span>')
       + '<span class="' + P + '-rb"><span class="' + P + '-nml"><span class="' + P + '-nm"' + nmTip + '>' + (row.id !== '·' && tc.tq ? hlText(rowName(row), tc.tq) : esc(rowName(row))) + '</span>'
-      + (nOwn ? '<span class="' + P + '-star"' + tip({ title: 'KPI юнита', text: 'На юнит поставлены KPI — они действуют и на его подразделения.', rows: [{ label: 'KPI на юните', value: String(nOwn) }] }) + ' aria-label="KPI юнита">★</span>' : '')
+      + (nOwn ? '<span class="' + P + '-star"' + tip({ title: 'KPI юнита', text: 'На юнит поставлены KPI — они действуют и на его подразделения.', rows: [{ label: 'KPI на юните', value: String(nOwn) }] }) + ' aria-label="KPI юнита"><i>★</i>KPI</span>' : '')
       + moreFocus(hidOwn, true)
       + (unit && !unit.cur ? '<span class="' + P + '-gone">нет в структуре</span>' : '') + '</span>'
       + '<span class="' + P + '-us">' + (unit ? esc(levelShort(unit.lvl)) + ' · ' : '') + fmtInt(hcOf(row.ser)) + ' чел'
