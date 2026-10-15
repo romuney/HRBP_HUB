@@ -1820,6 +1820,8 @@ function buildCSS() {
     // Имя юнита — одной строкой с «…»: предел — от ширины панели (--hh-nmw, measureNames),
     // целиком — у выбранной строки и в подсказке. Метки (★ Фокус, +N) не обрезаются.
     P + '-rb{min-width:0;}',
+    P + '-rbl{display:flex;align-items:center;flex-wrap:wrap;row-gap:2px;}',
+    P + '-rbl>' + P + '-info,' + P + '-rbl>' + P + '-star{vertical-align:0;flex:0 0 auto;}',
     P + '-tpan ' + P + '-rb{flex:0 1 auto;margin-right:6px;max-width:var(--' + CFG.ns + '-nmw,260px);}',
     P + '-nml{display:flex;align-items:baseline;min-width:0;}',
     P + '-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
@@ -3601,8 +3603,10 @@ function onepagerHTML() {
         var more = hiddenRules(it.bl.owner, mk);
         for (var h = 0; h < more.length; h++) if (hid.indexOf(more[h]) < 0) hid.push(more[h]);
       }
-      var name = '<span class="' + P + '-rb">' + esc(it.m.name) + hInfo(metricTip(it.m))
-        + focusTag(it.m, it.bl) + moreFocus(hid, false) + rowNote(it.m) + '</span>';
+      // Название и значки — одной флекс-строкой по центру (владелец 15.10: «без KPI всё равно съехало»): по базовой линии
+      // ⓘ стоит по-разному в разных шрифтах (у владельца — системный Mac), флекс от шрифта не зависит.
+      var name = '<span class="' + P + '-rb"><span class="' + P + '-rbl"><span>' + esc(it.m.name) + '</span>' + hInfo(metricTip(it.m))
+        + focusTag(it.m, it.bl) + moreFocus(hid, false) + '</span>' + rowNote(it.m) + '</span>';
       var ab = absText(it.m, M.scope, L), abH = ab ? '<span class="' + P + '-us ' + P + '-abs">' + esc(ab) + '</span>' : '';
       // Юнит меньше порога (HRBP 13.10): значение, динамика и график — как у всех, только без цвета.
       if (sm) abH += '<span class="' + P + '-us ' + P + '-abs"' + tip({ title: it.m.name, text: smallWhy(M.scope, it.m), rows: absRows(it.m, M.scope, L) }) + '>без цвета: мало людей</span>';
