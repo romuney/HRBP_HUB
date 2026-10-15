@@ -1938,10 +1938,10 @@ function buildCSS() {
     P + '-mkt{font-size:' + F.dense + 'px;font-weight:600;fill:#fff;font-variant-numeric:tabular-nums;pointer-events:none;}',
     // Раскрытая строка «Сводки» (13.10): график ≈ 64 % слева, справа «Что видно» (номера = точки на графике) и «О метрике».
     P + '-story{display:grid;grid-template-columns:minmax(0,1.8fr) minmax(250px,1fr);padding:14px 0 6px;}',
-    P + '-stc{padding:0 20px 0 16px;min-width:0;}',
-    P + '-sts{padding:2px 18px 4px 20px;border-left:1px solid ' + C.line + ';min-width:0;white-space:normal;text-align:left;}',
+    P + '-stc{padding:0 20px 0 16px;min-width:0;border-right:1px solid ' + C.line + ';}',
+    P + '-sts{padding:2px 18px 4px 20px;min-width:0;white-space:normal;text-align:left;align-self:start;}',
     P + '-narrow ' + P + '-story{grid-template-columns:minmax(0,1fr);padding:12px 12px 0;}',
-    P + '-narrow ' + P + '-stc{padding:0 0 12px;}',
+    P + '-narrow ' + P + '-stc{padding:0 0 12px;border-right:0;}',
     P + '-narrow ' + P + '-sts{border-left:0;border-top:1px solid ' + C.line + ';padding:12px 0 6px;}',
     P + '-sth{font-size:' + F.cap + 'px;text-transform:uppercase;letter-spacing:.5px;color:' + C.muted + ';font-weight:500;margin:0 0 8px;}',
     P + '-sta{margin-top:16px;padding-top:14px;border-top:1px solid ' + C.line2 + ';}',
@@ -2994,7 +2994,11 @@ function chartBlock(kind, key, title, spec, H) {
   // H < 0 — высота по панели «Динамики» (state.dynH, fitDyn в БЛОКЕ 6): две метрики целиком на любом экране.
   return '<div class="' + P + '-chb" data-chb="1"><div class="' + P + '-chh"><span class="' + P + '-cap">' + esc(title) + '</span>'
     + '<span class="' + P + '-lgd" role="group" aria-label="Линии графика">' + cur + sw + '</span></div>'
-    + chartSlot(kind, key, function (w, ctx) { return svgLine(spec, w, H < 0 ? (state.dynH || CFG.chart.hSmall) : H, ctx); }) + '</div>';
+    + chartSlot(kind, key, function (w, ctx) {
+      // H = −2 — раскрытая строка «Сводки»: высота по колонке «Что видно» справа (state.storyH, fitStory в БЛОКЕ 6).
+      var h = H === -2 ? ((state.storyH || {})[key] || CFG.chart.story) : (H < 0 ? (state.dynH || CFG.chart.hSmall) : H);
+      return svgLine(spec, w, h, ctx);
+    }) + '</div>';
 }
 // Спарклайн строки: 12 закрытых месяцев, цвет — оценка каждого месяца.
 function sparkHTML(unitId, ser, m) {
@@ -3530,7 +3534,7 @@ function storyRow(u, ser, m) {
   spec.marks = [];
   for (var i = 0; i < items.length; i++) if (items[i].n) spec.marks.push({ i: items[i].i, s: items[i].s, n: items[i].n });
   return '<tr class="' + P + '-det"><td colspan="6"><div class="' + P + '-story" data-story="1">'
-    + '<div class="' + P + '-stc">' + chartBlock('story', 'op:' + m.key + ':yoy:' + u, cmpRef(spec) ? 'Помесячно: этот год и ' + (spec.refKind === 'kpi' ? 'KPI' : 'база') : 'Помесячно: этот год и прошлый', spec, CFG.chart.story) + '</div>'
+    + '<div class="' + P + '-stc">' + chartBlock('story', 'op:' + m.key + ':yoy:' + u, cmpRef(spec) ? 'Помесячно: этот год и ' + (spec.refKind === 'kpi' ? 'KPI' : 'база') : 'Помесячно: этот год и прошлый', spec, -2) + '</div>'
     + '<div class="' + P + '-sts">' + storyHTML(items) + '<div class="' + P + '-sta">' + aboutHTML(m) + '</div></div>'
     + '</div></td></tr>';
 }
@@ -5232,10 +5236,28 @@ function buildHTML() {
       state.dynH = h;
       return true;
     }
+    // Раскрытая строка «Сводки» (владелец 15.10: «растягивай график по высоте»): график — во всю высоту колонки
+    // «Что видно» + «О метрике» справа, не ниже CFG.chart.story; узко (одна колонка) — обычной высоты.
+    function fitStory() {
+      var P = CFG.ns, bl = overlay.querySelectorAll('.' + P + '-story'), changed = false;
+      state.storyH = state.storyH || {};
+      for (var i = 0; i < bl.length; i++) {
+        var stc = bl[i].querySelector('.' + P + '-stc'), sts = bl[i].querySelector('.' + P + '-sts'), cd = stc ? stc.querySelector('[data-ci]') : null;
+        var c = cd ? CHARTS[+cd.getAttribute('data-ci')] : null;
+        if (!c || !c.key || !sts) continue;
+        // Колонка графика тянется по строке — меряем её содержимое: от верха колонки до низа последнего блока.
+        var cur = state.storyH[c.key] || CFG.chart.story, last = stc.lastElementChild || cd;
+        var natural = last.getBoundingClientRect().bottom - stc.getBoundingClientRect().top;
+        var want = state.narrow ? CFG.chart.story : Math.max(CFG.chart.story, Math.min(560, Math.round(cur + sts.offsetHeight - natural)));
+        if (Math.abs(want - cur) > 4) { state.storyH[c.key] = want; changed = true; }
+      }
+      return changed;
+    }
     function relayout() {
       var a = measureNarrow();
       fitSplit();
       a = fitDyn() || a;
+      a = fitStory() || a;
       var b = measureCharts();
       measureNames();
       placeDrawer();
