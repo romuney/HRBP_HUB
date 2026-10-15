@@ -35,6 +35,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ch  # noqa: E402
+ch.LEGACY_HCT = True   # регресс — «без типа = все типы» (носитель «*»); умолчание «Активная» — отдельной проверкой ниже
 import expect as X  # noqa: E402
 import world as W  # noqa: E402
 
@@ -477,6 +478,20 @@ def main():
     ok(all(got[k] == hl.get(k, '') for k in got) and any(got.values()),
        'логин руководителя в справочнике == hrbp_hub_unit.head_login (%d из %d юнитов с логином)' % (sum(1 for v in got.values() if v), len(got)))
     ok(meta(ask({}, 'nobody')[0]).get('fdv') == {}, 'без роли словарей значений нет')
+
+    # «Тип численности» по умолчанию — «Активная» (15.10): без носителя hct_f ответ = ответ с hct_f = ['Активная'],
+    # эхо f_hct — ['Активная']; «*» — все типы: эхо пустое, как раньше без фильтра.
+    def srt(rows):
+        return sorted(json.dumps(r, sort_keys=True, ensure_ascii=False) for r in rows)
+    ch.LEGACY_HCT = False
+    for user, flt in [('a.sergeeva', {}), ('b.kotov', {}), ('b.kotov', {'staff_f': ['Штат'], 'tr_f': ['grade']})]:
+        dflt, _ = ch.dataset(flt, user)
+        act, _ = ch.dataset(dict(flt, hct_f=['Активная']), user)
+        ok(srt(dflt) == srt(act), 'без «Тип численности» — как «Активная» [%s %s]' % (user, flt))
+        ok(meta(dflt).get('f_hct') == ['Активная'], 'эхо типа по умолчанию — «Активная» [%s]' % user)
+        star, _ = ch.dataset(dict(flt, hct_f=['*']), user)
+        ok(meta(star).get('f_hct') == [], '«*» — все типы, эхо пустое [%s]' % user)
+    ch.LEGACY_HCT = True
 
     # ---------------- 7. кеш Proteus: логин в ключе кеша ----------------
     # Регулярка Superset 2.x (superset/jinja_context.py, ExtraCache.regex): ищет вызов внутри {{ … }}

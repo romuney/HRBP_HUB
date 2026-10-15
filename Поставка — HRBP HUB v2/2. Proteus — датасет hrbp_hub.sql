@@ -47,7 +47,7 @@
     обрезан, чарт говорит об этом сам.
 
     Кросс-фильтры (эмитит сам чарт, самовлияние ВКЛЮЧЕНО): unit_f — id юнитов;
-    paint_f / it_f / stream_f / spec_f / staff_f / hct_f — значения разрезов;
+    paint_f / it_f / stream_f / spec_f / staff_f / hct_f — значения разрезов (hct_f: нет — «Активная», «*» — все типы);
     tr_f — атрибут трансформеров (запасной режим TR_ALL_MAX: большая ветка с разрезами);
     depth_f — глубина «Команд» ('all' — все уровни, в запасе). Колонки-носители в SELECT не выводятся
     (иначе Superset повесит авто-IN на внешний запрос). Доступ — current_username():
@@ -122,12 +122,17 @@
 {% set D = DEEP if depth_req == 'all' else 3 %}
 {% set F = {} %}
 {% for c in CUTS %}{% set vals = [] %}{% for v in (filter_values(c[1]) or []) %}{% if v|string != '' and (v|string)|length <= 500 and vals|length < 200 %}{% set _ = vals.append(v|string) %}{% endif %}{% endfor %}{% set _ = F.update({c[0]: vals}) %}{% endfor %}
+{#- «Тип численности» по умолчанию — «Активная» (владелец 15.10): нет носителя hct_f — отчёт сразу по активной численности,
+    одним запросом (раньше чарт ставил её вторым запросом). «*» — все типы: юридическая численность, как раньше без фильтра;
+    чарт шлёт его, когда тип снят руками. -#}
+{% set ACTIVE = 'Активная' %}
+{% if not (filter_values('hct_f') or []) %}{% set _ = F.update({'hct': [ACTIVE]}) %}{% elif '*' in F['hct'] %}{% set _ = F.update({'hct': []}) %}{% endif %}
 {#- Выбран ли хоть один разрез: без разрезов атрибуты берутся из свёртки. -#}
 {% set ANYCUT = [] %}{% for c in CUT_COLS %}{% if F[c]|length > 0 %}{% set _ = ANYCUT.append(c) %}{% endif %}{% endfor %}
 {% set axis = filter_values('tr_f')|first|default('', true) %}
 {% set axis = axis|string if (axis|string in CUT_COLS or axis|string in ATTRS) else '' %}
 {#- Закрепляемость от active_hire_dt — только когда «Тип численности» = ровно «Активная». -#}
-{% set RA = 'a' if (F['hct']|length == 1 and F['hct'][0] == 'Активная') else '' %}
+{% set RA = 'a' if (F['hct']|length == 1 and F['hct'][0] == ACTIVE) else '' %}
 {#- Колонки компонентов (закрепляемость — с подменой RA): MM — месячные, MW — они же и недельные, MT — месячные
     трансформеров (все 14, с 13.10). -#}
 {% set MM = [] %}{% set WW = [] %}

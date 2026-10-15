@@ -151,6 +151,10 @@ def where_in(values, mark="'"):
     return '(' + ', '.join(q(v) for v in values) + ')'
 
 
+# True — запрос без «Тип численности» уходит с hct_f = ['*'] (все типы, как до 15.10): так считает stand/check.py.
+LEGACY_HCT = False
+
+
 def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET, all_max=None, tr_all_max=None,
            tr_top=None, attr_top=True):
     """all_max — подменить порог «все уровни», tr_all_max — порог листового куба атрибутов
@@ -158,7 +162,10 @@ def render(flt=None, user='a.sergeeva', always_true=False, path=DATASET, all_max
     (стенд маленький: так проверяются режимы больших веток), attr_top=False — не читать
     свёртку атрибутов (только листовой куб: так свёртка сверяется с ним). По умолчанию — из
     окружения HH_ALL_MAX / HH_TR_ALL_MAX / HH_TR_TOP / HH_ATTR_TOP=0."""
-    flt = flt or {}
+    flt = dict(flt or {})
+    # Регресс check.py написан для «без типа — юр. численность»: с 15.10 это «*» (без носителя — «Активная»).
+    if LEGACY_HCT and 'hct_f' not in flt:
+        flt['hct_f'] = ['*']
     all_max = all_max or os.environ.get('HH_ALL_MAX')
     tr_all_max = tr_all_max or os.environ.get('HH_TR_ALL_MAX')
     tr_top = tr_top or os.environ.get('HH_TR_TOP')
