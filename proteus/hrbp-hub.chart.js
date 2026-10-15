@@ -1513,8 +1513,20 @@ function buildCSS() {
     P + '-cnt{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 4px;margin-left:5px;border-radius:999px;background:' + C.blueBg + ';color:#2b5fd0;font-size:' + F.micro + 'px;font-weight:500;}',
 
     // ---- строка фильтров: контролы 34 px ----
-    P + '-fbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0 0;min-height:44px;}',
-    P + '-ctx{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;margin-right:6px;font-size:' + F.body + 'px;color:' + C.ink2 + ';}',
+    // Строка контекста — одна (владелец 15.10): путь юнита сжимается многоточием, чипы — сколько влезет, остальные — «+N».
+    P + '-fbar{display:flex;align-items:center;gap:8px;flex-wrap:nowrap;padding:10px 0 0;min-height:44px;}',
+    P + '-fbar>*{flex:none;}',
+    P + '-ctx{display:inline-flex;align-items:center;gap:6px;flex-wrap:nowrap;margin-right:6px;font-size:' + F.body + 'px;color:' + C.ink2 + ';}',
+    P + '-fbar>' + P + '-ctx{flex:0 1 auto;min-width:220px;overflow:hidden;white-space:nowrap;}',
+    P + '-ctx ' + P + '-crumbs{display:flex;align-items:center;min-width:0;overflow:hidden;}',
+    P + '-ctx ' + P + '-crumbs>*{flex:0 1 auto;min-width:0;}',
+    P + '-ctx ' + P + '-crumbs>' + P + '-csep{flex:none;}',
+    P + '-ctx ' + P + '-crumbs b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto;min-width:60px;}',
+    P + '-fbar>' + P + '-fchips{display:flex;align-items:center;gap:8px;flex:0 1 auto;min-width:96px;overflow:hidden;}',
+    P + '-fchips>*{flex:none;}',
+    P + '-fbar>' + P + '-sp{flex:1 1 0;min-width:0;}',
+    P + '-chipm{border:0;font-family:inherit;padding:0 11px;cursor:pointer;background:' + C.blueBg + ';}',
+    P + '-chipm:hover{background:#dbe6ff;}',
     P + '-ddb{display:inline-flex;align-items:center;gap:6px;height:34px;border:1px solid ' + C.line + ';background:' + C.card + ';border-radius:9px;padding:0 12px;font-size:' + F.control + 'px;font-weight:500;color:' + C.ink2 + ';cursor:pointer;white-space:nowrap;max-width:340px;}',
     P + '-ddb:hover{border-color:#d8dce4;}',
     P + '-ddb' + P + '-set{background:' + C.blueBg + ';color:#2b5fd0;border-color:#dbe6fd;}',
@@ -1529,6 +1541,10 @@ function buildCSS() {
     P + '-x:hover{background:rgba(43,95,208,.3);}',
     P + '-bench{display:inline-flex;align-items:center;gap:6px;height:34px;border-radius:9px;padding:0 12px;font-size:' + F.control + 'px;font-weight:400;background:' + C.bg + ';color:' + C.muted + ';border:1px solid ' + C.line + ';cursor:help;white-space:nowrap;}',
     P + '-bench b{color:' + C.ink2 + ';font-weight:500;}',
+    P + '-fbar>' + P + '-bench{flex:0 50 auto;min-width:200px;overflow:hidden;}',
+    P + '-bench b{overflow:hidden;text-overflow:ellipsis;min-width:0;}',
+    P + '-narrow ' + P + '-fbar>' + P + '-ctx{min-width:140px;}',
+    P + '-narrow ' + P + '-fbar>' + P + '-bench{min-width:110px;}',
     // «Только фокусные» — переключатель шапки Adoption: 34 px, ползунок 26 × 15
     P + '-ft{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 11px 0 8px;border:1px solid ' + C.line + ';border-radius:9px;background:' + C.card + ';cursor:pointer;user-select:none;white-space:nowrap;}',
     P + '-ft:hover{border-color:#d3d8e0;}',
@@ -2902,12 +2918,17 @@ function filterBtnHTML() {
 function filterBarHTML() {
   var P = CFG.ns, chips = filterChips(), n = pendingN(), on = !!state.drawer, v = state.view || 'onepager';
   var s = '<div class="' + P + '-fbar"><span class="' + P + '-ctx">' + crumbsHTML() + (v === 'onepager' ? sumInfo() : '') + '</span>';
+  // Чипы — в одну строку (владелец 15.10): не влезают — первые видны, остальные под «+N» (fitChips, БЛОК 6).
+  s += '<span class="' + P + '-fchips" data-fchips="1">';
   for (var i = 0; i < chips.length; i++) {
     var c = chips[i];
-    s += '<span class="' + P + '-chip"' + (c.list.length > 1 ? tip({ title: c.label, text: c.list.join(', ') }) : '') + '>'
+    s += '<span class="' + P + '-chip" data-chl="' + esc((c.label ? c.label + ': ' : '') + (c.list.length > 1 ? c.list.join(', ') : c.value)) + '"' + (c.list.length > 1 ? tip({ title: c.label, text: c.list.join(', ') }) : '') + '>'
       + (c.label ? '<span class="' + P + '-ddl">' + esc(c.label) + ':</span>' : '') + '<span class="' + P + '-ddv">' + esc(c.value) + '</span>'
       + '<span class="' + P + '-x" role="button" tabindex="0" aria-label="Снять фильтр «' + esc(c.label || c.value) + '»" data-action="chipx" data-key="' + esc(c.key) + '">×</span></span>';
   }
+  s += '<button type="button" class="' + P + '-chip ' + P + '-chipm" data-chipm="1" data-action="drawer" style="display:none">+0</button>';
+  if (chips.length > 1) s += '<button class="' + P + '-lnk ' + P + '-rst" data-action="reset">Сбросить всё</button>';
+  s += '</span>';
   // Набрано в окне, но не применено (окно закрыли) — напоминание с той же «Применить». Набранное уже
   // ушло запросом и ждёт ответа — не «не применено»: идёт строка «Обновляю данные…» (бой отвечает
   // долго, и плашка с серой «Применить» выглядела как непринятый фильтр).
@@ -2917,10 +2938,9 @@ function filterBarHTML() {
       + '<button class="' + P + '-btn ' + P + '-pri" data-action="apply"' + (state.pend ? ' disabled' : '') + '>Применить</button>'
       + '<button class="' + P + '-btn ' + P + '-ghost" data-action="unstage">Отменить</button></span>';
   }
-  if (chips.length > 1) s += '<button class="' + P + '-lnk" data-action="reset">Сбросить всё</button>';
   s += '<span class="' + P + '-sp"></span>' + (state.view === 'onepager' || !state.view ? popHintBtn() : '');
   s += '<span class="' + P + '-bench"' + tip({ title: 'База сравнения',
-    text: 'Вся компания под теми же разрезами. С ней сравниваем метрики, у которых нет KPI.' }) + '>База: <b>' + esc(benchLabel()) + '</b></span>';
+    text: 'Вся компания под теми же разрезами. С ней сравниваем метрики, у которых нет KPI.', note: 'Сейчас: ' + benchLabel() }) + '>База: <b>' + esc(benchLabel()) + '</b></span>';
   return s + '</div>';
 }
 // Сколько ждём ответ: «12 с» (секундомер — БЛОК 6, раз в секунду), только про текущий запрос.
@@ -5283,7 +5303,29 @@ function buildHTML() {
       }
       return changed;
     }
+    // Чипы применённого — в одну строку: не влезают — прячем с конца, вместо них «+N» (клик — «Фильтры», в подсказке —
+    // спрятанные). Сначала показываем все: ширина строки могла вырасти.
+    function fitChips() {
+      var box = overlay.querySelector('[data-fchips]');
+      if (!box) return;
+      var cs = box.querySelectorAll('[data-chl]'), more = box.querySelector('[data-chipm]'), hid = [], i;
+      for (i = 0; i < cs.length; i++) cs[i].style.display = '';
+      box.style.width = ''; box.style.flex = '';
+      if (more) more.style.display = 'none';
+      if (box.scrollWidth <= box.clientWidth + 1 || !more) return;
+      // Ширина — та, что досталась при всех чипах (база ужата первой): иначе, пряча чипы, отдаём место базе обратно.
+      box.style.width = box.clientWidth + 'px'; box.style.flex = 'none';
+      more.style.display = '';
+      for (i = cs.length - 1; i >= 0 && box.scrollWidth > box.clientWidth + 1; i--) {
+        cs[i].style.display = 'none';
+        hid.unshift(cs[i].getAttribute('data-chl'));
+        more.textContent = '+' + hid.length;
+      }
+      more.setAttribute('data-tip', tipHtml({ title: 'Ещё ' + hid.length + ' ' + plural(hid.length, 'фильтр', 'фильтра', 'фильтров'), text: hid.join(' · '), note: 'Нажмите — откроются «Фильтры».' }));
+      more.setAttribute('aria-label', 'Ещё фильтры: ' + hid.join(', '));
+    }
     function relayout() {
+      fitChips();
       var a = measureNarrow();
       fitSplit();
       a = fitDyn() || a;
