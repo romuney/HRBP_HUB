@@ -1728,6 +1728,7 @@ function buildCSS() {
     P + '-kpi{background:' + C.card + ';border-radius:12px;box-shadow:' + SH + ';padding:12px 14px;min-width:0;}',
     P + '-kl{font-size:' + F.note + 'px;color:' + C.muted + ';font-weight:500;display:flex;align-items:center;gap:6px;white-space:nowrap;}',
     P + '-kl ' + P + '-info{margin-left:0;}',
+    P + '-pht ' + P + '-info{vertical-align:2px;}',
     P + '-kv{font-size:' + F.hero + 'px;font-weight:600;letter-spacing:-.4px;line-height:1.15;color:' + C.ink + ';margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums;}',
     // Текстовое значение (имя юнита) — кегль заголовка, но в строку той же высоты: полосы карточек на одной линии.
     P + '-kv' + P + '-sm{font-size:' + F.title + 'px;line-height:' + (F.hero * 1.15).toFixed(1) + 'px;letter-spacing:0;}',
@@ -1892,7 +1893,7 @@ function buildCSS() {
     // KPI у юнита — только звёздочка (владелец 14.10: без «Фокус»): ★ — свой KPI, ☆ — KPI с уровня выше; подробности — в подсказке.
     // Плашка KPI у метрики и юнита (владелец 15.10: «звёздочка в обводке, как был «Фокус», и аккуратно KPI»): по средней
     // линии с ⓘ (та же высота и vertical-align), фон — маркер KPI, ☆ с уровня выше — без заливки.
-    P + '-star{display:inline-flex;align-items:center;gap:3px;height:16px;padding:0 6px;margin-left:6px;border-radius:999px;border:1px solid #f3d58f;background:' + C.kpiBg + ';color:' + C.ink + ';font-size:' + F.micro + 'px;font-weight:600;letter-spacing:.2px;line-height:1;cursor:help;vertical-align:-3px;white-space:nowrap;}',
+    P + '-star{display:inline-flex;align-items:center;gap:3px;height:16px;padding:0 6px;margin-left:6px;border-radius:999px;border:1px solid #f3d58f;background:' + C.kpiBg + ';color:' + C.ink + ';font-size:' + F.micro + 'px;font-weight:600;letter-spacing:.2px;line-height:1;cursor:help;vertical-align:0;white-space:nowrap;}',
     P + '-star i{font-style:normal;color:' + C.kpi + ';font-size:' + F.cap + 'px;line-height:1;}',
     P + '-star' + P + '-star0{background:' + C.card + ';border-color:' + C.line + ';color:' + C.muted + ';}',
     P + '-star' + P + '-star0 i{color:' + C.muted + ';}',
@@ -1900,7 +1901,7 @@ function buildCSS() {
     // Без ориентира — словами в пунктирной рамке, а не прочерком (ДС 4.8).
     P + '-nocmp{display:inline-flex;align-items:center;height:22px;padding:0 8px;border:1px dashed ' + C.line + ';border-radius:999px;font-size:' + F.note + 'px;font-weight:400;color:' + C.muted + ';white-space:nowrap;}',
     // Значок справки ⓘ: 14 px, глиф 9 / 600, рамка muted2
-    P + '-info{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid ' + C.muted2 + ';color:' + C.muted + ';font-size:' + F.micro + 'px;font-weight:600;font-style:normal;line-height:1;cursor:help;flex:0 0 auto;margin-left:6px;vertical-align:-2px;user-select:none;}',
+    P + '-info{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:1px solid ' + C.muted2 + ';color:' + C.muted + ';font-size:' + F.micro + 'px;font-weight:600;font-style:normal;line-height:1;cursor:help;flex:0 0 auto;margin-left:6px;vertical-align:0;user-select:none;}',
     P + '-info:hover{border-color:' + C.act + ';color:' + C.act + ';}',
     // Сигнальный чип: 11 / 500, радиус 999, поля 2/9
     P + '-st{display:inline-block;font-size:' + F.val + 'px;font-weight:500;padding:2px 9px;border-radius:999px;white-space:nowrap;cursor:help;}',
