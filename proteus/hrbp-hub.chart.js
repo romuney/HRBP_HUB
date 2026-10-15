@@ -750,7 +750,7 @@ function baseline(unitId, m, v, g, i) {
   var day = MODEL.cal[g][i] ? MODEL.cal[g][i].e : '';
   var k = resolveKpi(unitId, m.key, day);
   // Текучесть с начала года сравнивается с долей годовой цели: к марту — 3/12 (HRBP 13.10).
-  if (k) { var tg = g === 'm' && m.ytd && ytdOn(m) ? k.rule.target * ((i % 12) + 1) / 12 : k.rule.target;
+  if (k) { var tg = g === 'm' && m.ytd && ytdOn(m) ? k.rule.target * monthsDone(i) / 12 : k.rule.target;
            return { kind: 'kpi', ref: tg, rule: k.rule, owner: k.owner, inherited: k.inherited, state: stateForKpi(m, v, tg) }; }
   if (comparable(m)) {
     var b = mval(MODEL.base, g, m, i);
@@ -1115,8 +1115,15 @@ function capFirst(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
 function dparts(iso) { var p = toDate(iso); return p || { y: 0, m: 0, d: 1 }; }
 function fmtDay(iso) { var p = dparts(iso); return p.d + NBSP + MONTH_GEN[p.m] + ' ' + p.y; }
 function monthLabel(i) { var s = MODEL.cal.m[i]; if (!s) return ''; var p = dparts(s.s); return MONTH_ABBR[p.m] + ' ' + p.y; }
-function monthFull(i) { var s = MODEL.cal.m[i]; if (!s) return ''; var p = dparts(s.s); return capFirst(MONTH_FULL[p.m]) + ' ' + p.y; }
-function monthLow(i) { var s = MODEL.cal.m[i]; if (!s) return ''; var p = dparts(s.s); return MONTH_FULL[p.m] + ' ' + p.y; }
+function monthFull(i) { var s = MODEL.cal.m[i]; if (!s) return ''; var p = dparts(s.s); return capFirst(MONTH_FULL[p.m]) + ' ' + p.y + partTag(i); }
+// Текущий месяц — по дату данных (владелец 15.10: «метрики всегда на вчера»): слот кончается на data_dt, не на конце
+// месяца. partOf — доля прошедшего месяца (0 — месяц полный), monthsDone — месяцев года к слоту (для годового KPI и темпа).
+function monthDays(iso) { var p = dparts(iso); return new Date(Date.UTC(p.y, p.m + 1, 0)).getUTCDate(); }
+function partOf(i) { var c = MODEL.cal.m[i]; if (!c || !c.e) return 0; var d = dparts(c.e).d, n = monthDays(c.e); return d < n ? d / n : 0; }
+function monthsDone(i) { return (i % 12) + (partOf(i) || 1); }
+function dayDm(iso) { var p = dparts(iso); return (p.d < 10 ? '0' : '') + p.d + '.' + (p.m < 9 ? '0' : '') + (p.m + 1); }
+function partTag(i) { return partOf(i) ? ' · по ' + dayDm(MODEL.cal.m[i].e) : ''; }
+function monthLow(i) { var s = MODEL.cal.m[i]; if (!s) return ''; var p = dparts(s.s); return MONTH_FULL[p.m] + ' ' + p.y + partTag(i); }
 function monthDat(i) { var s = MODEL.cal.m[i]; if (!s) return ''; var p = dparts(s.s); return MONTH_DAT[p.m] + ' ' + p.y; }
 
 // Подсказка — один конструктор на весь чарт: заголовок, текст, строки, сноска.
@@ -1245,6 +1252,8 @@ function svgLine0(spec, W, H, ctx) {
   s += '<line x1="' + (gl - 4) + '" x2="' + (gl + pw + 4) + '" y1="' + (gt + ph + 0.5) + '" y2="' + (gt + ph + 0.5) + '" stroke="' + C.axisLine + '"/>';
   for (var xi = 0; xi < n && !spec.cols; xi++) {
     s += '<text x="' + X(xi).toFixed(1) + '" y="' + (gt + ph + 15) + '" text-anchor="middle" class="' + P + '-ax' + (xi === spec.boldIdx ? ' ' + P + '-axb' : '') + '">' + esc(spec.labels[xi]) + '</text>';
+    // Незакрытый месяц (15.10): под подписью — «по ДД.ММ».
+    if (xi === spec.partIdx && spec.partLbl) s += '<text x="' + X(xi).toFixed(1) + '" y="' + (gt + ph + 26) + '" text-anchor="middle" class="' + P + '-ax ' + P + '-axp">' + esc(spec.partLbl) + '</text>';
   }
   var rCur = on.cur ? runs(spec.cur, X, Y) : [], rPrev = on.prev ? runs(spec.prev, X, Y) : [], rRef = on.ref ? runs(spec.ref, X, Y) : [];
   // заливка под текущим — открывается слева направо вместе с линией
@@ -1276,8 +1285,17 @@ function svgLine0(spec, W, H, ctx) {
   // текущий — акцентная линия с точками
   for (var rc = 0; rc < rCur.length; rc++) {
     var pc = rCur[rc];
-    if (pc.length > 1) s += '<path class="' + P + '-ln" pathLength="1" stroke-dasharray="1" d="' + smoothPath(pc) + '" fill="none" stroke="' + C.cur + '" stroke-width="2" stroke-linecap="round" data-s="cur"/>';
-    for (var q3 = 0; q3 < pc.length; q3++) s += '<circle class="' + P + '-fd" data-d="' + dly(pc[q3][2]) + '" cx="' + pc[q3][0].toFixed(1) + '" cy="' + pc[q3][1].toFixed(1) + '" r="3" fill="' + C.cur + '" stroke="#fff" stroke-width="1.6" data-s="cur"/>';
+    // Незакрытый месяц (владелец 15.10: «метрика вызревает, не финальная») — последний отрезок пунктиром, точка полая.
+    var pend = pc.length > 1 && pc[pc.length - 1][2] === spec.partIdx, solid = pend ? pc.slice(0, -1) : pc;
+    if (solid.length > 1) s += '<path class="' + P + '-ln" pathLength="1" stroke-dasharray="1" d="' + smoothPath(solid) + '" fill="none" stroke="' + C.cur + '" stroke-width="2" stroke-linecap="round" data-s="cur"/>';
+    if (pend) {
+      var pa1 = pc[pc.length - 2], pa2 = pc[pc.length - 1];
+      s += '<path class="' + P + '-fd" data-d="' + dly(pa2[2]) + '" d="M' + pa1[0].toFixed(1) + ' ' + pa1[1].toFixed(1) + 'L' + pa2[0].toFixed(1) + ' ' + pa2[1].toFixed(1) + '" fill="none" stroke="' + C.cur + '" stroke-width="2" stroke-dasharray="4 3" stroke-linecap="round" data-s="cur"/>';
+    }
+    for (var q3 = 0; q3 < pc.length; q3++) {
+      var hol = pc[q3][2] === spec.partIdx;
+      s += '<circle class="' + P + '-fd" data-d="' + dly(pc[q3][2]) + '" cx="' + pc[q3][0].toFixed(1) + '" cy="' + pc[q3][1].toFixed(1) + '" r="' + (hol ? 3.4 : 3) + '" fill="' + (hol ? '#fff' : C.cur) + '" stroke="' + (hol ? C.cur : '#fff') + '" stroke-width="' + (hol ? 2 : 1.6) + '" data-s="cur"/>';
+    }
   }
   // подписи текущего — поверх всех линий, на белой подложке. Над точкой, если прошлый
   // период ниже (или выключен), иначе под ней; наезжающую на соседку — на другую сторону.
@@ -1926,6 +1944,7 @@ function buildCSS() {
     P + '-svg{display:block;overflow:visible;}',
     P + '-ax{font-size:' + F.axis + 'px;fill:' + C.axis + ';font-weight:400;}',
     P + '-axb{fill:' + C.axisStrong + ';font-weight:600;}',
+    P + '-axp{fill:' + C.muted + ';font-size:' + F.dense + 'px;}',
     P + '-axk{font-weight:500;}',
     P + '-vlb{fill:#fff;fill-opacity:.94;}',
     P + '-vl{font-size:' + F.val + 'px;fill:' + C.label + ';font-weight:400;font-variant-numeric:tabular-nums;}',
@@ -2385,7 +2404,7 @@ function cmpTd(m, v, bl) {
         rows: [{ label: 'факт', value: fmtVal(m, v) }, { label: 'KPI', value: fmtVal(m, bl.ref), color: CFG.colors.kpi, dash: true },
                { label: 'отклонение', value: fmtDelta(m, dk) }],
         note: [(bl.inherited ? 'KPI унаследован с уровня «' : 'KPI стоит на юните «') + unitName(MODEL, bl.owner) + '».',
-               m.ytd && ytdOn(m) && bl.rule ? 'Годовой KPI — ' + fmtVal(m, bl.rule.target) + '; к ' + monthDat(MODEL.L) + ' — ' + ((MODEL.L % 12) + 1) + '/12 от неё.' : null,
+               m.ytd && ytdOn(m) && bl.rule ? 'Годовой KPI — ' + fmtVal(m, bl.rule.target) + '; к ' + monthDat(MODEL.L) + ' — ' + Math.round(monthsDone(MODEL.L) / 12 * 100) + '% от него.' : null,
                stTxt(bl.state)] }) + '>'
       + '<div class="' + P + '-tgt ' + P + '-tgtk"><span class="' + P + '-hlk"><span class="' + P + '-tgl">KPI ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</span></div>'
       + hPill(bl.state, fmtDelta(m, dk)) + '</td>';
@@ -2460,8 +2479,8 @@ function headHTML() {
   }
   if (M.ok && M.L >= 0) {
     s += '<span class="' + P + '-badge"' + tip({ title: 'Период отчёта',
-      rows: [{ label: 'данные на', value: M.dataDt ? fmtDay(M.dataDt) : '—' }, { label: 'последний полный месяц', value: monthFull(M.L) }],
-      note: 'В отчёт попадают только закончившиеся месяцы: ' + monthFull(M.L + 1 < 24 ? M.L + 1 : M.L) + ' появится, когда закончится.' })
+      rows: [{ label: 'данные на', value: M.dataDt ? fmtDay(M.dataDt) : '—' }, { label: 'последний месяц', value: monthFull(M.L) }],
+      note: partOf(M.L) ? 'Метрики — на вчера. Месяц ещё идёт: его значения не финальные и изменятся до конца месяца (на графиках — пунктир и полая точка).' : 'Метрики — на вчера.' })
       + '>Период: <b>' + esc(monthFull(M.L)) + '</b></span>';
   }
   if (M.meta) {
@@ -2959,10 +2978,11 @@ function yoySpec(unitId, ser, m) {
   if (rk === 'kpi') {
     ref = targetSeries(unitId, m.key, 'm').slice(12, 24);
     // годовая цель на нарастающем итоге — доля года: к марту — 3/12 цели
-    if (ytd) for (var t = 0; t < 12; t++) ref[t] = ref[t] === null ? null : ref[t] * (t + 1) / 12;
+    if (ytd) for (var t = 0; t < 12; t++) ref[t] = ref[t] === null ? null : ref[t] * monthsDone(12 + t) / 12;
   } else if (rk === 'bench') { ref = []; for (var b = 0; b < 12; b++) ref.push(12 + b <= L ? val(M.base, 12 + b) : null); }
   var y = dparts(M.cal.m[L].s).y;
   return { m: m, nocol: NOCOL, ytd: ytd, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: L - 12, heads: heads, prevHeads: null,
+           partIdx: partOf(L) ? L - 12 : -1, partLbl: partOf(L) ? 'по ' + dayDm(M.cal.m[L].e) : '',
            curName: String(y), prevName: String(y - 1), refName: rk === 'kpi' ? 'KPI' : 'база · ' + benchLabel(),
            tips: { cur: ytd ? y + ' год, с начала года: значение копится с января.' : y + ' год по месяцам.',
                    prev: (y - 1) + ' год — те же месяцы.',
@@ -3499,9 +3519,9 @@ function storyItems(u, ser, m, spec) {
   }
   // 5. С начала года — темп к декабрю; иначе — сколько месяцев года хуже ориентира
   if (spec.cum && b < 11 && v > 0) {
-    var pace = v * 12 / (b + 1), tail = '';
-    if (bl.kind === 'kpi') tail = (m.ytd ? ' Годовой KPI — ' + esc(fmtVal(m, bl.ref * 12 / (b + 1))) : ' KPI — ' + esc(fmtVal(m, bl.ref))) + '.';
-    else if (bl.kind === 'bench' && bl.ref) tail = ' У базы темп ≈' + NBSP + esc(fmtVal(m, bl.ref * 12 / (b + 1))) + '.';
+    var md = monthsDone(L), pace = v * 12 / md, tail = '';
+    if (bl.kind === 'kpi') tail = (m.ytd ? ' Годовой KPI — ' + esc(fmtVal(m, bl.ref * 12 / md)) : ' KPI — ' + esc(fmtVal(m, bl.ref))) + '.';
+    else if (bl.kind === 'bench' && bl.ref) tail = ' У базы темп ≈' + NBSP + esc(fmtVal(m, bl.ref * 12 / md)) + '.';
     out.push({ i: -1, html: '<b>К декабрю при таком темпе — ≈' + NBSP + esc(fmtVal(m, pace)) + '</b>.' + tail });
   } else if (!spec.cum && !flat && bl.kind !== 'none' && b >= 2) {
     var idx = [];
@@ -4251,6 +4271,7 @@ function trLineSlot(m, sel, months) {
   }
   var nm = sel ? trName(sel) : 'Всего';
   var spec = { m: m, ytd: yt, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: null, refKind: 'none', boldIdx: months.length - 1, heads: heads, prevHeads: null,
+    partIdx: partOf(MODEL.L) ? months.length - 1 : -1,
                curName: nm.length > 24 ? nm.slice(0, 23) + '…' : nm, prevName: 'Всего', noPrev: !sel, tips: { cur: sel ? 'Значение «' + nm + '» по месяцам.' : 'Весь юнит по месяцам.', prev: 'Весь юнит по месяцам.' } };
   spec.cols = true;
   return chartSlot('trc', 'tr:' + m.key + ':' + wantAxis() + ':' + (sel ? sel.v : ''), function (w, ctx) { return svgLine(spec, w, 168, ctx); });
@@ -4392,7 +4413,7 @@ function kdLink(d) {
 // когда закроется её первый месяц (данные за октябрь — в начале ноября).
 function dataTill() {
   var d = MODEL.cal.m[MODEL.L] ? MODEL.cal.m[MODEL.L].e : '';
-  return 'Отчёт показывает данные по ' + fmtDay(d) + ' — последний закрытый месяц. KPI со сроком позже появится в отчёте, когда закроется её первый месяц. Чтобы видеть её сейчас, поставьте «Действует с» раньше — например, с начала года.';
+  return 'Отчёт показывает данные по ' + fmtDay(d) + '. KPI со сроком позже появится в отчёте, когда наступит его срок. Чтобы видеть его сейчас, поставьте «Действует с» раньше — например, с начала года.';
 }
 function ruleStatus(r, day) {
   if (!ruleActive(r, day)) return r.from > day ? ['soon', 'с ' + fmtDay(r.from)] : ['neutral', 'истекла'];

@@ -1,8 +1,9 @@
 -- ============================================================================
 -- HH · календарь слотов. Окно отчёта фиксировано, поэтому период — не измерение,
 -- а ПОЗИЦИЯ в массиве витрины:
---   месяцы: idx 0…11 — прошлый календарный год, 12…23 — текущий (год последнего
---           закрытого месяца); незакрытые слоты текущего года пустые;
+--   месяцы: idx 0…11 — прошлый календарный год, 12…23 — текущий (год data_dt); текущий месяц
+--           кончается на data_dt (15.10: «метрики на вчера») — срез численности на data_dt, события по
+--           data_dt; следующие слоты пустые;
 --   недели: idx 0…23 — последние 24 закрытые недели пн–вс, 23 — последняя.
 -- Отрицательные idx — история для скользящих окон (11 мес под окно 12 мес,
 -- 51 неделя под окно 52 нед). В ClickHouse уезжают только idx ≥ 0.
@@ -12,10 +13,16 @@ create table hh_calendar as
 select c.grain, c.idx, c.slot_start, c.slot_end,
        case when c.slot_end <= p.data_dt then 1 else 0 end as is_closed
 from (
-    select 'm'::text as grain, i as idx,
-           (make_date(extract(year from p.last_month_end)::int - 1, 1, 1) + i * interval '1 month')::date                          as slot_start,
-           (make_date(extract(year from p.last_month_end)::int - 1, 1, 1) + (i + 1) * interval '1 month' - interval '1 day')::date as slot_end
-    from hh_param p, generate_series(-11, 23) i
+    -- Текущий месяц (в нём data_dt) кончается на data_dt: is_closed = 1 — «есть данные», не «месяц закрыт».
+    select m.grain, m.idx, m.slot_start,
+           case when m.slot_start <= p.data_dt and m.month_end > p.data_dt then p.data_dt else m.month_end end as slot_end
+    from (
+        select 'm'::text as grain, i as idx,
+               (make_date(extract(year from p.last_month_end)::int - 1, 1, 1) + i * interval '1 month')::date                          as slot_start,
+               (make_date(extract(year from p.last_month_end)::int - 1, 1, 1) + (i + 1) * interval '1 month' - interval '1 day')::date as month_end
+        from hh_param p, generate_series(-11, 23) i
+    ) m
+    cross join hh_param p
     union all
     select 'w'::text, i,
            (p.last_week_end - (23 - i) * 7 - 6)::date,

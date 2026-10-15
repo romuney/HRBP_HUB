@@ -1,8 +1,8 @@
 -- ============================================================================
 -- HH · параметры. Всё, что меняется без правки остальных параграфов.
 --   data_dt            — последний день данных в источнике (срез last_day_flg = 1)
---   last_month_end     — конец последнего ЗАКРЫТОГО месяца: текущий месяц в отчёт
---                        не идёт, недостроенный период читается как обвал метрики
+--   last_month_end     — конец последнего месяца отчёта = data_dt (владелец 15.10: «метрики всегда на вчера»):
+--                        текущий месяц идёт в отчёт по data_dt; отчёт помечает его «по ДД.ММ» как незакрытый
 --   last_week_end      — последнее закрытое воскресенье (неделя пн–вс)
 --   nr_grace_days      — причина увольнения считается «не заполненной», если с
 --                        увольнения прошло столько дней, а её всё нет
@@ -20,7 +20,7 @@
 drop table if exists hh_param;
 create table hh_param as
 select d.data_dt                                                          as data_dt,
-       (date_trunc('month', d.data_dt + 1) - interval '1 day')::date       as last_month_end,
+       d.data_dt                                                          as last_month_end,
        (d.data_dt - (extract(isodow from d.data_dt)::int % 7))::date       as last_week_end,
        30                                                                  as nr_grace_days,
        '50eb70d6df69372ceb7f354df8e8aa53'::text                            as super_hrbp_unit_rk,

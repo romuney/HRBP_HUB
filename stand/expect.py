@@ -24,7 +24,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import world as W  # noqa: E402
 
-LM = W.month_end(W.D) if W.D == W.month_end(W.D) else W.month_end(W.D.replace(day=1) - dt.timedelta(days=1))
+LM = W.D   # последний месяц отчёта — текущий, по дату данных (15.10: «метрики на вчера»)
 YEAR = LM.year
 LW = W.D - dt.timedelta(days=W.D.isoweekday() % 7)
 WIN = {'m': {'rg': 12, 'nr': 3, 'r3': 9, 'r6': 6}, 'w': {'rg': 52, 'nr': 13, 'r3': 39, 'r6': 26}}
@@ -33,7 +33,8 @@ WIN = {'m': {'rg': 12, 'nr': 3, 'r3': 9, 'r6': 6}, 'w': {'rg': 52, 'nr': 13, 'r3
 def slot(grain, idx):
     if grain == 'm':
         s = W.add_months(dt.date(YEAR - 1, 1, 1), idx)
-        return s, W.month_end(s)
+        e = W.month_end(s)
+        return s, (W.D if s <= W.D < e else e)
     e = LW - dt.timedelta(days=(23 - idx) * 7)
     return e - dt.timedelta(days=6), e
 
