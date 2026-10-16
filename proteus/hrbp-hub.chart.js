@@ -1505,7 +1505,7 @@ function buildCSS() {
     P + '-tip ' + P + '-t-m' + P + '-dash{height:0;width:14px;border-radius:0;border-top:2px dashed;background:none;}',
     P + '-tip ' + P + '-t-m' + P + '-solid{border-top-style:solid;}',
     P + '-tip ' + P + '-t-l{font-size:' + F.val + 'px;font-weight:500;color:' + C.muted + ';min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-    P + '-tip ' + P + '-t-v{display:inline;margin:0 0 0 auto;font-size:' + F.body + 'px;font-weight:500;color:' + C.ink + ';white-space:nowrap;font-variant-numeric:tabular-nums;}',
+    P + '-tip ' + P + '-t-v{display:inline;margin:0 0 0 auto;font-size:' + F.body + 'px;font-weight:500;color:' + C.ink + ';white-space:nowrap;font-variant-numeric:tabular-nums;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;}',
     P + '-tip ' + P + '-t-r' + P + '-dim ' + P + '-t-v{color:' + C.muted + ';}',
     P + '-tip ' + P + '-t-pill{margin:0 0 0 auto;}',
     P + '-tip ' + P + '-t-n{display:block;font-size:' + F.cap + 'px;line-height:1.35;font-weight:400;color:' + C.muted + ';margin-top:4px;}',
@@ -2400,8 +2400,9 @@ function focusTag(m, bl) {
       note: ruleCuts(bl.rule).length ? 'Действует при разрезах: ' + ruleCuts(bl.rule).join('; ') : null }) + ' aria-label="KPI юнита"><i>★</i>KPI</span>';
   }
   return ' <span class="' + P + '-star ' + P + '-star0"' + tip({ title: 'KPI с уровня выше',
-    text: 'Своего KPI у юнита нет — действует KPI юнита выше.',
-    rows: [{ label: 'KPI с уровня', value: unitName(MODEL, bl.owner) }, { label: 'KPI', value: fmtVal(m, bl.ref) }] }) + ' aria-label="KPI с уровня выше"><i>☆</i>KPI</span>';
+    // Имя юнита — в тексте (переносится), не в строке-значении: длинное не влезало в подсказку (владелец 16.10).
+    text: 'Своего KPI у юнита нет — действует KPI юнита «' + unitName(MODEL, bl.owner) + '».',
+    rows: [{ label: 'KPI', value: fmtVal(m, bl.ref) }] }) + ' aria-label="KPI с уровня выше"><i>☆</i>KPI</span>';
 }
 // Цели, закрытые текущими разрезами: называем поимённо, КАКИЕ разрезы выбрать.
 function moreFocus(rules, withMetric) {
