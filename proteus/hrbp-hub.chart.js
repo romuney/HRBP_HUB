@@ -92,13 +92,13 @@ var CFG = {
     // Тексты (13.10, редактура): hint — одна фраза «что это» (ⓘ, шапки таблиц, список метрик); frac — формула
     // словами: числитель / знаменатель (fracY — с начала года); notes — что важно знать. Без названий полей и таблиц.
     { key: 'retention_new_3', block: 'retention', name: 'Закрепляемость новичков · 3 мес', short: 'Закрепл. 3 мес',
-      fmt: 'pct', better: 'higher', share: true, num: 'r3n', den: 'r3d',
+      fmt: 'pct', better: 'higher', share: true, num: 'r3n', den: 'r3d', hireRow: true,
       hint: 'Какая доля новичков работает в компании через 3 месяца после найма.',
       frac: ['работают через 3 месяца', 'новички за 12 месяцев, у кого прошло 3 месяца'],
       notes: ['Новичок, у которого 3 месяца ещё не прошло, в расчёт пока не входит.'],
       numL: 'работают через 3 мес', denL: 'новичков (найм за 12 мес, прошло 3 мес)', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
     { key: 'retention_new_6', block: 'retention', name: 'Закрепляемость новичков · 6 мес', short: 'Закрепл. 6 мес',
-      fmt: 'pct', better: 'higher', share: true, num: 'r6n', den: 'r6d',
+      fmt: 'pct', better: 'higher', share: true, num: 'r6n', den: 'r6d', hireRow: true,
       hint: 'Какая доля новичков работает в компании через 6 месяцев после найма.',
       frac: ['работают через 6 месяцев', 'новички за 12 месяцев, у кого прошло 6 месяцев'],
       notes: ['Новичок, у которого 6 месяцев ещё не прошло, в расчёт пока не входит.'],
@@ -790,7 +790,11 @@ function absRows(m, ser, i) {
   var a = absParts(m, ser, i);
   if (!a || !m.numL) return [];
   var y = m.ytd && ytdOn(m);
-  return [{ label: y ? m.numLy : m.numL, value: fmtInt(a.num) }, { label: y ? m.denLy : m.denL, value: fmtInt(a.den) }];
+  var r = [{ label: y ? m.numLy : m.numL, value: fmtInt(a.num) }, { label: y ? m.denLy : m.denL, value: fmtInt(a.den) }];
+  // Закрепляемость (Дьяченко 16.10, для сверки): сколько новичков пришло в этом месяце — найм месяца (при «Активной» — приход в неё).
+  var h = m.hireRow && ser && ser.m && ser.m.hire ? ser.m.hire[i] : null;
+  if (h !== null && h !== undefined) r.push({ label: 'новичков пришло в этом месяце', value: fmtInt(h) });
+  return r;
 }
 // Коротко под значением: «16 из 17 новичков», «9 уходов за год».
 function absText(m, ser, i) {
@@ -1123,6 +1127,11 @@ function partOf(i) { var c = MODEL.cal.m[i]; if (!c || !c.e) return 0; var d = d
 function monthsDone(i) { return (i % 12) + (partOf(i) || 1); }
 function dayDm(iso) { var p = dparts(iso); return (p.d < 10 ? '0' : '') + p.d + '.' + (p.m < 9 ? '0' : '') + (p.m + 1); }
 function partTag(i) { return partOf(i) ? ' · по ' + dayDm(MODEL.cal.m[i].e) : ''; }
+// Regrettable / non-regrettable (Дьяченко 16.10): «в тоталах» — значение последнего ПОЛНОГО месяца (увольнения текущего
+// ещё дооформляются — цифра дозревает), на графиках текущий месяц — только линией. vL — месяц значения метрики.
+function closedOnly(m) { return !!(m && m.ytd && MODEL.L > 0 && partOf(MODEL.L)); }
+function vL(m) { return closedOnly(m) ? MODEL.L - 1 : MODEL.L; }
+function ripeNote(m) { return closedOnly(m) ? 'Значение — за ' + monthName(vL(m)) + ', последний полный месяц. За ' + monthName(MODEL.L) + ' цифра дозревает: месяц ещё идёт, на графике он — линией.' : ''; }
 function monthLow(i) { var s = MODEL.cal.m[i]; if (!s) return ''; var p = dparts(s.s); return MONTH_FULL[p.m] + ' ' + p.y + partTag(i); }
 function monthDat(i) { var s = MODEL.cal.m[i]; if (!s) return ''; var p = dparts(s.s); return MONTH_DAT[p.m] + ' ' + p.y; }
 
@@ -1294,6 +1303,7 @@ function svgLine0(spec, W, H, ctx) {
     }
     for (var q3 = 0; q3 < pc.length; q3++) {
       var hol = pc[q3][2] === spec.partIdx;
+      if (hol && spec.partLine) continue;
       s += '<circle class="' + P + '-fd" data-d="' + dly(pc[q3][2]) + '" cx="' + pc[q3][0].toFixed(1) + '" cy="' + pc[q3][1].toFixed(1) + '" r="' + (hol ? 3.4 : 3) + '" fill="' + (hol ? '#fff' : C.cur) + '" stroke="' + (hol ? C.cur : '#fff') + '" stroke-width="' + (hol ? 2 : 1.6) + '" data-s="cur"/>';
     }
   }
@@ -1332,7 +1342,7 @@ function svgLine0(spec, W, H, ctx) {
   if (on.cur) {
     for (var oj = 0; oj < order.length; oj++) {
       var ci = order[oj], v = spec.cur[ci];
-      if (v === null || v === undefined) continue;
+      if (v === null || v === undefined || (spec.partLine && ci === spec.partIdx)) continue;
       var cx = X(ci), cy = Y(v), txt = fmtVal(m, v), lw = textW(txt, F.val) + 8;
       var pv = on.prev ? spec.prev[ci] : null;
       var up = pv === null || pv === undefined || v >= pv;
@@ -1374,6 +1384,7 @@ function svgLine0(spec, W, H, ctx) {
     if (on.cur && spec.cur[hi] !== null) rows.push({ label: spec.curName, value: fmtVal(m, spec.cur[hi]), color: C.cur, line: true, pill: st && st !== 'neutral' && st !== 'warn' ? st : null });
     if (on.prev && spec.prev[hi] !== null) rows.push({ label: spec.prevName + (spec.prevHeads ? ' · ' + spec.prevHeads[hi] : ''), value: fmtVal(m, spec.prev[hi]), color: C.prev, line: true, dim: true });
     if (on.ref && spec.ref[hi] !== null && spec.ref[hi] !== undefined) rows.push({ label: spec.refName, value: fmtVal(m, spec.ref[hi]), color: refC, dash: true, dim: true });
+    if (on.cur && spec.cur[hi] !== null && spec.extra && spec.extra[hi]) rows = rows.concat(spec.extra[hi]);
     if (!rows.length) rows.push({ label: 'нет данных', value: '—' });
     tips.push(tipHtml({ title: spec.heads[hi], rows: rows, note: st && on.cur && on.ref ? stTxt(st) : null }));
   }
@@ -1429,7 +1440,7 @@ function svgSpark(vals, states, tips, refs, refK) {
     var v = vals[j], x0 = j === 0 ? 0 : X(j) - step / 2, x1 = j === n - 1 ? w : X(j) + step / 2;
     s += '<g class="' + P + '-sbg"' + (tips && tips[j] ? tip(tips[j]) : '') + '>'
       + '<rect class="' + P + '-hit" x="' + x0.toFixed(1) + '" y="0" width="' + (x1 - x0).toFixed(1) + '" height="' + h + '"/>';
-    if (v !== null && v !== undefined && !isNaN(v)) {
+    if (v !== null && v !== undefined && !isNaN(v) && states[j] !== 'none') {
       s += '<circle cx="' + X(j).toFixed(1) + '" cy="' + Y(v).toFixed(1) + '" r="' + (j === last ? 4 : 2.8) + '" class="' + P + '-sdot ' + P + '-' + (states[j] || 'neutral') + (j === last ? ' ' + P + '-slast' : '') + '"/>';
     }
     s += '</g>';
@@ -2423,7 +2434,7 @@ function cmpTd(m, v, bl) {
         rows: [{ label: 'факт', value: fmtVal(m, v) }, { label: 'KPI', value: fmtVal(m, bl.ref), color: CFG.colors.kpi, dash: true },
                { label: 'отклонение', value: fmtDelta(m, dk) }],
         note: [(bl.inherited ? 'KPI унаследован с уровня «' : 'KPI стоит на юните «') + unitName(MODEL, bl.owner) + '».',
-               m.ytd && ytdOn(m) && bl.rule ? 'Годовой KPI — ' + fmtVal(m, bl.rule.target) + '; к ' + monthDat(MODEL.L) + ' — ' + Math.round(monthsDone(MODEL.L) / 12 * 100) + '% от него.' : null,
+               m.ytd && ytdOn(m) && bl.rule ? 'Годовой KPI — ' + fmtVal(m, bl.rule.target) + '; к ' + monthDat(vL(m)) + ' — ' + Math.round(monthsDone(vL(m)) / 12 * 100) + '% от него.' : null,
                stTxt(bl.state)] }) + '>'
       + '<div class="' + P + '-tgt ' + P + '-tgtk"><span class="' + P + '-hlk"><span class="' + P + '-tgl">KPI ' + (m.better === 'higher' ? '≥' : '≤') + '</span>' + esc(fmtVal(m, bl.ref)) + '</span></div>'
       + hPill(bl.state, fmtDelta(m, dk)) + '</td>';
@@ -2499,7 +2510,7 @@ function headHTML() {
   if (M.ok && M.L >= 0) {
     s += '<span class="' + P + '-badge"' + tip({ title: 'Период отчёта',
       rows: [{ label: 'данные на', value: M.dataDt ? fmtDay(M.dataDt) : '—' }, { label: 'последний месяц', value: monthFull(M.L) }],
-      note: partOf(M.L) ? 'Метрики — на вчера. Месяц ещё идёт: его значения не финальные и изменятся до конца месяца (на графиках — пунктир и полая точка).' : 'Метрики — на вчера.' })
+      note: partOf(M.L) ? 'Метрики — на вчера. Месяц ещё идёт: его значения не финальные и изменятся до конца месяца (на графиках — пунктир и полая точка). У regrettable и non-regrettable значение — за последний полный месяц, текущий на графике — линией.' : 'Метрики — на вчера.' })
       + '>Период: <b>' + esc(monthFull(M.L)) + '</b></span>';
   }
   if (M.meta) {
@@ -2991,21 +3002,24 @@ function refKind(unitId, m, g, i) {
 function yoySpec(unitId, ser, m) {
   var M = MODEL, L = M.L, cur = [], prev = [], labels = [], heads = [], ref = null, ytd = ytdOn(m);
   var val = ytd ? function (s, i) { return ytdVal(s, m, i); } : function (s, i) { return mval(s, 'm', m, i); };
+  // Закрепляемость (Дьяченко 16.10, для сверки): в тултипе — новички в людях и сколько пришло в этом месяце.
+  var extra = m.hireRow ? [] : null;
   for (var k = 0; k < 12; k++) {
+    if (extra) extra.push(12 + k <= L ? absRows(m, ser, 12 + k) : null);
     cur.push(12 + k <= L ? val(ser, 12 + k) : null);
     prev.push(val(ser, k));
     labels.push(MONTH_ABBR[dparts(M.cal.m[12 + k] ? M.cal.m[12 + k].s : '').m]);
-    heads.push(monthFull(12 + k) + ' · к ' + monthDat(k));
+    heads.push(monthFull(12 + k) + (closedOnly(m) && 12 + k === L ? ' · дозревает' : '') + ' · к ' + monthDat(k));
   }
-  var rk = refKind(unitId, m, 'm', L);
+  var rk = refKind(unitId, m, 'm', vL(m));
   if (rk === 'kpi') {
     ref = targetSeries(unitId, m.key, 'm').slice(12, 24);
     // годовая цель на нарастающем итоге — доля года: к марту — 3/12 цели
     if (ytd) for (var t = 0; t < 12; t++) ref[t] = ref[t] === null ? null : ref[t] * monthsDone(12 + t) / 12;
   } else if (rk === 'bench') { ref = []; for (var b = 0; b < 12; b++) ref.push(12 + b <= L ? val(M.base, 12 + b) : null); }
   var y = dparts(M.cal.m[L].s).y;
-  return { m: m, nocol: NOCOL, ytd: ytd, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: L - 12, heads: heads, prevHeads: null,
-           partIdx: partOf(L) ? L - 12 : -1, partLbl: partOf(L) ? 'по ' + dayDm(M.cal.m[L].e) : '',
+  return { m: m, nocol: NOCOL, ytd: ytd, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: ref, refKind: rk, boldIdx: vL(m) - 12, heads: heads, prevHeads: null,
+           partIdx: partOf(L) ? L - 12 : -1, partLbl: partOf(L) ? 'по ' + dayDm(M.cal.m[L].e) : '', partLine: closedOnly(m), extra: extra,
            curName: String(y), prevName: String(y - 1), refName: rk === 'kpi' ? 'KPI' : 'база · ' + benchLabel(),
            tips: { cur: ytd ? y + ' год, с начала года: значение копится с января.' : y + ' год по месяцам.',
                    prev: (y - 1) + ' год — те же месяцы.',
@@ -3061,7 +3075,9 @@ function sparkHTML(unitId, ser, m) {
       rows.push({ label: b.kind === 'kpi' ? 'KPI' : 'база', value: fmtVal(m, b.ref), dash: true, color: b.kind === 'kpi' ? CFG.colors.kpi : CFG.colors.bench });
       rows.push({ label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, b.ref)) });
     }
-    tips.push({ title: monthFull(idx[k]), rows: rows, note: b.ref === null || b.ref === undefined ? 'Без ориентира — без цвета.' : stTxt(states[k] || 'neutral') });
+    var rip = closedOnly(m) && idx[k] === L;
+    if (rip) states[k] = 'none';
+    tips.push({ title: monthFull(idx[k]), rows: rows, note: rip ? 'Месяц ещё идёт — цифра дозревает.' : (b.ref === null || b.ref === undefined ? 'Без ориентира — без цвета.' : stTxt(states[k] || 'neutral')) });
   }
   return svgSpark(vals, states, tips, refs, refK);
 }
@@ -3204,7 +3220,7 @@ function segsText(segs) {
 // Команды хуже своего ориентира — от teamMin человек сверх; проблема, которая «сидит» в
 // подразделении (не меньше conc «лишних» людей родителя), показана у подразделения.
 function badTeams(m, teams) {
-  var L = MODEL.L, O = CFG.obs, all = [], out = [];
+  var L = vL(m), O = CFG.obs, all = [], out = [];
   for (var i = 0; i < teams.length; i++) {
     var t = teams[i], v = mval(t.ser, 'm', m, L), bl = obsBase(rowUnit(t), m, v);
     if (!bl || bl.state !== 'bad') continue;
@@ -3222,7 +3238,7 @@ function badTeams(m, teams) {
 // Ухудшение trend месяцев подряд и на dev за них: {a, b} — значение в начале и сейчас, иначе null.
 function worsening(m, ser) {
   if (isCum(m)) return null;  // значение копится с начала года — «рост подряд» ничего не значит
-  var L = MODEL.L, n = CFG.obs.trend, v0 = mval(ser, 'm', m, L - n), prev = v0;
+  var L = vL(m), n = CFG.obs.trend, v0 = mval(ser, 'm', m, L - n), prev = v0;
   if (v0 === null) return null;
   for (var i = L - n + 1; i <= L; i++) {
     var v = mval(ser, 'm', m, i);
@@ -3233,7 +3249,7 @@ function worsening(m, ser) {
 }
 // «снижение 3 месяца подряд» — существительным: имена метрик бывают и в единственном, и во множественном.
 function trendWord(m) { var n = CFG.obs.trend; return (m.better === 'higher' ? 'снижение ' : 'рост ') + n + ' ' + plural(n, 'месяц', 'месяца', 'месяцев') + ' подряд'; }
-function trendText(m, tr) { var L = MODEL.L, n = CFG.obs.trend; return monthLabel(L - n) + ' ' + fmtVal(m, tr.a) + ' → ' + monthLabel(L) + ' ' + fmtVal(m, tr.b); }
+function trendText(m, tr) { var L = vL(m), n = CFG.obs.trend; return monthLabel(L - n) + ' ' + fmtVal(m, tr.a) + ' → ' + monthLabel(L) + ' ' + fmtVal(m, tr.b); }
 function endDot(t) { return /[.!?]$/.test(t) ? t : t + '.'; }
 // Один факт на метрику и по области целиком (владелец 13.10: «верхнеуровневые инсайты, не мешанина юнитов»):
 // область хуже ориентира → иначе заметно изменилась к прошлому году → иначе ухудшение подряд → иначе команды
@@ -3245,7 +3261,7 @@ function teamTail(m, bt, ex) {
   return [' Хуже ориентира ' + bt.length + ' ' + plural(bt.length, 'команда', 'команды', 'команд') + ' — ', { r: bt[0].r, mk: m.key, t: 'смотреть в «Командах»' }, '.'];
 }
 function metricFact(m, teams) {
-  var M = MODEL, L = M.L, O = CFG.obs, small = smallHide(M.scope, m);
+  var M = MODEL, L = vL(m), O = CFG.obs, small = smallHide(M.scope, m);
   var v = small ? null : mval(M.scope, 'm', m, L), bl = obsBase(scopeUnit(), m, v);
   var bt = badTeams(m, teams), tr = small ? null : worsening(m, M.scope), ab = small ? '' : absText(m, M.scope, L);
   var ex = bl ? excessPeople(m, M.scope, L, bl.ref) : 0;
@@ -3452,6 +3468,7 @@ function metricTip(m) {
   var f = metricFrac(m), note = [];
   if (f) note.push('Считаем: ' + fracText(f) + '.');
   if (retActive(m)) note.push('Новички — пришедшие в активную численность: найм, переход кандидата, внутренний перевод.');
+  if (closedOnly(m)) note.push(ripeNote(m));
   return { title: m.name, text: m.hint, note: note };
 }
 // Вторая строка под именем метрики: направление и пометка этой метрики (норматив HQ, «Активная»).
@@ -3487,7 +3504,7 @@ function cmpWords(m, bl) {
 // Факты истории метрики (до 5): с номером — у точки на графике (i — месяц 0…11 текущего года, s — линия),
 // без номера — вывод без точки (темп к декабрю, сколько месяцев хуже ориентира).
 function storyItems(u, ser, m, spec) {
-  var M = MODEL, L = M.L, b = L - 12, cur = spec.cur, out = [], O = CFG.obs;
+  var L = vL(m), b = L - 12, cur = spec.cur, out = [], O = CFG.obs;
   if (b < 0 || cur[b] === null || cur[b] === undefined) return out;
   var v = cur[b], bl = baseline(u, m, v, 'm', L), ab = absText(m, ser, L), flat = m.better === 'flat';
   // 1. Сейчас и ориентир
@@ -3602,7 +3619,7 @@ function onepagerHTML() {
     var blk = CFG.blocks[b], mets = selMetrics(blk.key), items = [];
     for (var i = 0; i < mets.length; i++) {
       NOCOL = smallHide(M.scope, mets[i]);
-      var m = mets[i], v = mval(M.scope, 'm', m, L), bl = baseline(u, m, v, 'm', L);
+      var m = mets[i], v = mval(M.scope, 'm', m, vL(m)), bl = baseline(u, m, v, 'm', vL(m));
       NOCOL = false;
       // Зона из нескольких корней: цель общего предка для неё всегда унаследована.
       if (bl.kind === 'kpi' && !M.single) bl.inherited = true;
@@ -3627,17 +3644,19 @@ function onepagerHTML() {
       // ⓘ стоит по-разному в разных шрифтах (у владельца — системный Mac), флекс от шрифта не зависит.
       var name = '<span class="' + P + '-rb"><span class="' + P + '-rbl"><span>' + esc(it.m.name) + '</span>' + hInfo(metricTip(it.m))
         + focusTag(it.m, it.bl) + moreFocus(hid, false) + '</span>' + rowNote(it.m) + '</span>';
-      var ab = absText(it.m, M.scope, L), abH = ab ? '<span class="' + P + '-us ' + P + '-abs">' + esc(ab) + '</span>' : '';
+      var Lm = vL(it.m), ab = absText(it.m, M.scope, Lm), abH = ab ? '<span class="' + P + '-us ' + P + '-abs">' + esc(ab) + '</span>' : '';
+      // Текущий месяц дозревает (16.10): значение — за прошлый полный, пометка под ним.
+      if (Lm !== L) abH += '<span class="' + P + '-us ' + P + '-abs"' + tip({ title: it.m.name, text: ripeNote(it.m) }) + '>за ' + esc(monthName(Lm)) + ' · ' + esc(monthName(L)) + ' дозревает</span>';
       // Юнит меньше порога (HRBP 13.10): значение, динамика и график — как у всех, только без цвета.
-      if (sm) abH += '<span class="' + P + '-us ' + P + '-abs"' + tip({ title: it.m.name, text: smallWhy(M.scope, it.m), rows: absRows(it.m, M.scope, L) }) + '>без цвета: мало людей</span>';
+      if (sm) abH += '<span class="' + P + '-us ' + P + '-abs"' + tip({ title: it.m.name, text: smallWhy(M.scope, it.m), rows: absRows(it.m, M.scope, Lm) }) + '>без цвета: мало людей</span>';
       rows += '<tr class="' + P + '-row' + (open ? ' ' + P + '-opn' : '') + '" data-action="openm" data-key="' + mk + '" aria-expanded="' + (open ? 'true' : 'false') + '">'
         + '<td class="' + P + '-l"><span class="' + P + '-rl">' + hCaret(open, 'openm', mk, open ? 'Скрыть динамику' : 'Показать динамику')
         + name + '</span></td>'
         + '<td class="' + P + '-lead">' + esc(fmtVal(it.m, it.v)) + abH + '</td>'
         + cmpTd(it.m, it.v, it.bl)
         + (isCum(it.m) ? '<td' + tip({ title: 'Изменение', text: 'С начала года значение копится, поэтому сравнивать с прошлым месяцем не имеет смысла. Смотрите «Год к году».' }) + '>' + hPill('flat', '—') + '</td>'
-          : deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 1)), 'Сравнение с предыдущим месяцем (' + monthLow(L - 1) + ').', null, mval(M.scope, 'm', it.m, L - 1)))
-        + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, L - 12)), 'Сравнение с тем же месяцем прошлого года (' + monthLow(L - 12) + ').', null, mval(M.scope, 'm', it.m, L - 12))
+          : deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, Lm - 1)), 'Сравнение с предыдущим месяцем (' + monthLow(Lm - 1) + ').', null, mval(M.scope, 'm', it.m, Lm - 1)))
+        + deltaTd(it.m, deltaOf(it.m, it.v, mval(M.scope, 'm', it.m, Lm - 12)), 'Сравнение с тем же месяцем прошлого года (' + monthLow(Lm - 12) + ').', null, mval(M.scope, 'm', it.m, Lm - 12))
         + '<td class="' + P + '-spk">' + sparkHTML(u, M.scope, it.m) + '</td></tr>';
       if (open) rows += storyRow(u, M.scope, it.m);
       NOCOL = false;
@@ -3685,7 +3704,7 @@ function rowCanExp(r) { return realKids(kidsAt(r)); }
 // каждого узла — дерево не рассыпается; «Напрямую в …» всегда в конце своей группы,
 // пустые значения — в конце в любом направлении. По умолчанию — численность по убыванию.
 function teamCmp() {
-  var ts = state.tsort || {}, k = ts.key || '', asc = ts.dir === 'asc', m = k && k !== 'name' ? METRIC[k] : null, L = MODEL.L;
+  var ts = state.tsort || {}, k = ts.key || '', asc = ts.dir === 'asc', m = k && k !== 'name' ? METRIC[k] : null;
   return function (a, b) {
     if (a.id === '·' || b.id === '·') return a.id === b.id ? 0 : (a.id === '·' ? 1 : -1);
     if (k === 'name') {
@@ -3694,7 +3713,7 @@ function teamCmp() {
       return asc ? c : -c;
     }
     if (m) {
-      var va = mval(a.ser, 'm', m, L), vb = mval(b.ser, 'm', m, L);
+      var va = mval(a.ser, 'm', m, vL(m)), vb = mval(b.ser, 'm', m, vL(m));
       if (va === null || vb === null) return va === null && vb === null ? byHc(a, b) : (va === null ? 1 : -1);
       return (asc ? va - vb : vb - va) || byHc(a, b);
     }
@@ -3747,7 +3766,7 @@ function rowName(r) {
 // Значение юнита в «Командах»: пилюля светофора (та же, что на «Сводке»), подсказка — на всей
 // ячейке, поэтому тултип переходит от значения к значению без мигания.
 function unitCell(unitId, ser, m, selected, cls) {
-  var P = CFG.ns, L = MODEL.L, v = mval(ser, 'm', m, L), txt = fmtVal(m, v), c = cls ? ' class="' + cls + '"' : '';
+  var P = CFG.ns, L = vL(m), v = mval(ser, 'm', m, L), txt = fmtVal(m, v), c = cls ? ' class="' + cls + '"' : '';
   // «Команды» (HRBP 13.10, Дьяченко): значения — у всех команд, у маленьких — без цвета.
   if (smallHide(ser, m)) {
     if (v === null) return smallTd(m, ser, cls);
@@ -3756,7 +3775,7 @@ function unitCell(unitId, ser, m, selected, cls) {
       + (sb && sb.kind === 'kpi' ? crefHTML(m, sb) : '') + '</td>';
   }
   if (v === null) return '<td class="' + P + '-muted' + (cls ? ' ' + cls : '') + '">' + esc(txt) + '</td>';
-  var bl = baseline(unitId, m, v, 'm', L), fact = [{ label: 'факт', value: txt }].concat(absRows(m, ser, L));
+  var bl = baseline(unitId, m, v, 'm', L), fact = [{ label: 'факт' + (L !== MODEL.L ? ', ' + monthName(L) : ''), value: txt }].concat(absRows(m, ser, L));
   if (bl.kind === 'none') return '<td' + c + tip({ title: m.name, text: 'Ориентира у метрики нет: ' + (m.better === 'flat' ? '«больше» не значит «лучше».' : 'абсолютная величина.'), rows: fact }) + '>' + esc(txt) + '</td>';
   var t = bl.kind === 'kpi'
     ? { title: m.name, text: bl.inherited ? 'KPI унаследован с уровня «' + unitName(MODEL, bl.owner) + '».' : 'KPI стоит на этом юните.',
@@ -3786,7 +3805,7 @@ function smallShort(ser, m) {
 function smallRule() { return 'от ' + CFG.small.min + ' человек, у regrettable и non-regrettable — ' + CFG.small.min + ' человек активной HQ'; }
 function smallTd(m, ser, cls) {
   var P = CFG.ns;
-  return '<td class="' + P + '-muted ' + P + '-sm0' + (cls ? ' ' + cls : '') + '"' + tip({ title: m.name, text: smallWhy(ser, m), rows: absRows(m, ser, MODEL.L) }) + '>—</td>';
+  return '<td class="' + P + '-muted ' + P + '-sm0' + (cls ? ' ' + cls : '') + '"' + tip({ title: m.name, text: smallWhy(ser, m), rows: absRows(m, ser, vL(m)) }) + '>—</td>';
 }
 function ownLive(unitId, keys) {
   var n = 0;
@@ -3891,7 +3910,7 @@ function sortTh(key, label, cls, tipObj, extra) {
   var note = on ? (ts.dir === 'asc' ? 'Сейчас по возрастанию. Клик — ' + (key === 'name' ? 'по убыванию.' : 'как было (по численности).') : 'Сейчас по убыванию. Клик — ' + (key === 'name' ? 'как было (по численности).' : 'по возрастанию.'))
     : 'Клик — сортировка ' + (key === 'name' ? 'по алфавиту' : 'по этой колонке') + ' внутри каждого уровня.';
   return '<th class="' + P + '-sth' + (cls ? ' ' + cls : '') + (on ? ' ' + P + '-son' : '') + '"' + (extra || '') + ' data-action="tsort" data-key="' + key + '" tabindex="0" aria-sort="'
-    + (on ? (ts.dir === 'asc' ? 'ascending' : 'descending') : 'none') + '"' + tip({ title: t.title || label, text: t.text || '', note: note }) + '>'
+    + (on ? (ts.dir === 'asc' ? 'ascending' : 'descending') : 'none') + '"' + tip({ title: t.title || label, text: t.text || '', note: [].concat(t.note || [], [note]) }) + '>'
     + esc(label) + (on ? '<span class="' + P + '-sa">' + (ts.dir === 'asc' ? '↑' : '↓') + '</span>' : '') + '</th>';
 }
 function teamsTableHTML(tc) {
@@ -3912,7 +3931,8 @@ function teamsTableHTML(tc) {
   }
   var t = '<table class="' + P + '-t' + (grouped ? ' ' + P + '-g2' : '') + '"><thead>'
     + (grouped ? head2 : '<tr>' + sortTh('name', 'Юнит', P + '-l', { title: 'Юнит', text: 'Юниты на 3 уровня вниз от юнита отчёта. Глубже — выберите строку и откройте её юнит иконкой у правого края.' }));
-  for (var h = 0; h < mets.length; h++) t += sortTh(mets[h].key, mets[h].short, gcls[mets[h].key] || '', metricTip(mets[h]));
+  // У regrettable / non-regrettable — месяц значения (16.10: текущий дозревает, в таблице — прошлый полный).
+  for (var h = 0; h < mets.length; h++) t += sortTh(mets[h].key, mets[h].short + (closedOnly(mets[h]) ? ' · ' + MONTH_ABBR[dparts(M.cal.m[vL(mets[h])].s).m] : ''), gcls[mets[h].key] || '', metricTip(mets[h]));
   t += '</tr></thead><tbody>';
   t += '<tr class="' + P + '-row ' + P + '-tot' + (!sel ? ' ' + P + '-sel' : '') + '" data-action="team" data-key="" tabindex="0" aria-selected="' + (!sel ? 'true' : 'false') + '">'
     + '<td class="' + P + '-l"><span class="' + P + '-rl">'
@@ -4036,13 +4056,13 @@ function tsvNum(m, v) {
 }
 function teamsTSV() {
   // Колонка численности — если метрики «Численность» среди показанных нет (иначе она дублируется).
-  var M = MODEL, L = M.L, mets = teamsCtx().mets, rows = teamRows(true), out = [], hcCol = mets.indexOf(METRIC.headcount) < 0;
+  var M = MODEL, mets = teamsCtx().mets, rows = teamRows(true), out = [], hcCol = mets.indexOf(METRIC.headcount) < 0;
   var head = ['Юнит', 'Уровень вниз', 'Уровень структуры'].concat(hcCol ? ['Численность'] : []);
   for (var h = 0; h < mets.length; h++) head.push(mets[h].name + (mets[h].fmt === 'int' ? '' : ', %'));
   out.push(head.join('\t'));
   function line(name, lv, unit, ser) {
     var a = [tsvCell(name), lv, unit ? tsvCell(levelShort(unit.lvl)) : ''].concat(hcCol ? [String(hcOf(ser))] : []);
-    for (var k = 0; k < mets.length; k++) a.push(tsvNum(mets[k], mval(ser, 'm', mets[k], L)));
+    for (var k = 0; k < mets.length; k++) a.push(tsvNum(mets[k], mval(ser, 'm', mets[k], vL(mets[k]))));
     out.push(a.join('\t'));
   }
   line('ИТОГО · ' + scopeLabel(), '0', null, M.scope);
@@ -4170,7 +4190,7 @@ function transformHTML() {
   for (var q = 0; q < list.length; q++) {
     if (list[q].v === state.trPick) pick = q;
   }
-  var bar = cv(M.scope, L);
+  var bar = cv(M.scope, vL(m));
   // Узкая ячейка — колонки имён и «За 12 мес» уже: месяцам нужно место.
   var pie = trPie(m, list, pick), cg = '<colgroup><col style="width:' + (state.narrow ? 230 : TR_NAMEW) + 'px">';
   for (var cq = 0; cq < months.length; cq++) cg += '<col>';
@@ -4188,12 +4208,12 @@ function transformHTML() {
       + (tot || list[idx].rest ? '' : ' data-trv="' + idx + '" data-action="trpick" data-key="' + idx + '" tabindex="0" aria-pressed="' + (idx === pick ? 'true' : 'false') + '"')
       + '><td class="' + P + '-l"' + (pie.col[idx] ? ' style="background:linear-gradient(90deg,' + pie.col[idx] + ' 3px,transparent 3px)"' : '') + (NOCOL ? tip({ title: m.name, text: smallWhy(ser, m) }) : '') + '>' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел' + (NOCOL ? ' · ' + smallShort(ser, m) : '') + '</span></td>';
     for (var c = 0; c < months.length; c++) {
-      var k = months[c], v = cv(ser, k), t = cv(M.scope, k), bg = '';
-      if (v !== null && !tot && !NOCOL && !flat) bg = heatDiv(m, v, bar);
+      var k = months[c], v = cv(ser, k), t = cv(M.scope, k), bg = '', rip = closedOnly(m) && k === L;
+      if (v !== null && !tot && !NOCOL && !flat && !rip) bg = heatDiv(m, v, bar);
       var rows = [{ label: name.length > 28 ? name.slice(0, 27) + '…' : name, value: fmtVal(m, v), color: C0.cur, line: true }].concat(v === null ? [] : absRows(m, ser, k));
       if (!tot && t !== null) rows.push({ label: 'Всего в этом месяце', value: fmtVal(m, t), color: C0.prev, line: true, dim: true });
       r += '<td class="' + (c === months.length - 1 ? P + '-now' : '') + '"' + (bg ? ' style="background:' + bg + '"' : '')
-        + tip({ title: monthFull(k), rows: rows, note: tot ? null : (NOCOL ? 'Без цвета: мало людей.' : (v !== null && bar !== null && !flat ? heatTxt(m, v, bar) : null)) }) + '>' + esc(fmtVal(m, v)) + '</td>';
+        + tip({ title: monthFull(k), rows: rows, note: rip ? 'Месяц ещё идёт — цифра дозревает, без цвета.' : (tot ? null : (NOCOL ? 'Без цвета: мало людей.' : (v !== null && bar !== null && !flat ? heatTxt(m, v, bar) : null))) }) + '>' + esc(fmtVal(m, v)) + '</td>';
     }
     if (isCum(m)) r += '<td class="' + P + '-vs"' + tip({ title: 'За 12 мес', text: 'С начала года значение копится, поэтому сравнивать с ' + monthDat(L - 11) + ' не имеет смысла.' }) + '>' + hPill('flat', '—') + '</td></tr>';
     else r += deltaTd(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11)), 'Изменение за 12 месяцев: ' + monthLow(L) + ' к ' + monthDat(L - 11) + '.', P + '-vs', mval(ser, 'm', m, L - 11)) + '</tr>';
@@ -4206,7 +4226,7 @@ function transformHTML() {
   for (var rr = 0; rr < ord.length; rr++) th += prow(trName(list[ord[rr]]), list[ord[rr]].ser, list[ord[rr]].rest ? P + '-rest' : P + '-trr', ord[rr]);
   th += '</tbody></table>';
   var leg = '<div class="' + P + '-hleg">' + (flat ? '<span>У метрики нет «лучше» — ячейки без цвета.</span>'
-    : '<span>Хуже, чем «Всего» за ' + esc(monthLow(L)) + ' (' + esc(fmtVal(m, bar)) + '):</span><span><i style="background:' + HEAT_C[0] + '"></i>' + heatSteps(m)[0] + '</span><span><i style="background:' + HEAT_C[1] + '"></i>' + heatSteps(m)[1] + '</span><span><i style="background:' + HEAT_C[2] + '"></i>' + heatSteps(m)[2] + '</span>')
+    : '<span>Хуже, чем «Всего» за ' + esc(monthLow(vL(m))) + ' (' + esc(fmtVal(m, bar)) + '):</span><span><i style="background:' + HEAT_C[0] + '"></i>' + heatSteps(m)[0] + '</span><span><i style="background:' + HEAT_C[1] + '"></i>' + heatSteps(m)[1] + '</span><span><i style="background:' + HEAT_C[2] + '"></i>' + heatSteps(m)[2] + '</span>')
     + (flat ? '' : '<span class="' + P + '-hlsm"' + tip({ title: 'Серые цифры — без цвета', text: 'В строке меньше людей, чем нужно для оценки: ' + smallRule() + '. Значение показано, но не раскрашено: один человек сдвигает процент на несколько пунктов.' }) + '>серые цифры — мало людей, без цвета</span>')
     + '<span class="' + P + '-us">Клик по строке — её линия на графике и доля на кольце.</span></div>';
   var sel = pick > -1 ? list[pick] : null;
@@ -4272,7 +4292,7 @@ function heatSteps(m) {
 }
 // Подсказка ячейки хитмапа: на сколько хуже планки и какая это ступень цвета.
 function heatTxt(m, v, r) {
-  var L = MODEL.L, i = heatStep(m, v, r), rv = heatRnd(m, v), rr = heatRnd(m, r), lab = '«Всего» за ' + monthLow(L) + ' (' + fmtVal(m, r) + ')';
+  var L = vL(m), i = heatStep(m, v, r), rv = heatRnd(m, v), rr = heatRnd(m, r), lab = '«Всего» за ' + monthLow(L) + ' (' + fmtVal(m, r) + ')';
   if (i < 0) return (m.better === 'higher' ? rv >= rr : rv <= rr) || !rr || Math.abs(rv - rr) / Math.abs(rr) <= CFG.deadZone
     ? 'Не хуже, чем ' + lab + ' — без цвета.' : 'Без цвета.';
   var x = Math.round(rv / rr * 10) / 10, d = Math.abs(rv - rr) / Math.abs(rr);
@@ -4295,8 +4315,8 @@ function trLineSlot(m, sel, months) {
     heads.push(monthFull(k));
   }
   var nm = sel ? trName(sel) : 'Всего';
-  var spec = { m: m, ytd: yt, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: null, refKind: 'none', boldIdx: months.length - 1, heads: heads, prevHeads: null,
-    partIdx: partOf(MODEL.L) ? months.length - 1 : -1,
+  var spec = { m: m, ytd: yt, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: null, refKind: 'none', boldIdx: months.length - (closedOnly(m) ? 2 : 1), heads: heads, prevHeads: null,
+    partIdx: partOf(MODEL.L) ? months.length - 1 : -1, partLine: closedOnly(m),
                curName: nm.length > 24 ? nm.slice(0, 23) + '…' : nm, prevName: 'Всего', noPrev: !sel, tips: { cur: sel ? 'Значение «' + nm + '» по месяцам.' : 'Весь юнит по месяцам.', prev: 'Весь юнит по месяцам.' } };
   spec.cols = true;
   return chartSlot('trc', 'tr:' + m.key + ':' + wantAxis() + ':' + (sel ? sel.v : ''), function (w, ctx) { return svgLine(spec, w, 168, ctx); });
@@ -4467,7 +4487,7 @@ function kdForHTML(d) {
 function kdNow(d) {
   var M = MODEL, m = METRIC[d.metric];
   if (!m || !M.scope || !(M.single && M.scopeIds[0] === d.unit)) return '';
-  var v = mval(M.scope, 'm', m, M.L), b = comparable(m) ? mval(M.base, 'm', m, M.L) : null;
+  var v = mval(M.scope, 'm', m, vL(m)), b = comparable(m) ? mval(M.base, 'm', m, vL(m)) : null;
   var last = M.cal.m[M.L] ? M.cal.m[M.L].e : '';
   return 'Сейчас у юнита — ' + fmtVal(m, v) + (b !== null ? ', база — ' + fmtVal(m, b) : '') + (m.ytd ? ' (с начала года; KPI — годовой)' : '') + '.'
     + (isoOk(d.from) && last && d.from > last ? ' Данные отчёта — по ' + fmtDay(last) + ': KPI с ' + fmtDay(d.from) + ' появится, когда закроется её первый месяц. Видеть сейчас — «Действует с» раньше.' : '');

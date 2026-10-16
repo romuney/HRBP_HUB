@@ -12,7 +12,9 @@
 --                значение hh_param.nonlegal_type: без выбранного типа отчёт их не берёт (HRBP 13.10).
 --   hc           в списочной численности на эту дату — ЛЮБОГО типа (active_type_nm):
 --                нанят (company_hire_dt <= дата) и не уволен раньше (company_fire_dt пусто
---                или >= дата). Активная численность — фильтр «Тип численности» = «Активная»
+--                или >= дата) и не уволен в этот день (company_fire_flg = 0: Дьяченко 16.10 — в численности
+--                всегда не уволенные; до 16.10 уволенный в день среза ещё был в ней). Активная численность —
+--                фильтр «Тип численности» = «Активная»
 --                (владелец 12.10: все метрики — и по активной, и по всем типам; до 12.10
 --                hc = active_employee_flg, и у прочих типов численность была 0).
 --   hc_act       active_employee_flg — для «Диагностики источников» (сверка с hct).
@@ -46,6 +48,7 @@ select
            or coalesce(e.internal_transfer_flg, 0) = 1 then 1 else 0 end      as is_ahire_row,
     case when coalesce(e.company_hire_dt, e.business_dt) <= e.business_dt
           and (e.company_fire_dt is null or e.company_fire_dt >= e.business_dt)
+          and coalesce(e.company_fire_flg, 0) = 0
          then 1 else 0 end                                                     as hc,
     coalesce(e.active_employee_flg, 0)::int                                    as hc_act,
     e.company_hire_dt::date                                                    as company_hire_dt,
