@@ -8,7 +8,7 @@
 --   (employee_contract_type_desc); head — руководитель / нет; legal — юрлицо
 --   (lvl1_legal_unit_nm); macro — макрорегион; city — город (mdm_employee_residence).
 -- Окна — как в «HH · куб по разрезам» (месячные: текучесть 12 со знаменателем по активной HQ, причины — с
--- начала года, закрепляемость 9 / 6 — найм за 12 мес); rgs / nrgs, hch, hirea — без окна (13.10).
+-- начала года, закрепляемость — найм с начала года, 16.10); rgs / nrgs, hch, hirea — без окна (13.10).
 -- Свёртка (без разрезов) — только юридическая численность: строки «вне юр. численности» в неё не идут.
 --
 -- Свёртка → hrbp_hub_attr_top: юнит открывают — трансформер должен приехать сразу, а
@@ -104,14 +104,14 @@ select x.kid, x.grain, x.idx,
        x.hch as hcw,
        sum(x.nr) over wy as nr,
        sum(x.nrd) over wy as nrd,
-       sum(x.r3n) over w9 as r3n,
-       sum(x.r3d) over w9 as r3d,
-       sum(x.r6n) over w6 as r6n,
-       sum(x.r6d) over w6 as r6d,
-       sum(x.r3an) over w9 as r3an,
-       sum(x.r3ad) over w9 as r3ad,
-       sum(x.r6an) over w6 as r6an,
-       sum(x.r6ad) over w6 as r6ad,
+       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 3 then x.r3n else 0 end) over wy as r3n,
+       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 3 then x.r3d else 0 end) over wy as r3d,
+       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 6 then x.r6n else 0 end) over wy as r6n,
+       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 6 then x.r6d else 0 end) over wy as r6d,
+       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 3 then x.r3an else 0 end) over wy as r3an,
+       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 3 then x.r3ad else 0 end) over wy as r3ad,
+       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 6 then x.r6an else 0 end) over wy as r6an,
+       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 6 then x.r6ad else 0 end) over wy as r6ad,
        x.hirea,
        x.hire,
        x.fire
@@ -144,9 +144,7 @@ from (
 ) x
 window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preceding and current row),
        wy as (partition by x.kid, x.grain, floor(x.idx / 12.0) order by x.idx rows between unbounded preceding and current row),
-       w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
-       w9 as (partition by x.kid, x.grain order by x.idx rows between 8 preceding and current row),
-       w6 as (partition by x.kid, x.grain order by x.idx rows between 5 preceding and current row)
+       w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row)
 distributed by (kid);
 
 drop table if exists hh_attr_arr;
