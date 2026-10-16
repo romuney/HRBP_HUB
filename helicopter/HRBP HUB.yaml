@@ -668,6 +668,8 @@ paragraphs:
       --              legal_position_dismissal_reason (legal_position_rk + fire_dt =
       --              legal_fire_dt) нет причины — и с увольнения прошло nr_grace_days.
       --              coalesce(dismissal_reason_desc, 'Причина отсутствует') = отсутствует.
+      --   nrd      — знаменатель незаполненных причин (Дьяченко 16.10: «не численность юнита, а все уволенные»):
+      --              то же, что nr, но с причиной или без — legal_fire_dt не пустая и прошло nr_grace_days.
       -- Дни увольнения берутся с запасом в 7 месяцев до окна: по ним когорты найма
       -- узнают, дожил ли новичок до 3 и 6 месяцев.
       -- ============================================================================
@@ -682,7 +684,10 @@ paragraphs:
              case when s.legal_fire_dt is not null
                    and coalesce(fr.has_reason, 0) = 0
                    and s.business_dt <= p.data_dt - p.nr_grace_days
-                  then 1 else 0 end as nr
+                  then 1 else 0 end as nr,
+             case when s.legal_fire_dt is not null
+                   and s.business_dt <= p.data_dt - p.nr_grace_days
+                  then 1 else 0 end as nrd
       from hh_src s
       cross join hh_param p
       left join (
@@ -753,7 +758,7 @@ paragraphs:
       --   запасы     hc, jun          сотрудник в списочной численности на конец слота — любого
       --                               типа (hc из «строк источника»; «Активная» — фильтр hct);
       --                               джун — по hh_seniority
-      --   поток      fire, rg, nrg, nr в слоте дня увольнения
+      --   поток      fire, rg, nrg, nr, nrd в слоте дня увольнения
       --   найм       hire             в слоте дня найма в компанию (company_hire_flg)
       --              hirea            в слоте прихода в активную численность (когорта 'a': найм с типом
       --                               «Активная» + переход кандидата + внутренний перевод; HRBP 13.10)
@@ -767,7 +772,7 @@ paragraphs:
       drop table if exists hh_evt;
       create table hh_evt as
       select c.grain, c.idx, s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct, s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head, s.a_legal, s.a_macro, s.a_city,
-             1 as hc, coalesce(j.jun, 0) as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
+             1 as hc, coalesce(j.jun, 0) as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
              case when lower(trim(s.hct)) = lower(trim(p.active_type_value)) and lower(trim(s.paint)) = lower(trim(p.hq_paint_value)) then 1 else 0 end as hch, 0 as hirea
       from hh_src s
       join hh_calendar c on c.slot_end = s.business_dt
@@ -776,18 +781,18 @@ paragraphs:
       where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> ''
       union all
       select c.grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city,
-             0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, f.nr as nr, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea
+             0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, f.nr as nr, f.nrd as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea
       from hh_fire f
       join hh_calendar c on f.fire_dt between c.slot_start and c.slot_end
       union all
       select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city,
-             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, case when h.base = 'c' then 1 else 0 end as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
+             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, case when h.base = 'c' then 1 else 0 end as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
              0 as hch, case when h.base = 'a' then 1 else 0 end as hirea
       from hh_cohort h
       join hh_calendar c on h.hire_dt between c.slot_start and c.slot_end
       union all
       select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city,
-             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as hire, case when h.base = 'c' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3n, case when h.base = 'c' and h.hz = 3 then 1 else 0 end as r3d, case when h.base = 'c' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6n, case when h.base = 'c' and h.hz = 6 then 1 else 0 end as r6d, case when h.base = 'a' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3an, case when h.base = 'a' and h.hz = 3 then 1 else 0 end as r3ad, case when h.base = 'a' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6an, case when h.base = 'a' and h.hz = 6 then 1 else 0 end as r6ad, 0 as hch, 0 as hirea
+             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, 0 as hire, case when h.base = 'c' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3n, case when h.base = 'c' and h.hz = 3 then 1 else 0 end as r3d, case when h.base = 'c' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6n, case when h.base = 'c' and h.hz = 6 then 1 else 0 end as r6d, case when h.base = 'a' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3an, case when h.base = 'a' and h.hz = 3 then 1 else 0 end as r3ad, case when h.base = 'a' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6an, case when h.base = 'a' and h.hz = 6 then 1 else 0 end as r6ad, 0 as hch, 0 as hirea
       from (
           select q.*,
                  case when q.fire_dt is null or q.fire_dt >= q.md then 1 else 0 end as ret
@@ -824,6 +829,7 @@ paragraphs:
       --   считает текучесть с начала года), недели — Σ за 52 нед (как раньше; в отчёте не показываются);
       --   nr (незаполненные причины) — с начала года (месяцы: окно wy — с января того же года; недели — 13 нед):
       --   увольнения с 1 января, у которых прошло 30+ дней, а причины нет (HRBP 13.10);
+      --   nrd — знаменатель nr тем же окном: все увольнения с 1 января, у которых прошло 30+ дней (Дьяченко 16.10);
       --   hirea — найм в активную численность (без окна): найм в компанию с типом «Активная» + переходы
       --   кандидатов + внутренние переводы (candidate_transfer_flg, internal_transfer_flg; HRBP 13.10);
       --   r3*/r6* (созревшие новички и дожившие) — когорта найма за последние 12 мес (52 нед), у которой уже
@@ -844,6 +850,7 @@ paragraphs:
              sum(rg) as rg,
              sum(nrg) as nrg,
              sum(nr) as nr,
+             sum(nrd) as nrd,
              sum(hire) as hire,
              sum(r3n) as r3n,
              sum(r3d) as r3d,
@@ -871,6 +878,7 @@ paragraphs:
              x.nrg as nrgs,
              case when x.grain = 'm' then x.hch else sum(x.hch) over w52 end as hcw,
              case when x.grain = 'm' then sum(x.nr) over wy else sum(x.nr) over w13 end as nr,
+             case when x.grain = 'm' then sum(x.nrd) over wy else sum(x.nrd) over w13 end as nrd,
              case when x.grain = 'm' then sum(x.r3n) over w9 else sum(x.r3n) over w39 end as r3n,
              case when x.grain = 'm' then sum(x.r3d) over w9 else sum(x.r3d) over w39 end as r3d,
              case when x.grain = 'm' then sum(x.r6n) over w6 else sum(x.r6n) over w26 end as r6n,
@@ -890,6 +898,7 @@ paragraphs:
                          coalesce(l.rg, 0) as rg,
                          coalesce(l.nrg, 0) as nrg,
                          coalesce(l.nr, 0) as nr,
+                         coalesce(l.nrd, 0) as nrd,
                          coalesce(l.hire, 0) as hire,
                          coalesce(l.r3n, 0) as r3n,
                          coalesce(l.r3d, 0) as r3d,
@@ -932,6 +941,7 @@ paragraphs:
              m.nrgs as m_nrgs,
              m.hcw as m_hcw,
              m.nr as m_nr,
+             m.nrd as m_nrd,
              m.r3n as m_r3n,
              m.r3d as m_r3d,
              m.r6n as m_r6n,
@@ -951,6 +961,7 @@ paragraphs:
              w.nrgs as w_nrgs,
              w.hcw as w_hcw,
              w.nr as w_nr,
+             w.nrd as w_nrd,
              w.r3n as w_r3n,
              w.r3d as w_r3d,
              w.r6n as w_r6n,
@@ -972,6 +983,7 @@ paragraphs:
                  array_agg(nrgs::int order by idx) as nrgs,
                  array_agg(hcw::int order by idx) as hcw,
                  array_agg(nr::int order by idx) as nr,
+                 array_agg(nrd::int order by idx) as nrd,
                  array_agg(r3n::int order by idx) as r3n,
                  array_agg(r3d::int order by idx) as r3d,
                  array_agg(r6n::int order by idx) as r6n,
@@ -983,7 +995,7 @@ paragraphs:
                  array_agg(hire::int order by idx) as hire,
                  array_agg(fire::int order by idx) as fire,
                  array_agg(hirea::int order by idx) as hirea,
-                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
+                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
           from hh_cube_win
           where grain = 'm' and idx >= 0
           group by kid) m
@@ -997,6 +1009,7 @@ paragraphs:
                  array_agg(nrgs::int order by idx) as nrgs,
                  array_agg(hcw::int order by idx) as hcw,
                  array_agg(nr::int order by idx) as nr,
+                 array_agg(nrd::int order by idx) as nrd,
                  array_agg(r3n::int order by idx) as r3n,
                  array_agg(r3d::int order by idx) as r3d,
                  array_agg(r6n::int order by idx) as r6n,
@@ -1008,7 +1021,7 @@ paragraphs:
                  array_agg(hire::int order by idx) as hire,
                  array_agg(fire::int order by idx) as fire,
                  array_agg(hirea::int order by idx) as hirea,
-                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
+                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
           from hh_cube_win
           where grain = 'w' and idx >= 0
           group by kid) w
@@ -1035,6 +1048,7 @@ paragraphs:
              sum(w.nrgs) as nrgs,
              sum(w.hcw) as hcw,
              sum(w.nr) as nr,
+             sum(w.nrd) as nrd,
              sum(w.r3n) as r3n,
              sum(w.r3d) as r3d,
              sum(w.r6n) as r6n,
@@ -1064,6 +1078,7 @@ paragraphs:
              m.nrgs as m_nrgs,
              m.hcw as m_hcw,
              m.nr as m_nr,
+             m.nrd as m_nrd,
              m.r3n as m_r3n,
              m.r3d as m_r3d,
              m.r6n as m_r6n,
@@ -1083,6 +1098,7 @@ paragraphs:
              w.nrgs as w_nrgs,
              w.hcw as w_hcw,
              w.nr as w_nr,
+             w.nrd as w_nrd,
              w.r3n as w_r3n,
              w.r3d as w_r3d,
              w.r6n as w_r6n,
@@ -1103,6 +1119,7 @@ paragraphs:
                    array_agg(nrgs::int order by idx) as nrgs,
                    array_agg(hcw::int order by idx) as hcw,
                    array_agg(nr::int order by idx) as nr,
+                   array_agg(nrd::int order by idx) as nrd,
                    array_agg(r3n::int order by idx) as r3n,
                    array_agg(r3d::int order by idx) as r3d,
                    array_agg(r6n::int order by idx) as r6n,
@@ -1126,6 +1143,7 @@ paragraphs:
                    array_agg(nrgs::int order by idx) as nrgs,
                    array_agg(hcw::int order by idx) as hcw,
                    array_agg(nr::int order by idx) as nr,
+                   array_agg(nrd::int order by idx) as nrd,
                    array_agg(r3n::int order by idx) as r3n,
                    array_agg(r3d::int order by idx) as r3d,
                    array_agg(r6n::int order by idx) as r6n,
@@ -1184,6 +1202,7 @@ paragraphs:
              sum(rg) as rg,
              sum(nrg) as nrg,
              sum(nr) as nr,
+             sum(nrd) as nrd,
              sum(hire) as hire,
              sum(r3n) as r3n,
              sum(r3d) as r3d,
@@ -1218,6 +1237,7 @@ paragraphs:
              sum(l.rg) as rg,
              sum(l.nrg) as nrg,
              sum(l.nr) as nr,
+             sum(l.nrd) as nrd,
              sum(l.hire) as hire,
              sum(l.r3n) as r3n,
              sum(l.r3d) as r3d,
@@ -1250,6 +1270,7 @@ paragraphs:
              x.nrg as nrgs,
              x.hch as hcw,
              sum(x.nr) over wy as nr,
+             sum(x.nrd) over wy as nrd,
              sum(x.r3n) over w9 as r3n,
              sum(x.r3d) over w9 as r3d,
              sum(x.r6n) over w6 as r6n,
@@ -1269,6 +1290,7 @@ paragraphs:
                          coalesce(l.rg, 0) as rg,
                          coalesce(l.nrg, 0) as nrg,
                          coalesce(l.nr, 0) as nr,
+                         coalesce(l.nrd, 0) as nrd,
                          coalesce(l.hire, 0) as hire,
                          coalesce(l.r3n, 0) as r3n,
                          coalesce(l.r3d, 0) as r3d,
@@ -1305,6 +1327,7 @@ paragraphs:
              array_agg(nrgs::int order by idx) as nrgs,
              array_agg(hcw::int order by idx) as hcw,
              array_agg(nr::int order by idx) as nr,
+             array_agg(nrd::int order by idx) as nrd,
              array_agg(r3n::int order by idx) as r3n,
              array_agg(r3d::int order by idx) as r3d,
              array_agg(r6n::int order by idx) as r6n,
@@ -1316,7 +1339,7 @@ paragraphs:
              array_agg(hire::int order by idx) as hire,
              array_agg(fire::int order by idx) as fire,
              array_agg(hirea::int order by idx) as hirea,
-             sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
+             sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
       from hh_attr_win
       where grain = 'm' and idx >= 0
       group by kid
@@ -1334,6 +1357,7 @@ paragraphs:
              m.nrg as m_nrg,
              m.hcw as m_hcw,
              m.nr as m_nr,
+             m.nrd as m_nrd,
              m.r3n as m_r3n,
              m.r3d as m_r3d,
              m.r6n as m_r6n,
@@ -1365,6 +1389,7 @@ paragraphs:
              m.nrg as m_nrg,
              m.hcw as m_hcw,
              m.nr as m_nr,
+             m.nrd as m_nrd,
              m.r3n as m_r3n,
              m.r3d as m_r3d,
              m.r6n as m_r6n,

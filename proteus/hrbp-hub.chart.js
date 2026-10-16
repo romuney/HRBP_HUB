@@ -31,9 +31,9 @@ var CFG = {
   fields: {
     role: 'role', id: 'id', pid: 'pid', n: 'n', j: 'j',
     m: { hc: 'm_hc', jun: 'm_jun', rg: 'm_rg', nrg: 'm_nrg', hcw: 'm_hcw', nr: 'm_nr',
-         r3n: 'm_r3n', r3d: 'm_r3d', r6n: 'm_r6n', r6d: 'm_r6d', hire: 'm_hire', fire: 'm_fire', rgs: 'm_rgs', nrgs: 'm_nrgs' },
+         r3n: 'm_r3n', r3d: 'm_r3d', r6n: 'm_r6n', r6d: 'm_r6d', hire: 'm_hire', fire: 'm_fire', rgs: 'm_rgs', nrgs: 'm_nrgs', nrd: 'm_nrd' },
     w: { hc: 'w_hc', jun: 'w_jun', rg: 'w_rg', nrg: 'w_nrg', hcw: 'w_hcw', nr: 'w_nr',
-         r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire', rgs: 'w_rgs', nrgs: 'w_nrgs' }
+         r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire', rgs: 'w_rgs', nrgs: 'w_nrgs', nrd: 'w_nrd' }
   },
   carriers: { unit: 'unit_f', axis: 'tr_f', depth: 'depth_f' },
   // Разрезы численности: ключ колонки куба → носитель кросс-фильтра. Один перечень
@@ -121,11 +121,14 @@ var CFG = {
       numL: 'non-regrettable-уходов за 12 мес', denL: 'средняя численность за 12 мес', cnt: { n: ['уход', 'ухода', 'уходов'], tail: 'за год' },
       numLy: 'non-regrettable-уходов с начала года', denLy: 'средняя активная численность HQ', tailY: 'с начала года' },
     { key: 'exit_reasons', block: 'turnover', name: 'Незаполненные причины увольнений', short: 'Без причины',
-      fmt: 'pct', better: 'lower', num: 'nr', den: 'hc', cum: true,
-      hint: 'Уволенные с начала года, у кого так и не указана причина увольнения, — от численности юнита.',
-      frac: ['уволены с начала года без причины', 'численность на конец месяца'],
-      notes: ['Считаем увольнения, после которых прошло 30 и больше дней: на причину есть месяц.', 'С начала года — значение копится до декабря.', 'Кто именно — в отчёте «Детальные списки».'],
-      numL: 'увольнений без причины с начала года', denL: 'численность на конец месяца', cnt: { n: ['увольнение', 'увольнения', 'увольнений'], tail: 'с начала года' },
+      // Знаменатель — все уволенные с начала года (Дьяченко 16.10, было — численность юнита): nrd, те же увольнения,
+      // с причиной или без; таблиц с ним ещё нет (ноут не перезапущен) — сумма увольнений с января (denFb). Это доля, а не
+      // счёт: значение не копится (не cum) — к прошлому месяцу сравнивается, темпа к декабрю нет.
+      fmt: 'pct', better: 'lower', num: 'nr', den: 'nrd', denFb: 'fire',
+      hint: 'Доля уволенных с начала года, у кого так и не указана причина увольнения.',
+      frac: ['уволены с начала года без причины', 'все уволенные с начала года'],
+      notes: ['Считаем увольнения, после которых прошло 30 и больше дней: на причину есть месяц, — и в числителе, и в знаменателе.', 'Считаем среди уволенных с 1 января: в новом году — заново.', 'Кто именно — в отчёте «Детальные списки».'],
+      numL: 'уволены без причины с начала года', denL: 'всего уволены с начала года', cnt: { of: ['уволенного', 'уволенных', 'уволенных'] },
       exL: 'увольнений без причины сверх ориентира', exA: 'сверх ориентира' },
     { key: 'headcount', block: 'structure', name: 'Численность', short: 'Числ.',
       fmt: 'int', better: 'flat', num: 'hc',
@@ -406,9 +409,9 @@ function splitRecords(s) {
 // ---------- БЛОК 3: ТРАНСФОРМАЦИЯ ДАННЫХ ----------
 // rawData → MODEL. SQL отдаёт числители и знаменатели по слотам; проценты, окна
 // в знаменателе, дельты, наследование целей и светофор считаются здесь.
-var COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs'];
-// Необязательные колонки: датасет до 12.10 их не везёт — тогда «с начала года» в «Динамике» нет.
-var COMP_OPT = { rgs: 1, nrgs: 1 };
+var COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd'];
+// Необязательные колонки: датасет до 12.10 их не везёт — тогда «с начала года» в «Динамике» нет; nrd (16.10) — запасной знаменатель.
+var COMP_OPT = { rgs: 1, nrgs: 1, nrd: 1 };
 // Разрезы распределения численности в справочнике — в порядке CUT_COLS датасета (в нём записан код
 // сочетания); FDC — кэш чисел окна фильтров по набранному выбору (fdCalc). Объявлены до buildModel.
 var FD_KEYS = ['paint', 'it', 'stream', 'spec', 'staff', 'hct'];
@@ -441,6 +444,7 @@ function buildModel() {
   var need = [F.role, F.id, F.pid, F.n, F.j];
   for (var ci = 0; ci < COMP.length; ci++) if (!COMP_OPT[COMP[ci]]) { need.push(F.m[COMP[ci]]); need.push(F.w[COMP[ci]]); }
   M.ytdOk = (F.m.rgs in rawData[0]) && (F.m.nrgs in rawData[0]);
+  M.nrdOk = F.m.nrd in rawData[0];
   for (var ni = 0; ni < need.length; ni++) if (!(need[ni] in rawData[0])) M.missing.push(need[ni]);
   if (M.missing.length) return M;
   for (var i = 0; i < rawData.length; i++) {
@@ -496,6 +500,8 @@ function buildModel() {
   if (M.meta.ytd === 0) M.ytdOk = false;
   // Знаменатель текучести — активная HQ (13.10): есть в таблицах, если ноут выгрузил колонку hirea.
   M.hqOk = M.meta.hq === 1;
+  // Знаменатель незаполненных причин (16.10): колонка есть и ноут её выгрузил — иначе запасной (denFb).
+  if (M.meta.nrd !== 1) M.nrdOk = false;
   var meta = M.meta;
   M.role = meta.role || 'none';
   M.scopeIds = (meta.scope || []).slice().sort();
@@ -624,6 +630,8 @@ function parts(ser, g, m, i) {
   var nm = a[m.num] ? a[m.num][i] : null;
   if (nm === null || nm === undefined) return null;
   var dn = m.den ? (a[m.den] ? a[m.den][i] : null) : null;
+  // Запасной знаменатель — поток denFb с января того же года (месяцы 0…11 и 12…23).
+  if (m.denFb && !MODEL.nrdOk) { var fb = a[m.denFb]; dn = null; if (fb) { dn = 0; for (var j = i - i % 12; j <= i; j++) dn += fb[j] || 0; } }
   return { num: nm, den: dn };
 }
 function mval(ser, g, m, i) {

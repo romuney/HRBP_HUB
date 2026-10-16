@@ -11,6 +11,7 @@
   rg, nrg    увольнения за окно 12 мес / 52 нед, атрибуты на день увольнения
   rgs, nrgs  те же увольнения без окна (поток слота)
   hcw        знаменатель текучести — численность активной HQ (13.10): месяцы — на конец месяца, недели — Σ за 52
+  nrd        знаменатель nr: те же увольнения с причиной или без (16.10)
   nr         месяцы — увольнения с начала года (недели — за 13 нед) без причины, legal_fire_dt не пуст, прошло 30+ дней
   hire       найм в компанию; при «Активной» — приход в активную: найм с типом «Активная» + переход кандидата +
              внутренний перевод (13.10); когорта закрепляемости при «Активной» — от него же
@@ -145,7 +146,7 @@ EVENTS = events()
 def component_series(grain, pred, flt, active_base=False):
     """→ {компонент: [24 значения]} для области pred(unit, date) и фильтров flt."""
     lo = -11 if grain == 'm' else -51
-    raw = {k: {i: 0 for i in range(lo, 24)} for k in ('hc', 'jun', 'hch', 'fire', 'rg', 'nrg', 'nr', 'hire', 'r3n', 'r3d', 'r6n', 'r6d')}
+    raw = {k: {i: 0 for i in range(lo, 24)} for k in ('hc', 'jun', 'hch', 'fire', 'rg', 'nrg', 'nr', 'nrd', 'hire', 'r3n', 'r3d', 'r6n', 'r6d')}
     for i in range(lo, 24):
         for a, unit, pth, rp in stock(grain, i):
             if not passes(a, flt) or not pred(unit, pth, rp):
@@ -165,6 +166,7 @@ def component_series(grain, pred, flt, active_base=False):
             raw['rg'][i] += int(p.regret == 1)
             raw['nrg'][i] += int(p.regret == 2)
             raw['nr'][i] += int((not p.legal_fire_null) and p.reason != 'filled' and d <= W.D - dt.timedelta(days=30))
+            raw['nrd'][i] += int((not p.legal_fire_null) and d <= W.D - dt.timedelta(days=30))   # знаменатель nr (16.10)
         if kind == ('hire_a' if active_base else 'hire_c'):
             i = slot_of(grain, d)
             if i is not None:
@@ -190,9 +192,11 @@ def component_series(grain, pred, flt, active_base=False):
     out['rgs'] = [raw['rg'][i] for i in range(24)]      # без окна — для текучести с начала года (12.10)
     out['nrgs'] = [raw['nrg'][i] for i in range(24)]
     if grain == 'm':   # с начала года (13.10): с января того же года — блоки idx 0…11 и 12…23
-        out['nr'] = [sum(raw['nr'][j] for j in range(i - i % 12, i + 1)) for i in range(24)]
+        for k in ('nr', 'nrd'):
+            out[k] = [sum(raw[k][j] for j in range(i - i % 12, i + 1)) for i in range(24)]
     else:
-        out['nr'] = [sum(raw['nr'][j] for j in range(i - win['nr'] + 1, i + 1)) for i in range(24)]
+        for k in ('nr', 'nrd'):
+            out[k] = [sum(raw[k][j] for j in range(i - win['nr'] + 1, i + 1)) for i in range(24)]
     for k in ('r3n', 'r3d', 'r6n', 'r6d'):
         out[k] = [sum(raw[k][j] for j in range(max(i - win[k[:2]] + 1, lo), i + 1)) for i in range(24)]
     return out

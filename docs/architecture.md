@@ -26,7 +26,7 @@ Proteus: чарт «HRBP HUB» (proteus/hrbp-hub.chart.js) — кросс-фил
 | `helicopter/HRBP HUB.yaml` | ноут для импорта в Helicopter |
 | `proteus/hrbp-hub.data.sql` | SQL датасета `hrbp_hub` |
 | `proteus/hrbp-hub.chart.js` | JS чарта (ECHARTS, контракт скилла proteus-echarts-builder) |
-| `proteus/FIELDS.md` | 33 поля «Измерений» и ручные настройки чарта |
+| `proteus/FIELDS.md` | 35 полей «Измерений» и ручные настройки чарта |
 | `stand/` | стенд: синтетический мир → PostgreSQL (как GP) → chdb (ClickHouse 24.8 и 26.9) → датасет → регресс, живая страница чарта, нагрузка на 100 тыс. |
 | `Поставка …/` | нумерованные файлы «что куда вставлять» + `0. Инструкция.md` |
 
@@ -166,7 +166,7 @@ attr, attr_top, base); без флага массив приезжает стр�
 | path_s, path | String, Array(String) | путь юнита строкой и массивом (до 11 узлов) |
 | leaf | String | последний узел пути |
 | paint, it, stream, spec, staff, hct | String | 6 разрезов численности (пусто = `-`) |
-| m_* (18) | Array(Int32) | 24 месяца: hc, jun, rg, nrg, hcw, nr, r3n, r3d, r6n, r6d, r3an, r3ad, r6an, r6ad, hire, fire, rgs, nrgs (rgs / nrgs — увольнения месяца без окна, с 12.10) |
+| m_* (20) | Array(Int32) | 24 месяца: hc, jun, rg, nrg, hcw, nr, nrd, r3n, r3d, r6n, r6d, r3an, r3ad, r6an, r6ad, hire, fire, hirea, rgs, nrgs (rgs / nrgs — увольнения месяца без окна, с 12.10; nrd — знаменатель nr, 16.10) |
 | w_* (18) | Array(Int32) | то же по 24 неделям |
 
 Ветка юнита лежит подряд: у всех её строк `path_s` начинается с пути юнита.
@@ -206,7 +206,7 @@ spec = `emp_specialization_desc`, staff = «Штат» для `employment_relati
 | Закрепляемость новичков · 6 мес | r6n | r6d — найм за 12 мес, стаж от 6 мес | найм 12 мес (6 мес / 26 нед) | выше |
 | Regrettable текучесть | Σ по месяцам с января: rgs месяца / средняя численность месяца | — | с начала года (12 мес / 52 нед — переключателем и в неделях) | ниже |
 | Non regrettable текучесть | то же по nrgs | — | с начала года | нейтральна |
-| Незаполненные причины увольнений | nr — без причины, 30+ дней | hc на конец | 3 мес / 13 нед | ниже |
+| Незаполненные причины увольнений | nr — без причины, 30+ дней | nrd — все уволенные, 30+ дней (16.10; было hc) | с начала года / 13 нед | ниже |
 | Численность | hc на конец слота | — | — | нейтральна |
 | % джунов в команде | jun (seniority ILIKE intern% / jun%) | hc | — | выше |
 
@@ -252,7 +252,7 @@ spec = `emp_specialization_desc`, staff = «Штат» для `employment_relati
 Носители в SELECT не выводятся. `filter_values` при сохранении датасета отдаёт
 AlwaysTrueObject — списки собираются циклом, дефолт — зона пользователя.
 
-Выход — 33 колонки (с 12.10: + `m_rgs`, `m_nrgs`, `w_rgs`, `w_nrgs`), строки разных ролей:
+Выход — 35 колонок (с 12.10: + `m_rgs`, `m_nrgs`, `w_rgs`, `w_nrgs`; с 16.10: + `m_nrd`, `w_nrd`), строки разных ролей:
 
 | role | id | pid | n | j / массивы |
 |---|---|---|---|---|

@@ -40,7 +40,7 @@ if os.environ.get('HH_DIST') == '1':
     CHART = os.path.join(HERE, '..', 'Поставка — HRBP HUB v2', '3. Proteus — чарт HRBP HUB.js')
 if os.environ.get('HH_CHART'):  # черновик чарта для сравнения «было / будет» (рендеры до правки)
     CHART = os.environ['HH_CHART']
-COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs']
+COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd']
 COLS = ', '.join(['role', 'id', 'pid', 'n', 'j'] + ['m_' + c for c in COMP] + ['w_' + c for c in COMP])
 
 PAGE = r'''<!doctype html><html><head><meta charset="utf-8"><title>HRBP HUB · стенд</title>

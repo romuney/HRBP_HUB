@@ -74,9 +74,12 @@
 {% set NONLEGAL = 'Вне юр. численности' %}
 {% set ATTRS = ['grade', 'seniority', 'exp', 'gender', 'age', 'office', 'work', 'head', 'legal', 'macro', 'city'] %}
 {#- rgs, nrgs — regrettable / non-regrettable увольнения без окна (поток слота): текучесть нарастающим итогом с
-    начала года (владелец 12.10). Новые компоненты — только в конец списка. С 13.10 трансформеры везут все 14 (MT):
+    начала года (владелец 12.10). Новые компоненты — только в конец списка. С 13.10 трансформеры везут все компоненты (MT, с 16.10 — 15):
     текучесть с начала года — и в «Трансформерах» (куб атрибутов тоже с rgs / nrgs). -#}
-{% set COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs'] %}
+{#- nrd (16.10, Дьяченко) — знаменатель незаполненных причин: все увольнения с начала года, у которых прошёл срок на
+    причину (у nr — те же, но без причины). Тоже матчером: нет колонки — пустые слоты, meta.nrd = 0, чарт берёт запасной
+    знаменатель. -#}
+{% set COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd'] %}
 {% set NC = COMP|length %}
 {% set ROLES = ['meta', 'f', 'scope', 'base', 'kpi', 'hrbps', 'dict', 'c', 'g', 'tr', 'x', 'end'] %}
 {#- Трансформеры: все 11 атрибутов в каждом ответе. Без разрезов — из свёртки (если она есть
@@ -141,10 +144,11 @@
 {#- rgs / nrgs (с 12–13.10) — через матчер COLUMNS: в бою датасет вставляют раньше, чем ноут успевает выгрузить новые
     колонки, и ClickHouse падал «Unknown identifier 'o'» (13.10). Нет колонки — на её месте 24 пустых слота, а meta.ytd = 0
     говорит чарту не считать текучесть с начала года (он показывает 12 мес). -#}
-{%- macro opt(p, n) -%}arrayResize(arrayConcat(CAST([], 'Array(Nullable(Int32))'), COLUMNS('^{{ p }}_{{ '(rgs|nrgs)' if n == 48 else n }}$')), {{ n if n == 48 else 24 }}){%- endmacro -%}
-{#- плоский массив плеч — пара одним матчером (в таблицах rgs раньше nrgs), массивы трансформеров — по колонке -#}
-{% set MW = (MM[:12] + [opt('m', 48)] + WW[:12] + [opt('w', 48)])|join(', ') %}
-{% set MM = MM[:12] + [opt('m', 'rgs'), opt('m', 'nrgs')] %}
+{%- macro opt(p, n) -%}arrayResize(arrayConcat(CAST([], 'Array(Nullable(Int32))'), COLUMNS('^{{ p }}_{{ '(rgs|nrgs|nrd)' if n == 72 else n }}$')), {{ n if n == 72 else 24 }}){%- endmacro -%}
+{#- плоский массив плеч — тройка одним матчером (в кубе и базе rgs, nrgs, nrd идут в этом порядке; nrd нет — его
+    24 слота пустые), массивы трансформеров — по колонке -#}
+{% set MW = (MM[:12] + [opt('m', 72)] + WW[:12] + [opt('w', 72)])|join(', ') %}
+{% set MM = MM[:12] + [opt('m', 'rgs'), opt('m', 'nrgs'), opt('m', 'nrd')] %}
 {% set MT = MM|join(', ') %}
 {#- Условие «строка проходит разрезы», кроме разреза skip (для фасетов). -#}
 {% macro cond(skip) -%}
@@ -516,6 +520,7 @@ FROM (
       {#- новые колонки ноута — по кубу: base, attr, attr_top выгружает тот же запуск -#}
       ',"ytd":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_rgs')),
       ',"hq":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_hirea')),
+      ',"nrd":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_nrd')),
       ',"last_m":', toString(ctx.last_m),
       ',"fdv":', tupleElement({{ FZ }}, 12),
       ',"end":1',

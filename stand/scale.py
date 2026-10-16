@@ -119,16 +119,19 @@ def main():
             'stream String, spec String, staff String, hct String, w Float64) ENGINE = MergeTree ORDER BY path_s')
     S.query('INSERT INTO prod_proteus.cube_keys FORMAT JSONEachRow\n' + '\n'.join(json.dumps(k, ensure_ascii=False) for k in keys))
     comp = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'r3an', 'r3ad', 'r6an', 'r6ad', 'hire', 'fire']
-    ccomp = comp + ['rgs', 'nrgs']   # увольнения без окна (12.10): куб, база и (с 13.10) куб атрибутов
+    ccomp = comp + ['rgs', 'nrgs', 'nrd']   # увольнения без окна (12.10): куб, база и (с 13.10) куб атрибутов; nrd — 16.10
     scale = dict(hc=1.0, jun=.15, rg=.03, nrg=.05, hcw=12.0, nr=.01, r3n=.06, r3d=.07, r6n=.05, r6d=.07,
-                 r3an=.06, r3ad=.07, r6an=.05, r6ad=.07, hire=.03, fire=.02, rgs=.003, nrgs=.005)
+                 r3an=.06, r3ad=.07, r6an=.05, r6ad=.07, hire=.03, fire=.02, rgs=.003, nrgs=.005, nrd=.12)
 
     def gen(c, g):
         return ('arrayMap(i -> toInt32(if(%s AND i > 19, 0, round(w * %s * (0.8 + (cityHash64(path_s, paint, spec, hct, i, \'%s%s\') %% 400) / 1000.0)))), range(24))'
                 % ('1' if g == 'm' else '0', scale[c], g, c))
     cols = ', '.join(['path_s', 'path', 'leaf', 'paint', 'it', 'stream', 'spec', 'staff', 'hct']
                      + ['%s AS m_%s' % (gen(c, 'm'), c) for c in ccomp] + ['%s AS w_%s' % (gen(c, 'w'), c) for c in ccomp])
-    S.query('INSERT INTO prod_proteus.hrbp_hub_cube SELECT %s FROM prod_proteus.cube_keys' % cols)
+    # список колонок — явно: в таблицах ноута есть и колонки, которых масштаб не генерирует (hirea — пустые)
+    names = ', '.join(['path_s', 'path', 'leaf', 'paint', 'it', 'stream', 'spec', 'staff', 'hct']
+                      + ['m_' + c for c in ccomp] + ['w_' + c for c in ccomp])
+    S.query('INSERT INTO prod_proteus.hrbp_hub_cube (%s) SELECT %s FROM prod_proteus.cube_keys' % (names, cols))
     # куб атрибутов: каждая строка куба делится между n значениями атрибута (значение — по хешу ключа)
     pools = [('grade', 16, 4), ('seniority', 7, 2), ('exp', 6, 3), ('gender', 2, 2), ('age', 6, 3), ('office', 60, 2),
              ('work', 4, 1), ('head', 2, 2), ('legal', 5, 1), ('macro', 8, 1), ('city', 300, 2)]
@@ -142,8 +145,9 @@ def main():
                '[' + ', '.join("('%s', %d, %d)" % p for p in pools) + ']'))
     agg = ', '.join(['sumForEach(arrayMap(x -> toInt64(ifNull(x, 0)), m_%s)) AS m_%s' % (c, c) for c in ccomp]
                     + ['sumForEach(arrayMap(x -> toInt64(ifNull(x, 0)), w_%s)) AS w_%s' % (c, c) for c in ccomp])
-    S.query('INSERT INTO prod_proteus.hrbp_hub_base SELECT paint, it, stream, spec, staff, hct, %s '
-            'FROM prod_proteus.hrbp_hub_cube GROUP BY paint, it, stream, spec, staff, hct' % agg)
+    S.query('INSERT INTO prod_proteus.hrbp_hub_base (paint, it, stream, spec, staff, hct, %s) SELECT paint, it, stream, spec, staff, hct, %s '
+            'FROM prod_proteus.hrbp_hub_cube GROUP BY paint, it, stream, spec, staff, hct'
+            % (', '.join(['m_' + c for c in ccomp] + ['w_' + c for c in ccomp]), agg))
     # численность поддеревьев «сейчас» — по кубу (последний закрытый месяц)
     hc = json.loads(S.query("SELECT u AS id, sum(toInt64(ifNull(m_hc[20], 0))) AS hc FROM prod_proteus.hrbp_hub_cube "
                             "ARRAY JOIN path AS u GROUP BY u", 'JSON').bytes())['data']

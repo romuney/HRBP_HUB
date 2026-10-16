@@ -8,6 +8,8 @@
 --              legal_position_dismissal_reason (legal_position_rk + fire_dt =
 --              legal_fire_dt) нет причины — и с увольнения прошло nr_grace_days.
 --              coalesce(dismissal_reason_desc, 'Причина отсутствует') = отсутствует.
+--   nrd      — знаменатель незаполненных причин (Дьяченко 16.10: «не численность юнита, а все уволенные»):
+--              то же, что nr, но с причиной или без — legal_fire_dt не пустая и прошло nr_grace_days.
 -- Дни увольнения берутся с запасом в 7 месяцев до окна: по ним когорты найма
 -- узнают, дожил ли новичок до 3 и 6 месяцев.
 -- ============================================================================
@@ -22,7 +24,10 @@ select s.mdm_employee_rk, s.company_hire_dt, s.business_dt as fire_dt,
        case when s.legal_fire_dt is not null
              and coalesce(fr.has_reason, 0) = 0
              and s.business_dt <= p.data_dt - p.nr_grace_days
-            then 1 else 0 end as nr
+            then 1 else 0 end as nr,
+       case when s.legal_fire_dt is not null
+             and s.business_dt <= p.data_dt - p.nr_grace_days
+            then 1 else 0 end as nrd
 from hh_src s
 cross join hh_param p
 left join (
