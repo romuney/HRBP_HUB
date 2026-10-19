@@ -15,8 +15,9 @@
   nr         месяцы — увольнения с начала года (недели — за 13 нед) без причины, legal_fire_dt не пуст, прошло 30+ дней
   hire       найм в компанию; при «Активной» — приход в активную: найм с типом «Активная» + переход кандидата +
              внутренний перевод (13.10); когорта закрепляемости при «Активной» — от него же
-  r3*, r6*   новички, созревшие (найм + 3/6 мес или + 91/182 дня): месяцы — найм с начала календарного года
-             (16.10), созревание с апреля / июля года слота; недели — найм за 52 нед, окно 39/26 нед (13.10)
+  r3*, r6*   месяцы (19.10) — когорта месяца найма, без окна: r3d — нанятые в месяце, r3n — те из них, кто работает
+             через 3/6 мес от найма; месяц — только созревший целиком (конец месяца «найм + 3/6» ≤ дата данных);
+             недели — по слоту созревания (найм + 91/182 дня), окно 39/26 нед (13.10)
   hire, fire поток слота
 """
 import datetime as dt
@@ -29,7 +30,7 @@ import world as W  # noqa: E402
 LM = W.D   # последний месяц отчёта — текущий, по дату данных (15.10: «метрики на вчера»)
 YEAR = LM.year
 LW = W.D - dt.timedelta(days=W.D.isoweekday() % 7)
-WIN = {'m': {'rg': 12, 'nr': 3, 'r3': 9, 'r6': 6}, 'w': {'rg': 52, 'nr': 13, 'r3': 39, 'r6': 26}}
+WIN = {'m': {'rg': 12, 'nr': 3}, 'w': {'rg': 52, 'nr': 13, 'r3': 39, 'r6': 26}}
 
 
 def slot(grain, idx):
@@ -176,7 +177,12 @@ def component_series(grain, pred, flt, active_base=False):
                 md = W.add_months(d, mons) if grain == 'm' else d + dt.timedelta(days=dys)
                 if md > W.D:
                     continue
-                i = slot_of(grain, md)
+                if grain == 'm':   # 19.10: слот месяца найма, месяц созрел целиком
+                    if W.month_end(W.add_months(dt.date(d.year, d.month, 1), mons)) > W.D:
+                        continue
+                    i = slot_of(grain, d)
+                else:
+                    i = slot_of(grain, md)
                 if i is None:
                     continue
                 raw['r%dd' % hz][i] += 1
@@ -198,8 +204,8 @@ def component_series(grain, pred, flt, active_base=False):
         for k in ('nr', 'nrd'):
             out[k] = [sum(raw[k][j] for j in range(i - win['nr'] + 1, i + 1)) for i in range(24)]
     for k in ('r3n', 'r3d', 'r6n', 'r6d'):
-        if grain == 'm':   # 16.10: найм с начала календарного года — созревание с апреля (июля) года слота
-            out[k] = [sum(raw[k][j] for j in range(i - i % 12 + int(k[1]), i + 1)) for i in range(24)]
+        if grain == 'm':   # 19.10: когорта месяца найма — без окна
+            out[k] = [raw[k][i] for i in range(24)]
         else:
             out[k] = [sum(raw[k][j] for j in range(max(i - win[k[:2]] + 1, lo), i + 1)) for i in range(24)]
     return out

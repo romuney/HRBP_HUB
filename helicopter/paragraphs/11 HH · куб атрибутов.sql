@@ -8,7 +8,7 @@
 --   (employee_contract_type_desc); head — руководитель / нет; legal — юрлицо
 --   (lvl1_legal_unit_nm); macro — макрорегион; city — город (mdm_employee_residence).
 -- Окна — как в «HH · куб по разрезам» (месячные: текучесть 12 со знаменателем по активной HQ, причины — с
--- начала года, закрепляемость — найм с начала года, 16.10); rgs / nrgs, hch, hirea — без окна (13.10).
+-- начала года, закрепляемость — когорта месяца найма без окна, 19.10); rgs / nrgs, hch, hirea — без окна (13.10).
 -- Свёртка (без разрезов) — только юридическая численность: строки «вне юр. численности» в неё не идут.
 --
 -- Свёртка → hrbp_hub_attr_top: юнит открывают — трансформер должен приехать сразу, а
@@ -104,14 +104,14 @@ select x.kid, x.grain, x.idx,
        x.hch as hcw,
        sum(x.nr) over wy as nr,
        sum(x.nrd) over wy as nrd,
-       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 3 then x.r3n else 0 end) over wy as r3n,
-       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 3 then x.r3d else 0 end) over wy as r3d,
-       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 6 then x.r6n else 0 end) over wy as r6n,
-       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 6 then x.r6d else 0 end) over wy as r6d,
-       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 3 then x.r3an else 0 end) over wy as r3an,
-       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 3 then x.r3ad else 0 end) over wy as r3ad,
-       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 6 then x.r6an else 0 end) over wy as r6an,
-       sum(case when x.idx - 12 * floor(x.idx / 12.0) >= 6 then x.r6ad else 0 end) over wy as r6ad,
+       x.r3n as r3n,
+       x.r3d as r3d,
+       x.r6n as r6n,
+       x.r6d as r6d,
+       x.r3an as r3an,
+       x.r3ad as r3ad,
+       x.r6an as r6an,
+       x.r6ad as r6ad,
        x.hirea,
        x.hire,
        x.fire

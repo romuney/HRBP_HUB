@@ -10,9 +10,11 @@
 --                               «Активная» + переход кандидата + внутренний перевод; HRBP 13.10)
 --   hch        численность активной HQ на конец слота — знаменатель текучести (HRBP 13.10);
 --              значения сравниваются без регистра и пробелов: в источнике покраска — «Hq» (14.10)
---   когорты    r3d / r3n        новичок созрел (найм + 3 мес / + 13 нед) в этом слоте
---              r6d / r6n        и дожил ли (+ 6 мес / + 26 нед); суффикс a — база
---                               прихода в активную численность. Незрелые (срок позже data_dt) — не в счёт.
+--   когорты    r3d / r3n        месяцы (Дьяченко 19.10): новичок в слоте МЕСЯЦА НАЙМА — r3d, и работает ли
+--              r6d / r6n        через 3 / 6 мес от найма — r3n. Месяц найма — только созревший целиком: конец
+--                               месяца «найм + 3 (6)» ≤ data_dt, иначе когорта дозревает и в куб не идёт.
+--                               Недели — как было: в слоте созревания (найм + 13 / 26 нед). Суффикс a — база
+--                               прихода в активную численность.
 -- Слоты — с историей окон (idx < 0), окна применяются в следующем параграфе.
 -- ============================================================================
 drop table if exists hh_evt;
@@ -51,9 +53,11 @@ from (
                            ('w'::text, 3, null::int, 91), ('w'::text, 6, null::int, 182)) z(grain, hz, mons, dys)
     ) q
 ) h
-join hh_calendar c on c.grain = h.zgrain and h.md between c.slot_start and c.slot_end
+join hh_calendar c on c.grain = h.zgrain
+    and (case when h.zgrain = 'm' then h.hire_dt else h.md end) between c.slot_start and c.slot_end
 cross join hh_param p
 where h.md <= p.data_dt
+  and (h.zgrain = 'w' or (date_trunc('month', h.hire_dt) + (h.hz + 1) * interval '1 month' - interval '1 day')::date <= p.data_dt)
 distributed by (path_s);
 
 analyze hh_evt;
