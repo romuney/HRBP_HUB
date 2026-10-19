@@ -99,17 +99,13 @@ var CFG = {
       fmt: 'pct', better: 'higher', share: true, num: 'r3n', den: 'r3d', coh: 3,
       hint: 'Какая доля нанятых работает в компании через 3 месяца после найма.',
       frac: ['работают через 3 месяца после найма', 'нанято с января', 'месяцы найма, у которых 3 месяца уже прошли'],
-      notes: ['Значение — средняя с начала года: все нанятые с января, у кого 3 месяца уже прошли, как одна группа.',
-              'На графике — каждый месяц найма отдельно: доля нанятых в этом месяце, кто работает через 3 месяца. Средняя — горизонтальной линией.',
-              'Месяц, где 3 месяца прошли ещё не у всех нанятых, — пунктиром: значение по тем, у кого срок уже прошёл. В среднюю он входит, когда срок пройдёт у всех: январь — в конце апреля.'],
+      notes: ['Значение — средняя с начала года по месяцам найма, где 3 месяца прошли у всех.', 'Пунктир — месяц найма, где срок прошёл ещё не у всех: значение по тем, у кого прошёл.'],
       numL: 'работают через 3 мес', denL: 'нанято (3 мес прошло)', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
     { key: 'retention_new_6', block: 'retention', name: 'Закрепляемость новичков · 6 мес', short: 'Закрепл. 6 мес',
       fmt: 'pct', better: 'higher', share: true, num: 'r6n', den: 'r6d', coh: 6,
       hint: 'Какая доля нанятых работает в компании через 6 месяцев после найма.',
       frac: ['работают через 6 месяцев после найма', 'нанято с января', 'месяцы найма, у которых 6 месяцев уже прошли'],
-      notes: ['Значение — средняя с начала года: все нанятые с января, у кого 6 месяцев уже прошли, как одна группа.',
-              'На графике — каждый месяц найма отдельно: доля нанятых в этом месяце, кто работает через 6 месяцев. Средняя — горизонтальной линией.',
-              'Месяц, где 6 месяцев прошли ещё не у всех нанятых, — пунктиром: значение по тем, у кого срок уже прошёл. В среднюю он входит, когда срок пройдёт у всех: январь — в конце июля.'],
+      notes: ['Значение — средняя с начала года по месяцам найма, где 6 месяцев прошли у всех.', 'Пунктир — месяц найма, где срок прошёл ещё не у всех: значение по тем, у кого прошёл.'],
       numL: 'работают через 6 мес', denL: 'нанято (6 мес прошло)', cnt: { of: ['новичка', 'новичков', 'новичков'] }, exL: 'новичков ушло сверх ориентира', exA: 'сверх ориентира ушли' },
     { key: 'regret', block: 'turnover', name: 'Regrettable текучесть', short: 'Regret',
       fmt: 'pct', better: 'lower', num: 'rg', den: 'hcw', denDiv: { m: 12, w: 52 }, ytd: 'rgs', hq: true,
@@ -1293,8 +1289,15 @@ function svgLine0(spec, W, H, ctx) {
   if (on.ref) for (var k = n - 1; k >= 0; k--) if (spec.ref[k] !== null && spec.ref[k] !== undefined) { refNow = spec.ref[k]; break; }
   var ticks = [sc.min, (sc.min + sc.max) / 2, sc.max], tw = 0;
   for (var t0 = 0; t0 < ticks.length; t0++) tw = Math.max(tw, textW(axisFmt(m, ticks[t0]), F.axis));
-  if (refNow !== null) tw = Math.max(tw, textW(axisFmt(m, refNow), F.axis));
-  var gl = Math.ceil(tw + 14), gr = 16, gt = G.top, gb = G.axis;
+  var kpiPill = refNow !== null && spec.refKind === 'kpi' && !spec.cols;
+  if (refNow !== null && !kpiPill) tw = Math.max(tw, textW(axisFmt(m, refNow), F.axis));
+  // Пилюли ориентиров справа (владелец 19.10): KPI и средняя закрепляемости — линия входит в центр пилюли со значением.
+  var pills = [];
+  if (kpiPill) pills.push({ v: refNow, c: C.kpi, tc: C.ink2, s: 'ref' });
+  if (on.avg && !spec.cols) pills.push({ v: spec.avgV, c: C.avg, tc: C.avg, s: 'avg' });
+  var pillW = 0;
+  for (var pq = 0; pq < pills.length; pq++) { pills[pq].t = fmtVal(m, pills[pq].v); pillW = Math.max(pillW, textW(pills[pq].t, F.val) + 16); }
+  var gl = Math.ceil(tw + 14), gr = pills.length ? Math.ceil(pillW) + 8 : 16, gt = G.top, gb = G.axis;
   // В шапке таблицы «Трансформеров» (владелец 14.10): график занимает только колонки месяцев, точка — по центру своей
   // колонки; оси Y нет (значения подписаны у точек), подписи месяцев — шапка таблицы под графиком.
   if (spec.cols) { gl = 0; gr = 0; gb = 8; gt = 18; }
@@ -1304,13 +1307,13 @@ function svgLine0(spec, W, H, ctx) {
   function dly(i) { return Math.round(150 + (G.drawMs - 160) * (n <= 1 ? 1 : i / (n - 1))); }
   var s = '<svg class="' + P + '-svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '">';
   // сетка: три тонкие пунктирные линии с подписями слева; ориентир — подпись своим цветом
-  var refY = refNow !== null ? Y(refNow) : null;
+  var refY = refNow !== null && !kpiPill ? Y(refNow) : null;
   for (var t = 0; t < ticks.length && !spec.cols; t++) {
     var y = Y(ticks[t]);
     s += '<line x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + y.toFixed(1) + '" y2="' + y.toFixed(1) + '" stroke="' + C.grid + '"' + (t ? ' stroke-dasharray="3 3"' : '') + '/>';
     if (refY === null || Math.abs(refY - y) > 12) s += '<text x="' + (gl - 8) + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="end" class="' + P + '-ax">' + esc(axisFmt(m, ticks[t])) + '</text>';
   }
-  if (refY !== null && refY >= gt - 2 && refY <= gt + ph + 2) {
+  if (refY !== null && refY >= gt - 2 && refY <= gt + ph + 2) {  // у базы — подпись у оси; у KPI — пилюля справа
     s += '<text x="' + (gl - 8) + '" y="' + (refY + 3.5).toFixed(1) + '" text-anchor="end" class="' + P + '-ax ' + P + '-axk" style="fill:' + (spec.refKind === 'kpi' ? C.ink2 : refC) + '" data-s="ref">' + esc(axisFmt(m, refNow)) + '</text>';
   }
   // ось X: линия по ширине области, месяцы; текущий — 600
@@ -1344,11 +1347,12 @@ function svgLine0(spec, W, H, ctx) {
   for (var rr = 0; rr < rRef.length; rr++) {
     var pr = rRef[rr], dr = '';
     for (var q2 = 0; q2 < pr.length; q2++) dr += (q2 ? 'L' : 'M') + pr[q2][0].toFixed(1) + ' ' + pr[q2][1].toFixed(1);
-    if (pr.length === 1) dr += 'l0.1 0';
+    if (kpiPill && rr === rRef.length - 1) dr += 'L' + (gl + pw).toFixed(1) + ' ' + pr[pr.length - 1][1].toFixed(1);  // до пилюли
+    else if (pr.length === 1) dr += 'l0.1 0';
     s += '<path class="' + P + '-fd" data-d="120" d="' + dr + '" fill="none" stroke="' + refC + '" stroke-width="' + (spec.refKind === 'kpi' ? '2' : '1.6') + '" stroke-dasharray="' + (spec.refKind === 'kpi' ? '6 4' : '4 3') + '" data-s="ref"/>';
   }
   // Средняя с начала года (закрепляемость, 19.10) — одна горизонтальная линия-ориентир через весь график
-  if (on.avg) s += '<line class="' + P + '-fd" data-d="120" x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + Y(spec.avgV).toFixed(1) + '" y2="' + Y(spec.avgV).toFixed(1) + '" stroke="' + C.avg + '" stroke-width="1.4" data-s="avg"/>';
+  if (on.avg) s += '<line class="' + P + '-fd" data-d="120" x1="' + gl + '" x2="' + (gl + pw) + '" y1="' + Y(spec.avgV).toFixed(1) + '" y2="' + Y(spec.avgV).toFixed(1) + '" stroke="' + C.avg + '" stroke-width="1.4" stroke-dasharray="6 4" data-s="avg"/>';
   // Дозревающие месяцы найма — пунктир от последней точки линии, полые точки
   var pPts = [];
   if (on.part) {
@@ -1445,14 +1449,20 @@ function svgLine0(spec, W, H, ctx) {
         + '<text x="' + (pbox.x + pbox.w / 2).toFixed(1) + '" y="' + (pbox.y + 11).toFixed(1) + '" text-anchor="middle" class="' + P + '-vl" style="fill:' + C.muted + '">' + esc(ptx) + '</text></g>';
     }
   }
-  if (on.avg) {
-    var atx = 'средняя ' + fmtVal(m, spec.avgV), alw = textW(atx, F.val) + 8, ay = Y(spec.avgV), abx = gl + pw - alw;
-    var abox = null, ays = [ay - 4 - 15, ay + 4];
-    for (var at = 0; at < 2 && !abox; at++) { var ac = { x: abx, y: ays[at], w: alw, h: 15 }; if (!hits(ac) && ac.y >= gt - 4 && ac.y + 15 <= gt + ph) abox = ac; }
-    if (abox) {
-      placed.push(abox);
-      lbl += '<g class="' + P + '-fd" data-d="120" data-s="avg"><rect x="' + abox.x.toFixed(1) + '" y="' + abox.y.toFixed(1) + '" width="' + abox.w.toFixed(1) + '" height="15" rx="4" class="' + P + '-vlb"/>'
-        + '<text x="' + (abox.x + abox.w / 2).toFixed(1) + '" y="' + (abox.y + 11).toFixed(1) + '" text-anchor="middle" class="' + P + '-vl" style="fill:' + C.avg + '">' + esc(atx) + '</text></g>';
+  // Пилюли справа: близкие по высоте раздвигаются, линия доходит до края области и входит в пилюлю
+  if (pills.length) {
+    for (var pz = 0; pz < pills.length; pz++) { pills[pz].y0 = Y(pills[pz].v); pills[pz].y = pills[pz].y0; }
+    if (pills.length === 2 && Math.abs(pills[0].y - pills[1].y) < 20) {
+      var up = pills[0].y <= pills[1].y ? 0 : 1, mid = (pills[0].y + pills[1].y) / 2;
+      pills[up].y = mid - 10; pills[1 - up].y = mid + 10;
+    }
+    var px0 = gl + pw + 4;
+    for (var pw0 = 0; pw0 < pills.length; pw0++) {
+      var pl0 = pills[pw0], pdash = pl0.s === 'ref' ? '6 4' : '6 4', pwid = pl0.s === 'ref' ? 2 : 1.4;
+      lbl += '<g class="' + P + '-fd" data-d="120" data-s="' + pl0.s + '">'
+        + '<path d="M' + (gl + pw).toFixed(1) + ' ' + pl0.y0.toFixed(1) + 'L' + px0.toFixed(1) + ' ' + pl0.y.toFixed(1) + '" fill="none" stroke="' + pl0.c + '" stroke-width="' + pwid + '" stroke-dasharray="' + pdash + '"/>'
+        + '<rect x="' + px0.toFixed(1) + '" y="' + (pl0.y - 9).toFixed(1) + '" width="' + pillW.toFixed(1) + '" height="18" rx="9" fill="#fff" stroke="' + pl0.c + '" stroke-width="1.4"/>'
+        + '<text x="' + (px0 + pillW / 2).toFixed(1) + '" y="' + (pl0.y + 3.8).toFixed(1) + '" text-anchor="middle" class="' + P + '-vl" style="fill:' + pl0.tc + '">' + esc(pl0.t) + '</text></g>';
     }
   }
   s += lbl;
@@ -3162,7 +3172,7 @@ function cohSpec(unitId, ser, m) {
   return { m: m, nocol: NOCOL, ytd: false, cum: true, coh: true, labels: labels, cur: cur, prev: prev, part: anyPart ? part : null, avgV: av, prevAvg: pavg, ref: ref, refKind: rk,
            boldIdx: last >= 0 ? last - 12 : -1, heads: heads, prevHeads: null, partIdx: -1, partLbl: '', partLine: false, extra: extra,
            curName: 'найм ' + y, prevName: 'найм ' + (y - 1), refName: rk === 'kpi' ? 'KPI' : 'база · ' + benchLabel(),
-           avgName: 'средняя' + (av === null ? '' : ' ' + fmtVal(m, av)),
+           avgName: 'средняя',
            tips: { cur: 'Каждый месяц найма ' + y + ' года: доля нанятых в нём, кто работает через ' + m.coh + ' мес. Пунктир — месяц дозревает: значение по тем, у кого срок уже прошёл.',
                    prev: 'Месяцы найма ' + (y - 1) + ' года.',
                    ref: rk === 'kpi' ? 'KPI юнита на каждый месяц.' : 'Вся компания под теми же фильтрами, те же месяцы найма.',
@@ -3197,7 +3207,7 @@ function chartBlock(kind, key, title, spec, H) {
   }
   // Средняя закрепляемости (19.10) — тёмная линия, в легенде — её значение.
   if (spec.avgV !== null && spec.avgV !== undefined) cur += '<span class="' + P + '-lg ' + P + '-lgs"' + tip({ title: 'Средняя с начала года', text: spec.tips ? spec.tips.avg : '' }) + '>'
-    + '<i class="' + P + '-lgk" style="border-top-color:' + C.avg + '"></i>' + esc(spec.avgName) + '</span>';
+    + '<i class="' + P + '-lgk ' + P + '-dash" style="border-top-color:' + C.avg + '"></i>' + esc(spec.avgName) + '</span>';
   // H < 0 — высота по панели «Динамики» (state.dynH, fitDyn в БЛОКЕ 6): две метрики целиком на любом экране.
   return '<div class="' + P + '-chb" data-chb="1"><div class="' + P + '-chh"><span class="' + P + '-cap">' + esc(title) + '</span>'
     + '<span class="' + P + '-lgd" role="group" aria-label="Линии графика">' + cur + sw + '</span></div>'
@@ -3654,30 +3664,20 @@ function cmpWords(m, bl) {
 function cohStory(u, ser, m, spec) {
   var L = vL(m), b = L - 12, out = [], last = cohLast(m);
   if (last < 0) return out;
-  var v = mval(ser, 'm', m, L), bl = baseline(u, m, v, 'm', L), ab = absText(m, ser, L);
+  var v = mval(ser, 'm', m, L), pv = spec.prevAvg ? spec.prevAvg[b] : null;
   if (v === null) return out;
-  var t1 = '<b>Средняя с начала года — ' + esc(fmtVal(m, v)) + '</b>' + (ab ? ' (' + esc(ab) + ', ' + esc(cohSpan(m)) + ')' : '');
-  if (bl.kind !== 'none') {
-    t1 += ', ' + esc(cmpWords(m, bl)) + '.';
-    var ex = bl.state === 'bad' ? excessPeople(m, ser, L, bl.ref) : 0, gt = ex ? gapText(m, ex, bl) : null;
-    if (gt) t1 += ' ' + esc(gt);
-  } else t1 += '.';
-  out.push({ i: -1, s: 'cur', html: t1 });
-  var pv = spec.prevAvg ? spec.prevAvg[b] : null;
   if (pv !== null && pv !== undefined) {
     var d = deltaOf(m, v, pv);
-    out.push({ i: -1, s: 'prev', html: '<b>Год назад — ' + esc(fmtVal(m, pv)) + '</b> (тот же найм ' + (dparts(MODEL.cal.m[L - 12].s).y) + ' года): сейчас '
-      + esc(endDot(!d ? 'столько же' : (d > 0 ? 'лучше' : 'хуже') + ' на ' + fmtDelta(m, Math.abs(d)).replace('+', ''))) });
+    out.push({ i: -1, s: 'prev', html: '<b>Год назад — ' + esc(fmtVal(m, pv)) + '</b>: сейчас ' + esc(endDot(!d ? 'столько же' : (d > 0 ? 'лучше' : 'хуже') + ' на ' + fmtDelta(m, Math.abs(d)).replace('+', ''))) });
   }
   var c = cohOne(ser, m, last);
-  if (c) out.push({ i: b, s: 'cur', html: '<b>Найм ' + MONTH_GEN[dparts(MODEL.cal.m[last].s).m] + ' — ' + esc(fmtVal(m, c.v)) + '</b>: ' + fmtInt(c.num) + ' из ' + fmtInt(c.den) + ' ' + plural(c.den, 'нанятого', 'нанятых', 'нанятых') + ' работают через ' + m.coh + ' мес. Последний месяц найма, где срок прошёл у всех.' });
+  if (c) out.push({ i: b, s: 'cur', html: '<b>Найм ' + MONTH_GEN[dparts(MODEL.cal.m[last].s).m] + ' — ' + esc(fmtVal(m, c.v)) + '</b>: ' + fmtInt(c.num) + ' из ' + fmtInt(c.den) + '.' });
   var wi = -1;
   for (var k = 0; k < b; k++) if (spec.cur[k] !== null && spec.cur[k] !== undefined && (wi < 0 || spec.cur[k] < spec.cur[wi])) wi = k;
   if (wi >= 0 && relDev(spec.cur[wi], v) >= 0.05) {
     var cw = cohOne(ser, m, 12 + wi);
     out.push({ i: wi, s: 'cur', html: '<b>Хуже всего — найм ' + MONTH_GEN[dparts(MODEL.cal.m[12 + wi].s).m] + ': ' + esc(fmtVal(m, spec.cur[wi])) + '</b>' + (cw ? ' (' + fmtInt(cw.num) + ' из ' + fmtInt(cw.den) + ')' : '') + '.' });
   }
-  if (L < MODEL.L) out.push({ i: -1, s: 'cur', html: 'Нанятые после ' + MONTH_GEN[dparts(MODEL.cal.m[L].s).m] + ' в средней пока не учтены: у них ' + m.coh + ' мес ещё не прошли.' });
   return out;
 }
 function storyItems(u, ser, m, spec) {
