@@ -1296,7 +1296,7 @@ function svgLine0(spec, W, H, ctx) {
   if (kpiPill) pills.push({ v: refNow, c: C.kpi, tc: C.ink2, s: 'ref', l: 'KPI' });
   if (on.avg && !spec.cols) pills.push({ v: spec.avgV, c: C.avg, tc: C.avg, s: 'avg', l: 'AVG' });
   var pillW = 0;
-  for (var pq = 0; pq < pills.length; pq++) { pills[pq].t = fmtVal(m, pills[pq].v); pillW = Math.max(pillW, textW(pills[pq].l + ' ' + pills[pq].t, F.val) + 22); }
+  for (var pq = 0; pq < pills.length; pq++) { pills[pq].t = fmtVal(m, pills[pq].v); pillW = Math.max(pillW, textW(pills[pq].l + ' ' + pills[pq].t, F.micro) + 14); }
   var gl = Math.ceil(tw + 14), gr = pills.length ? Math.ceil(pillW) + 8 : 16, gt = G.top, gb = G.axis;
   // В шапке таблицы «Трансформеров» (владелец 14.10): график занимает только колонки месяцев, точка — по центру своей
   // колонки; оси Y нет (значения подписаны у точек), подписи месяцев — шапка таблицы под графиком.
@@ -1452,17 +1452,17 @@ function svgLine0(spec, W, H, ctx) {
   // Пилюли справа: близкие по высоте раздвигаются, линия доходит до края области и входит в пилюлю
   if (pills.length) {
     for (var pz = 0; pz < pills.length; pz++) { pills[pz].y0 = Y(pills[pz].v); pills[pz].y = pills[pz].y0; }
-    if (pills.length === 2 && Math.abs(pills[0].y - pills[1].y) < 20) {
+    if (pills.length === 2 && Math.abs(pills[0].y - pills[1].y) < 17) {
       var up = pills[0].y <= pills[1].y ? 0 : 1, mid = (pills[0].y + pills[1].y) / 2;
-      pills[up].y = mid - 10; pills[1 - up].y = mid + 10;
+      pills[up].y = mid - 8.5; pills[1 - up].y = mid + 8.5;
     }
     var px0 = gl + pw + 4;
     for (var pw0 = 0; pw0 < pills.length; pw0++) {
       var pl0 = pills[pw0], pdash = pl0.s === 'ref' ? '6 4' : '6 4', pwid = pl0.s === 'ref' ? 2 : 1.4;
       lbl += '<g class="' + P + '-fd" data-d="120" data-s="' + pl0.s + '">'
         + '<path d="M' + (gl + pw).toFixed(1) + ' ' + pl0.y0.toFixed(1) + 'L' + px0.toFixed(1) + ' ' + pl0.y.toFixed(1) + '" fill="none" stroke="' + pl0.c + '" stroke-width="' + pwid + '" stroke-dasharray="' + pdash + '"/>'
-        + '<rect x="' + px0.toFixed(1) + '" y="' + (pl0.y - 9).toFixed(1) + '" width="' + pillW.toFixed(1) + '" height="18" rx="9" fill="#fff" stroke="' + pl0.c + '" stroke-width="1.4"/>'
-        + '<text x="' + (px0 + pillW / 2).toFixed(1) + '" y="' + (pl0.y + 3.8).toFixed(1) + '" text-anchor="middle" class="' + P + '-vl" style="fill:' + pl0.tc + '"><tspan font-weight="600">' + pl0.l + '</tspan> ' + esc(pl0.t) + '</text></g>';
+        + '<rect x="' + px0.toFixed(1) + '" y="' + (pl0.y - 7.5).toFixed(1) + '" width="' + pillW.toFixed(1) + '" height="15" rx="7.5" fill="#fff" stroke="' + pl0.c + '" stroke-width="1.2"/>'
+        + '<text x="' + (px0 + pillW / 2).toFixed(1) + '" y="' + (pl0.y + 3.3).toFixed(1) + '" text-anchor="middle" class="' + P + '-vl" style="fill:' + pl0.tc + ';font-size:' + F.micro + 'px"><tspan font-weight="600">' + pl0.l + '</tspan> ' + esc(pl0.t) + '</text></g>';
     }
   }
   s += lbl;
