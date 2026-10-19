@@ -1293,10 +1293,10 @@ function svgLine0(spec, W, H, ctx) {
   if (refNow !== null && !kpiPill) tw = Math.max(tw, textW(axisFmt(m, refNow), F.axis));
   // Пилюли ориентиров справа (владелец 19.10): KPI и средняя закрепляемости — линия входит в центр пилюли со значением.
   var pills = [];
-  if (kpiPill) pills.push({ v: refNow, c: C.kpi, tc: C.ink2, s: 'ref' });
-  if (on.avg && !spec.cols) pills.push({ v: spec.avgV, c: C.avg, tc: C.avg, s: 'avg' });
+  if (kpiPill) pills.push({ v: refNow, c: C.kpi, tc: C.ink2, s: 'ref', l: 'KPI' });
+  if (on.avg && !spec.cols) pills.push({ v: spec.avgV, c: C.avg, tc: C.avg, s: 'avg', l: 'AVG' });
   var pillW = 0;
-  for (var pq = 0; pq < pills.length; pq++) { pills[pq].t = fmtVal(m, pills[pq].v); pillW = Math.max(pillW, textW(pills[pq].t, F.val) + 16); }
+  for (var pq = 0; pq < pills.length; pq++) { pills[pq].t = fmtVal(m, pills[pq].v); pillW = Math.max(pillW, textW(pills[pq].l + ' ' + pills[pq].t, F.val) + 22); }
   var gl = Math.ceil(tw + 14), gr = pills.length ? Math.ceil(pillW) + 8 : 16, gt = G.top, gb = G.axis;
   // В шапке таблицы «Трансформеров» (владелец 14.10): график занимает только колонки месяцев, точка — по центру своей
   // колонки; оси Y нет (значения подписаны у точек), подписи месяцев — шапка таблицы под графиком.
@@ -1462,7 +1462,7 @@ function svgLine0(spec, W, H, ctx) {
       lbl += '<g class="' + P + '-fd" data-d="120" data-s="' + pl0.s + '">'
         + '<path d="M' + (gl + pw).toFixed(1) + ' ' + pl0.y0.toFixed(1) + 'L' + px0.toFixed(1) + ' ' + pl0.y.toFixed(1) + '" fill="none" stroke="' + pl0.c + '" stroke-width="' + pwid + '" stroke-dasharray="' + pdash + '"/>'
         + '<rect x="' + px0.toFixed(1) + '" y="' + (pl0.y - 9).toFixed(1) + '" width="' + pillW.toFixed(1) + '" height="18" rx="9" fill="#fff" stroke="' + pl0.c + '" stroke-width="1.4"/>'
-        + '<text x="' + (px0 + pillW / 2).toFixed(1) + '" y="' + (pl0.y + 3.8).toFixed(1) + '" text-anchor="middle" class="' + P + '-vl" style="fill:' + pl0.tc + '">' + esc(pl0.t) + '</text></g>';
+        + '<text x="' + (px0 + pillW / 2).toFixed(1) + '" y="' + (pl0.y + 3.8).toFixed(1) + '" text-anchor="middle" class="' + P + '-vl" style="fill:' + pl0.tc + '"><tspan font-weight="600">' + pl0.l + '</tspan> ' + esc(pl0.t) + '</text></g>';
     }
   }
   s += lbl;
