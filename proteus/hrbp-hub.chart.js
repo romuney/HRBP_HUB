@@ -1593,19 +1593,20 @@ function buildCSS() {
            + 'background:' + C.card + ';border:1px solid ' + C.line + ';border-radius:9px;'
            + 'box-shadow:0 10px 30px rgba(24,33,50,.18),0 2px 6px rgba(24,33,50,.08);'
            + 'padding:7px 10px;font-size:' + F.note + 'px;line-height:1.4;color:' + C.ink2 + ';font-weight:400;'
-           + 'max-width:260px;white-space:normal;}',
+           + 'max-width:320px;white-space:normal;}',
     P + '-tip b{font-weight:500;}',
     P + '-tip ' + P + '-t-h{display:block;font-size:' + F.cap + 'px;font-weight:500;letter-spacing:.3px;text-transform:uppercase;color:' + C.muted + ';margin-bottom:5px;}',
     P + '-tip ' + P + '-t-x{display:block;font-size:' + F.note + 'px;font-weight:400;color:' + C.ink2 + ';line-height:1.4;}',
+    // Значение строки подсказки не ужимается (владелец 20.10: «не влезает значение базы» при длинной «база · … HQ + Активная»), «…» — у подписи.
     P + '-tip ' + P + '-t-r{display:flex;align-items:center;gap:6px;margin-top:3px;min-width:118px;}',
     P + '-tip ' + P + '-t-r:first-child{margin-top:0;}',
     P + '-tip ' + P + '-t-m{display:inline-block;flex:0 0 auto;width:10px;height:9px;border-radius:3px;}',
     P + '-tip ' + P + '-t-m' + P + '-dash{height:0;width:14px;border-radius:0;border-top:2px dashed;background:none;}',
     P + '-tip ' + P + '-t-m' + P + '-solid{border-top-style:solid;}',
-    P + '-tip ' + P + '-t-l{font-size:' + F.val + 'px;font-weight:500;color:' + C.muted + ';min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
-    P + '-tip ' + P + '-t-v{display:inline;margin:0 0 0 auto;font-size:' + F.body + 'px;font-weight:500;color:' + C.ink + ';white-space:nowrap;font-variant-numeric:tabular-nums;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;}',
+    P + '-tip ' + P + '-t-l{flex:1 1 auto;font-size:' + F.val + 'px;font-weight:500;color:' + C.muted + ';min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
+    P + '-tip ' + P + '-t-v{display:inline;margin:0 0 0 auto;font-size:' + F.body + 'px;font-weight:500;color:' + C.ink + ';white-space:nowrap;font-variant-numeric:tabular-nums;flex:0 0 auto;max-width:70%;overflow:hidden;text-overflow:ellipsis;}',
     P + '-tip ' + P + '-t-r' + P + '-dim ' + P + '-t-v{color:' + C.muted + ';}',
-    P + '-tip ' + P + '-t-pill{margin:0 0 0 auto;}',
+    P + '-tip ' + P + '-t-pill{margin:0 0 0 auto;flex:0 0 auto;}',
     P + '-tip ' + P + '-t-n{display:block;font-size:' + F.cap + 'px;line-height:1.35;font-weight:400;color:' + C.muted + ';margin-top:4px;}',
     P + '-tip ' + P + '-t-r+' + P + '-t-n{margin-top:6px;padding-top:5px;border-top:1px solid ' + C.line2 + ';}',
 
