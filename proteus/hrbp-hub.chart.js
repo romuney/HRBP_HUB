@@ -3219,6 +3219,7 @@ function chartBlock(kind, key, title, spec, H) {
 }
 // Спарклайн строки: 12 закрытых месяцев, цвет — оценка каждого месяца.
 function sparkHTML(unitId, ser, m) {
+  if (m.coh) return cohSparkHTML(unitId, ser, m);
   var L = MODEL.L, vals = [], idx = [], tips = [], refs = [], refK = [];
   for (var i = L - 11; i <= L; i++) { idx.push(i); vals.push(mval(ser, 'm', m, i)); }
   var states = statesOver(unitId, ser, 'm', m, idx);
@@ -3234,6 +3235,32 @@ function sparkHTML(unitId, ser, m) {
     var rip = closedOnly(m) && idx[k] === L;
     if (rip) states[k] = 'none';
     tips.push({ title: monthFull(idx[k]), rows: rows, note: rip ? 'Месяц ещё идёт — цифра дозревает.' : (b.ref === null || b.ref === undefined ? 'Без ориентира — без цвета.' : stTxt(states[k] || 'neutral')) });
+  }
+  return svgSpark(vals, states, tips, refs, refK);
+}
+// Закрепляемость (владелец 20.10): спарклайн — значения КАЖДОГО месяца найма, как в «Динамике» (cohOne), не средняя
+// с января; 12 месяцев найма, последний — последний созревший (cohLastAny), окно может уходить в прошлый год.
+// Ориентир месяца — KPI на этот месяц или база той же когорты (cohVal по базе), как линии «Динамики».
+function cohLastAny(m) { var i = MODEL.L; while (i >= 0 && !cohRipe(m, i)) i--; return i; }
+function cohSparkHTML(unitId, ser, m) {
+  var M = MODEL, last = cohLastAny(m), vals = [], states = [], tips = [], refs = [], refK = [];
+  for (var i = last - 11; i <= last; i++) {
+    var c = i >= 0 ? cohOne(ser, m, i) : null, v = c ? c.v : null, ref = null, kind = 'none', st = 'neutral';
+    if (i >= 0) {
+      var s = M.cal.m[i], k = s ? resolveKpi(unitId, m.key, s.e) : null;
+      if (k) { kind = 'kpi'; ref = k.rule.target; }
+      else if (comparable(m)) { ref = cohVal(M.base, m, i); if (ref !== null) kind = 'bench'; }
+    }
+    if (v !== null && ref !== null) st = kind === 'kpi' ? stateForKpi(m, v, ref) : compareState(m, v, ref);
+    vals.push(v); states.push(st); refs.push(ref); refK.push(kind === 'kpi');
+    var rows = [{ label: 'факт', value: fmtVal(m, v) }];
+    if (c) rows.push({ label: m.numL, value: fmtInt(c.num) }, { label: 'нанято в этом месяце', value: fmtInt(c.den) });
+    if (ref !== null) {
+      rows.push({ label: kind === 'kpi' ? 'KPI' : 'база', value: fmtVal(m, ref), dash: true, color: kind === 'kpi' ? CFG.colors.kpi : CFG.colors.bench });
+      if (v !== null) rows.push({ label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, ref)) });
+    }
+    tips.push({ title: i >= 0 ? 'Найм — ' + monthFull(i) : 'нет данных', rows: rows,
+                note: v === null ? (i >= 0 ? 'В этом месяце никого не наняли.' : null) : (ref === null ? 'Без ориентира — без цвета.' : stTxt(st)) });
   }
   return svgSpark(vals, states, tips, refs, refK);
 }
