@@ -1384,7 +1384,7 @@ function svgLine0(spec, W, H, ctx) {
   var P = CFG.ns, C = CFG.colors, G = CFG.chart, F = CFG.fonts, m = spec.m, n = spec.labels.length;
   var anim = !!(ctx && ctx.anim);
   var on = { cur: true, prev: prevOn(spec), ref: cmpRef(spec), avg: spec.avgV !== null && spec.avgV !== undefined, part: !!spec.part };
-  var refC = spec.refKind === 'kpi' ? C.kpi : C.bench, pC = spec.pale ? C.muted2 : C.cur;  // дозревающие причины — бледно-серым
+  var refC = spec.refKind === 'kpi' ? C.kpi : C.bench, pC = C.cur;  // дозревающий период — пунктиром в цвет метрики (владелец 02.11, поставка 63: «не серым»)
   var all = [];
   for (var i = 0; i < n; i++) {
     if (on.cur) all.push(spec.cur[i]);
@@ -1613,7 +1613,7 @@ function svgLine0(spec, W, H, ctx) {
 // (цель или база месяца), последняя точка крупнее. Шкала — по значениям и ориентиру, но не
 // уже 8 % от величины: удержание 91–92 % не раздувается на всю высоту. Колонка месяца —
 // группа с полосой на всю высоту (без щелей): тултип едет по месяцам не мигая.
-function svgSpark(vals, states, tips, refs, refK, pv) {
+function svgSpark(vals, states, tips, refs, refK, pv, partLast) {
   var P = CFG.ns, w = 240, h = 48, n = vals.length, px = 6, pt = 8, pb = 8, lo = null, hi = null, i;
   function take(v) { if (v === null || v === undefined || isNaN(v)) return; lo = lo === null ? v : Math.min(lo, v); hi = hi === null ? v : Math.max(hi, v); }
   for (i = 0; i < n; i++) { take(vals[i]); if (refs) take(refs[i]); if (pv) take(pv[i]); }
@@ -1647,9 +1647,12 @@ function svgSpark(vals, states, tips, refs, refK, pv) {
     if (rd) s += '<path d="' + rd + '" class="' + P + '-sref"/>';
     if (rdk) s += '<path d="' + rdk + '" class="' + P + '-sref ' + P + '-srefk"/>';
   }
-  var vd = path(vals);
+  // Идущий месяц (partLast, «метрики на вчера») — последний отрезок пунктиром в цвет линии, как на графиках (поставка 63).
+  var pl = !!partLast && n > 1 && vals[n - 1] !== null && vals[n - 1] !== undefined && vals[n - 2] !== null && vals[n - 2] !== undefined;
+  var vd = path(pl ? vals.slice(0, n - 1).concat([null]) : vals);
   if (vd) s += '<path d="' + vd + '" class="' + P + '-sline"/>';
-  // Дозревающие месяцы причин (02.11) — бледно-серый пунктир от соседней точки линии, полые точки (pv — их значения).
+  if (pl) s += '<path d="M' + X(n - 2).toFixed(1) + ' ' + Y(vals[n - 2]).toFixed(1) + 'L' + X(n - 1).toFixed(1) + ' ' + Y(vals[n - 1]).toFixed(1) + '" class="' + P + '-sline ' + P + '-spart"/>';
+  // Дозревающие месяцы причин (02.11) — пунктир в цвет линии от соседней точки, полые точки (pv — их значения).
   var pd = '';
   if (pv) for (i = 0; i < n; i++) if (pv[i] !== null && pv[i] !== undefined) {
     pd += pd ? 'L' : (i && vals[i - 1] !== null && vals[i - 1] !== undefined ? 'M' + X(i - 1).toFixed(1) + ' ' + Y(vals[i - 1]).toFixed(1) + 'L' : 'M');
@@ -2193,8 +2196,8 @@ function buildCSS() {
     P + '-sline{fill:none;stroke:' + C.cur + ';stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round;opacity:.85;}',
     P + '-sref{fill:none;stroke:' + C.prev + ';stroke-width:1;stroke-dasharray:3 3;}',
     P + '-sref' + P + '-srefk{stroke:' + C.kpi + ';stroke-width:1.6;}',
-    P + '-sline' + P + '-spart{stroke:' + C.muted2 + ';stroke-dasharray:3 2.5;opacity:1;}',
-    P + '-sdot' + P + '-spt{fill:#fff;stroke:' + C.muted2 + ';stroke-width:1.4;}',
+    P + '-sline' + P + '-spart{stroke:' + C.cur + ';stroke-dasharray:3 2.5;opacity:1;}',
+    P + '-sdot' + P + '-spt{fill:#fff;stroke:' + C.cur + ';stroke-width:1.4;}',
     // Точки светофора — тон того же сигнала, что у пилюли (тот, что был у столбиков), с белой обводкой.
     P + '-sdot{stroke:#fff;stroke-width:1.2;transform-box:fill-box;transform-origin:center;transition:transform .12s;}',
     // «Лучше» — кольцо, «хуже» — сплошная тёмная точка: различаются формой, не только цветом (дальтонизм, ч/б; ревью 13.10).
@@ -2303,8 +2306,9 @@ function buildCSS() {
     P + '-lg{display:inline-flex;align-items:center;gap:6px;height:22px;border:1px solid ' + C.line2 + ';background:' + C.card + ';border-radius:999px;padding:0 10px 0 8px;font-size:' + F.note + 'px;color:' + C.ink2 + ';cursor:pointer;font-weight:500;white-space:nowrap;}',
     P + '-lgs{cursor:default;}',
     P + '-lgt{font:inherit;font-size:' + F.note + 'px;font-weight:500;color:' + C.ink2 + ';}',
-    P + '-lgoff{background:transparent;border-style:dashed;color:' + C.muted + ';}',
-    P + '-lgp{display:inline-block;width:14px;text-align:center;font-weight:600;color:' + C.muted + ';}',
+    P + '-lgoff{background:transparent;color:' + C.muted + ';}',
+    P + '-lgoff ' + P + '-lgn{text-decoration:line-through;}',
+    P + '-lgoff ' + P + '-lgk{opacity:.4;}',
     P + '-lgoff ' + P + '-hlk{background:none;color:' + C.muted + ';}',
     P + '-segb ' + P + '-lgk{margin-right:5px;vertical-align:middle;}',
     P + '-lg:hover{border-color:#d8dce4;background:#fafbfc;}',
@@ -3338,20 +3342,20 @@ function chartBlock(kind, key, title, spec, H) {
   var cur = '<span class="' + P + '-lg ' + P + '-lgs"' + tip({ title: spec.curName, text: spec.tips ? spec.tips.cur : '' }) + '>'
     + '<i class="' + P + '-lgk" style="border-top-color:' + C.cur + '"></i>' + esc(spec.curName) + '</span>';
   // Включатели линий сравнения (владелец 02.11, поставка 62): ориентир (KPI, без KPI — база) и прошлый год — независимо,
-  // кнопками-легендой; выключенная — «+ 2025» с пунктирной рамкой (видно, что линию можно добавить). У метрик без
+  // кнопками-легендой; выключенная — зачёркнута и бледная (владелец 02.11, поставка 63: «не +2025, а зачёркнут»). У метрик без
   // ориентира — только прошлый год.
   var sw = '';
   function tog(key, name, col, dash, on, kpi, text) {
     return '<button type="button" class="' + P + '-lg ' + P + '-lgt' + (on ? '' : ' ' + P + '-lgoff') + '" data-action="cmp" data-key="' + key + '" aria-pressed="' + (on ? 'true' : 'false') + '"'
       + tip({ title: name, text: text, note: 'Клик — показать или скрыть линию на всех графиках отчёта.' }) + '>'
-      + (on ? '<i class="' + P + '-lgk' + (dash ? ' ' + P + '-dash' : '') + '" style="border-top-color:' + col + '"></i>' : '<span class="' + P + '-lgp" aria-hidden="true">+</span>')
-      + (kpi ? '<span class="' + P + '-hlk">' + esc(name) + '</span>' : esc(name)) + '</button>';
+      + '<i class="' + P + '-lgk' + (dash ? ' ' + P + '-dash' : '') + '" style="border-top-color:' + col + '"></i>'
+      + '<span class="' + P + '-lgn' + (kpi ? ' ' + P + '-hlk' : '') + '">' + esc(name) + '</span></button>';
   }
   if (spec.ref) sw += tog('ref', refL, refC, true, useRef, spec.refKind === 'kpi', spec.tips ? spec.tips.ref : '');
   if (!spec.noPrev) sw += tog('prev', spec.prevName, C.prev, false, prevOn(spec), false, spec.tips ? spec.tips.prev : '');
   // Дозревающие месяцы причин (02.11) — бледно-серый пунктир, в легенде — что это.
   if (spec.pale && spec.part) cur += '<span class="' + P + '-lg ' + P + '-lgs"' + tip({ title: 'Дозревает', text: spec.tips.part }) + '>'
-    + '<i class="' + P + '-lgk ' + P + '-dash" style="border-top-color:' + C.muted2 + '"></i>дозревает</span>';
+    + '<i class="' + P + '-lgk ' + P + '-dash" style="border-top-color:' + C.cur + '"></i>дозревает</span>';
   // Средняя закрепляемости (19.10) — тёмная линия, в легенде — её значение.
   if (spec.avgV !== null && spec.avgV !== undefined) cur += '<span class="' + P + '-lg ' + P + '-lgs"' + tip({ title: 'Средняя с начала года', text: spec.tips ? spec.tips.avg : '' }) + '>'
     + '<i class="' + P + '-lgk ' + P + '-dash" style="border-top-color:' + C.avg + '"></i>' + esc(spec.avgName) + '</span>';
@@ -3383,7 +3387,7 @@ function sparkHTML(unitId, ser, m) {
     if (rip) states[k] = 'none';
     tips.push({ title: monthFull(idx[k]), rows: rows, note: rip ? 'Месяц ещё идёт — цифра дозревает.' : (b.ref === null || b.ref === undefined ? 'Без ориентира — без цвета.' : stTxt(states[k] || 'neutral')) });
   }
-  return svgSpark(vals, states, tips, refs, refK);
+  return svgSpark(vals, states, tips, refs, refK, null, partOf(L));
 }
 // Закрепляемость (владелец 20.10): спарклайн — значения КАЖДОГО месяца найма, как в «Динамике» (cohOne), не средняя
 // с января; 12 месяцев найма, последний — последний созревший (cohLastAny), окно может уходить в прошлый год.
