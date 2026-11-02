@@ -692,7 +692,7 @@ function ytdVal(ser, m, i) { var q = ytdParts(ser, m, i); return q ? q.v : null;
 function cohParts(ser, m, i) {
   var y0 = i < 12 ? 0 : 12, num = 0, den = 0;
   if (i < 0 || i > 23 || !monNd(ser, m, y0)) return null;
-  for (var j = y0; j <= i; j++) if (m.rip || cohRipe(m, j)) { var q = monNd(ser, m, j); if (q) { num += q.num; den += q.den; } }
+  for (var j = y0; j <= i; j++) if ((m.rip && ripPP()) || cohRipe(m, j)) { var q = monNd(ser, m, j); if (q) { num += q.num; den += q.den; } }
   return { num: num, den: den };
 }
 // Когорта месяца i в людях. У причин в GP — с начала года (окно wy): месяц — разность с прошлым слотом (январь — сам
@@ -715,7 +715,8 @@ function cohRaw(ser, m, i) {
 // Когорта созревшего месяца; null — никого не наняли (не уволили) или месяц дозревает.
 function cohOne(ser, m, i) { return cohRipe(m, i) ? cohRaw(ser, m, i) : null; }
 // Дозревающий месяц (на графике — закрепляемость пунктиром, причины бледно-серым): значение по тем, у кого срок прошёл.
-function cohPart(ser, m, i) { return cohRipe(m, i) ? null : cohRaw(ser, m, i); }
+// У причин без колонки nrd (знаменатель — весь отток) доля дозревающего месяца не считается: в числителе — только у кого прошёл срок.
+function cohPart(ser, m, i) { return cohRipe(m, i) || (m.rip && !MODEL.nrdOk) ? null : cohRaw(ser, m, i); }
 function cohVal(ser, m, i) { var c = cohOne(ser, m, i); return c ? c.v : null; }
 // Созрел ли месяц i целиком. Закрепляемость: конец месяца «i + coh» — не позже даты данных (как в GP, параграф 09).
 // Причины: конец месяца + rip дней — не позже даты данных (у всех уволенных в нём 30 дней прошли; иначе месяц — бледно-серым).
@@ -730,13 +731,25 @@ function dayTxt(n) { var t = new Date(n * 864e5); return t.getUTCDate() + NBSP +
 function ripDay(m, i) { return dayTxt(monEndN(i) + m.rip); }
 // Причины: в значении — уволенные по этот день (дата данных − rip); null — ни у кого из уволенных этого года срок не прошёл.
 function ripCut(m) { var t = MODEL.dataDt || (MODEL.cal.m[MODEL.L] || {}).e, c = t ? dayN(t) - m.rip : 0; return MODEL.cal.m[12] && c >= dayN(MODEL.cal.m[12].s) ? c : null; }
+// Причины (02.11): можно ли верить, что в nr / nrd только уволенные, у кого 30 дней прошли (ноут с 07 из 52-й)? Нет колонки
+// nrd (знаменатель — весь отток fire) или в nrd есть увольнения текущего месяца, хотя срок ни у кого из них пройти не мог
+// (07 из 51-й — без срока), — нет: тогда, как в 51-й, средняя — по месяцам, где 30 дней прошли у всех, а «у скольких прошли»
+// не показываем (в данных этого нет). Кеш — на MODEL (новый ответ — заново).
+function ripPP() {
+  var M = MODEL, m = METRIC.exit_reasons, L = M.L, c = M.cal.m[L], t = M.dataDt || (c || {}).e, q;
+  if (M.ripPP === undefined) {
+    M.ripPP = !!M.nrdOk;
+    if (M.ripPP && m && c && t && dayN(t) - m.rip < dayN(c.s)) { q = monNd(M.base, m, L) || monNd(M.scope, m, L); if (q && q.den > 0) M.ripPP = false; }
+  }
+  return M.ripPP;
+}
 // Последний созревший месяц текущего года (−1 — ни одного); подпись «найм января–мая» / у причин «по 3 октября».
 function cohLast(m) { var i = MODEL.L; while (i >= 12 && !cohRipe(m, i)) i--; return i >= 12 ? i : -1; }
 function cohSpan(m) {
-  if (m.rip) { var c = ripCut(m); return c === null ? '' : 'по ' + dayTxt(c); }
-  var k = cohLast(m), g0 = MONTH_GEN[dparts(MODEL.cal.m[12].s).m];
+  if (m.rip && ripPP()) { var c = ripCut(m); return c === null ? '' : 'по ' + dayTxt(c); }
+  var k = cohLast(m), A = m.rip ? MONTH_FULL : MONTH_GEN, g0 = A[dparts(MODEL.cal.m[12].s).m];
   if (k < 0) return '';
-  return 'найм ' + (k === 12 ? g0 : g0 + '–' + MONTH_GEN[dparts(MODEL.cal.m[k].s).m]);
+  return (m.rip ? 'за ' : 'найм ') + (k === 12 ? g0 : g0 + '–' + A[dparts(MODEL.cal.m[k].s).m]);
 }
 function comparable(m) { return m.fmt !== 'int' && m.better !== 'flat'; }
 function targetable(m) { return m.better !== 'flat' && m.fmt !== 'int'; }
@@ -1208,11 +1221,13 @@ function partTag(i) { return partOf(i) ? ' · по ' + dayDm(MODEL.cal.m[i].e) :
 function closedOnly(m) { return !!(m && m.ytd && MODEL.L > 0 && partOf(MODEL.L)); }
 // Закрепляемость (19.10): значение — средняя по последний созревший месяц найма (там же сравнения «к прошлому месяцу» и
 // «год к году» — те же месяцы найма год назад); пока созревших месяцев года нет — текущий месяц, значения нет.
-function vL(m) { if (m && m.rip) return MODEL.L; if (isMon(m)) { var k = cohLast(m); return k < 0 ? MODEL.L : k; } return closedOnly(m) ? MODEL.L - 1 : MODEL.L; }
+function vL(m) { if (m && m.rip && ripPP()) return MODEL.L; if (isMon(m)) { var k = cohLast(m); return k < 0 ? MODEL.L : k; } return closedOnly(m) ? MODEL.L - 1 : MODEL.L; }
 function ripeNote(m) {
   if (m && m.rip) {
     var c = cohSpan(m);
-    return c ? 'Средняя с 1 января по уволенным ' + c + ': у них ' + m.rip + ' дней на причину прошли. Уволенные позже войдут, когда пройдёт срок.' : 'Уволенных этого года, у кого ' + m.rip + ' дней на причину прошли, пока нет.';
+    if (!c) return 'Уволенных этого года, у кого ' + m.rip + ' дней на причину прошли, пока нет.';
+    return ripPP() ? 'Средняя с 1 января по уволенным ' + c + ': у них ' + m.rip + ' дней на причину прошли. Уволенные позже войдут, когда пройдёт срок.'
+      : 'Средняя по уволенным ' + c + ': месяц входит, когда ' + m.rip + ' дней на причину прошли у всех уволенных в нём.';
   }
   if (isMon(m)) {
     var k = cohLast(m);
@@ -3206,8 +3221,8 @@ function cohSpec(unitId, ser, m) {
     else if (rp0) {
       var f = fmtInt(fire ? fire[i] || 0 : 0);
       if (ripe) ex = c ? [{ label: m.numL, value: fmtInt(c.num) }, { label: tot, value: fmtInt(c.den) }] : [{ label: tot, value: f }];
-      else ex = [{ label: m.rip + ' дней прошли у', value: fmtInt(pc ? pc.den : 0) }, { label: 'из них без причины', value: fmtInt(pc ? pc.num : 0) },
-                 { label: tot, value: f }, { label: m.rip + ' дней пройдут у всех', value: ripDay(m, i) }];
+      else ex = (ripPP() ? [{ label: m.rip + ' дней прошли у', value: fmtInt(pc ? pc.den : 0) }, { label: 'из них без причины', value: fmtInt(pc ? pc.num : 0) }, { label: tot, value: f }]
+                 : pc ? [{ label: m.numL, value: fmtInt(pc.num) }, { label: tot, value: fmtInt(pc.den) }] : [{ label: tot, value: f }]).concat({ label: m.rip + ' дней пройдут у всех', value: ripDay(m, i) });
     } else if (c) ex = [{ label: m.numL, value: fmtInt(c.num) }, { label: 'нанято в этом месяце', value: fmtInt(c.den) }];
     else if (ripe) ex = [{ label: 'нанято в этом месяце', value: fmtInt(hire ? hire[i] || 0 : 0) }];
     else {
@@ -3226,11 +3241,11 @@ function cohSpec(unitId, ser, m) {
            boldIdx: last >= 0 ? last - 12 : -1, heads: heads, prevHeads: null, partIdx: pt ? L - 12 : -1, partLbl: pt ? 'по ' + dayDm(M.cal.m[L].e) : '', partLine: false, extra: extra,
            curName: rp0 ? String(y) : 'найм ' + y, prevName: rp0 ? String(y - 1) : 'найм ' + (y - 1), refName: rk === 'kpi' ? 'KPI' : 'база · ' + benchLabel(),
            avgName: 'средняя',
-           tips: { cur: rp0 ? 'Каждый месяц ' + y + ' года: доля уволенных в нём, у кого не указана причина. Бледно-серым — месяц, где ' + m.rip + ' дней прошли ещё не у всех: значение по тем, у кого прошли.'
+           tips: { cur: rp0 ? 'Каждый месяц ' + y + ' года: доля уволенных в нём, у кого не указана причина. Бледно-серым — месяц, где ' + m.rip + ' дней прошли ещё не у всех' + (ripPP() ? ': значение по тем, у кого прошли.' : '.')
                          : 'Каждый месяц найма ' + y + ' года: доля нанятых в нём, кто работает через ' + m.coh + ' мес. Пунктир — месяц дозревает: значение по тем, у кого срок уже прошёл.',
                    prev: 'Месяцы ' + monW(m) + ' ' + (y - 1) + ' года.',
                    ref: rk === 'kpi' ? 'KPI юнита на каждый месяц.' : 'Вся компания под теми же фильтрами, те же месяцы ' + monW(m) + '.',
-                   part: 'Месяц, где ' + m.rip + ' дней на причину прошли ещё не у всех уволенных: значение по тем, у кого прошли, — они уже в средней. Остальные войдут, когда пройдёт срок.',
+                   part: 'Месяц, где ' + m.rip + ' дней на причину прошли ещё не у всех уволенных' + (ripPP() ? ': значение по тем, у кого прошли, — они уже в средней. Остальные войдут, когда пройдёт срок.' : ': в среднюю он войдёт, когда срок пройдёт у всех.'),
                    avg: 'Средняя с начала года: все ' + (rp0 ? 'уволенные' : 'нанятые') + ' с января, у кого ' + (rp0 ? m.rip + ' дней' : m.coh + ' мес') + ' прошли (' + (rp0 ? 'уволены ' : '') + cohSpan(m) + '), как одна группа. Это значение метрики в «Сводке».' } };
 }
 // Заголовок графика — капитель серым (как «ПОЛЬЗОВАТЕЛИ ПО ПЕРИОДАМ» в Proteus Adoption),
@@ -3315,15 +3330,18 @@ function cohSparkHTML(unitId, ser, m) {
     if (v !== null && ref !== null) st = kind === 'kpi' ? stateForKpi(m, v, ref) : compareState(m, v, ref);
     vals.push(v); pv.push(pc ? pc.v : null); states.push(st); refs.push(ref); refK.push(kind === 'kpi');
     var rows = [{ label: 'факт', value: fmtVal(m, q ? q.v : null) }], fi = ser && ser.m && ser.m.fire && i >= 0 ? fmtInt(ser.m.fire[i] || 0) : '0';
-    if (rip) rows.push({ label: m.rip + ' дней прошли у', value: fmtInt(pc ? pc.den : 0) }, { label: 'из них без причины', value: fmtInt(pc ? pc.num : 0) },
-                       { label: 'всего уволены в этом месяце', value: fi }, { label: m.rip + ' дней пройдут у всех', value: ripDay(m, i) });
+    if (rip && ripPP()) rows.push({ label: m.rip + ' дней прошли у', value: fmtInt(pc ? pc.den : 0) }, { label: 'из них без причины', value: fmtInt(pc ? pc.num : 0) },
+                       { label: 'всего уволены в этом месяце', value: fi });
+    else if (rip && pc) rows.push({ label: m.numL, value: fmtInt(pc.num) }, { label: 'всего уволены в этом месяце', value: fmtInt(pc.den) });
+    else if (rip) rows.push({ label: 'всего уволены в этом месяце', value: fi });
+    if (rip) rows.push({ label: m.rip + ' дней пройдут у всех', value: ripDay(m, i) });
     else if (q) rows.push({ label: m.numL, value: fmtInt(q.num) }, { label: m.rip ? 'всего уволены в этом месяце' : 'нанято в этом месяце', value: fmtInt(q.den) });
     if (ref !== null) {
       rows.push({ label: kind === 'kpi' ? 'KPI' : 'база', value: fmtVal(m, ref), dash: true, color: kind === 'kpi' ? CFG.colors.kpi : CFG.colors.bench });
       if (v !== null) rows.push({ label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, ref)) });
     }
     tips.push({ title: i < 0 ? 'нет данных' : (m.rip ? monthFull(i) : 'Найм — ' + monthFull(i)), rows: rows,
-                note: rip ? 'Дозревает: ' + m.rip + ' дней прошли ещё не у всех — значение по тем, у кого прошли. Без цвета.'
+                note: rip ? 'Дозревает: ' + m.rip + ' дней прошли ещё не у всех' + (ripPP() ? ' — значение по тем, у кого прошли' : ', в среднюю месяц не входит') + '. Без цвета.'
                   : v === null ? (i >= 0 ? (m.rip ? 'В этом месяце никого не уволили.' : 'В этом месяце никого не наняли.') : null) : (ref === null ? 'Без ориентира — без цвета.' : stTxt(st)) });
   }
   return svgSpark(vals, states, tips, refs, refK, m.rip ? pv : null);
@@ -3775,7 +3793,8 @@ function cohStory(u, ser, m, spec) {
   if (m.rip) {  // месяцы, где 30 дней прошли ещё не у всех: сколько уже в средней, сколько ждёт срока
     var nm = [], pn = 0, pd = 0, fa = 0, lp = -1, fr = ser && ser.m ? ser.m.fire : null;
     for (var j = 12; j <= M.L; j++) if (!cohRipe(m, j)) { var q = cohPart(ser, m, j); nm.push(MONTH_FULL[dparts(M.cal.m[j].s).m]); lp = j; fa += fr ? fr[j] || 0 : 0; if (q) { pn += q.num; pd += q.den; } }
-    if (nm.length) out.push({ i: -1, html: '<b>Дозревает: ' + esc(nm.join(', ')) + '</b> — ' + m.rip + ' дней прошли у ' + fmtInt(pd) + ' из ' + fmtInt(fa) + ' уволенных' + (pd ? ', без причины из них ' + fmtInt(pn) : '') + '. У всех пройдут к ' + ripDay(m, lp) + '.' });
+    if (nm.length) out.push({ i: -1, html: '<b>Дозревает: ' + esc(nm.join(', ')) + '</b> — ' + (ripPP() ? m.rip + ' дней прошли у ' + fmtInt(pd) + ' из ' + fmtInt(fa) + ' уволенных' + (pd ? ', без причины из них ' + fmtInt(pn) : '')
+      : (pd ? 'без причины пока ' + fmtInt(pn) + ' из ' + fmtInt(pd) + ' уволенных' : 'уволено ' + fmtInt(fa)) + ', в среднюю не входят') + '. ' + m.rip + ' дней пройдут у всех к ' + ripDay(m, lp) + '.' });
   }
   return out;
 }
