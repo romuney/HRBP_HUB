@@ -12,8 +12,7 @@
   rgs, nrgs  те же увольнения без окна (поток слота)
   hcw        знаменатель текучести — численность активной HQ (13.10): месяцы — на конец месяца, недели — Σ за 52
   nrd        знаменатель nr: те же увольнения с причиной или без (16.10)
-  nr         месяцы — увольнения с начала года (недели — за 13 нед) без причины, legal_fire_dt не пуст; все, и свежие
-             (02.11: 30 дней на причину — в чарте, по месяцам увольнения)
+  nr         месяцы — увольнения с начала года (недели — за 13 нед) без причины, legal_fire_dt не пуст, прошло 30+ дней
   hire       найм в компанию; при «Активной» — приход в активную: найм с типом «Активная» + переход кандидата +
              внутренний перевод (13.10); когорта закрепляемости при «Активной» — от него же
   r3*, r6*   месяцы (19.10) — когорта месяца найма, без окна: r3d — нанятые в месяце, r3n — те из них, кто работает
@@ -167,8 +166,8 @@ def component_series(grain, pred, flt, active_base=False):
             raw['fire'][i] += 1
             raw['rg'][i] += int(p.regret == 1)
             raw['nrg'][i] += int(p.regret == 2)
-            raw['nr'][i] += int((not p.legal_fire_null) and p.reason != 'filled')
-            raw['nrd'][i] += int(not p.legal_fire_null)   # знаменатель nr (16.10); 30 дней — в чарте (02.11)
+            raw['nr'][i] += int((not p.legal_fire_null) and p.reason != 'filled' and d <= W.D - dt.timedelta(days=30))
+            raw['nrd'][i] += int((not p.legal_fire_null) and d <= W.D - dt.timedelta(days=30))   # знаменатель nr (16.10)
         if kind == ('hire_a' if active_base else 'hire_c'):
             i = slot_of(grain, d)
             if i is not None:
