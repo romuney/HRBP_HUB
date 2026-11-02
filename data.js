@@ -180,8 +180,8 @@ const BLOCK_BY_KEY=Object.fromEntries(BLOCKS.map(b=>[b.key,b]));
 const METRICS=[
   // Блок 1 — Удержание и текучесть
   {key:'retention_new', scale:'share', block:'retention', name:'Закрепляемость новичков',      short:'Закрепл.',  fmt:'pct',  better:'higher', unit:'%',   ref:85, hint:'Доля новичков, прошедших испытательный срок и оставшихся.'},
-  {key:'regret',        block:'retention', name:'Regrettable текучесть',         short:'Regret',    fmt:'pct',  better:'lower',  unit:'%',   ref:4,  hint:'Текучесть среди ценных сотрудников (нежелательные уходы), годовой темп.'},
-  {key:'nonregret',     block:'retention', name:'Non regrettable текучесть',     short:'Non-reg.',  fmt:'pct',  better:'flat',   unit:'%',   ref:null, hint:'Текучесть без сожаления (управляемые уходы). Нейтральная: больше не значит лучше.'},
+  {key:'regret',        block:'retention', name:'Нежелательный отток',           short:'Нежелат. отток',fmt:'pct',  better:'lower',  unit:'%',   ref:4,  hint:'Уходы ценных сотрудников, которых жаль потерять, годовой темп.'},
+  {key:'nonregret',     block:'retention', name:'Желательный отток',             short:'Желат. отток',fmt:'pct',  better:'flat',   unit:'%',   ref:null, hint:'Уходы, о которых не жалеем (управляемый отток). Нейтральная: больше не значит лучше.'},
   {key:'exit_reasons', scale:'share',  block:'retention', name:'Заполнение причин увольнений',  short:'Причины',   fmt:'pct',  better:'higher', unit:'%',   ref:90, hint:'Доля увольнений с заполненной причиной (качество данных оттока).'},
   // Блок 2 — Структура команды
   {key:'headcount',     block:'structure', name:'Численность',                   short:'Числ.',     fmt:'int',  better:'flat',   unit:'чел', ref:null, hint:'Списочная численность сотрудников на конец месяца. Абсолютная величина — с базой не сравнивается.'},
