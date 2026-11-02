@@ -19,5 +19,8 @@ gp_to_click('hrbp_hub_attr', 'prod_proteus.hrbp_hub_attr',
     gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(attr_k, path_s)')
 gp_to_click('hrbp_hub_attr_top', 'prod_proteus.hrbp_hub_attr_top',
     gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(unit_id)')
+# Уволенные без причины (поставка 56): строка на увольнение, без массивов; режется по пути юнита, как куб.
+gp_to_click('hrbp_hub_nr_people', 'prod_proteus.hrbp_hub_nr_people',
+    gp_service='gp', upload_mode='replace', order_by_columns='(path_s, fire_dt)')
 gp_to_click('hrbp_hub_base', 'prod_proteus.hrbp_hub_base',
     gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(paint, it, stream, spec, staff, hct)')

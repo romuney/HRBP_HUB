@@ -4,10 +4,11 @@
 -- датасет и чарт; «ждали / пришло» расходятся — смотреть параграф «HH · проверки».
 -- ============================================================================
 
--- 1. Все восемь таблиц на месте и свежие: строки и дата данных.
+-- 1. Все девять таблиц на месте и свежие: строки и дата данных.
 --    Ждали: calendar 48 строк; unit, access, cube, base, attr, attr_top — не пусто; kpi —
 --    сколько целей в реестре. base — тысячи строк (комбинации разрезов), cube — десятки
---    тысяч, attr_top — около десятой части attr.
+--    тысяч, attr_top — около десятой части attr; nr_people (с 56-й поставки) — уволенные без причины с 1 января,
+--    десятки–сотни строк, data_dt — последний день увольнения в ней.
 SELECT 'hrbp_hub_calendar' AS t, count() AS rows, toString(max(ifNull(data_dt, toDate('1970-01-01')))) AS data_dt FROM prod_proteus.hrbp_hub_calendar
 UNION ALL SELECT 'hrbp_hub_unit', count(), toString(max(ifNull(last_dt, toDate('1970-01-01')))) FROM prod_proteus.hrbp_hub_unit
 UNION ALL SELECT 'hrbp_hub_access', count(), '' FROM prod_proteus.hrbp_hub_access
@@ -15,7 +16,8 @@ UNION ALL SELECT 'hrbp_hub_kpi', count(), '' FROM prod_proteus.hrbp_hub_kpi
 UNION ALL SELECT 'hrbp_hub_cube', count(), '' FROM prod_proteus.hrbp_hub_cube
 UNION ALL SELECT 'hrbp_hub_base', count(), '' FROM prod_proteus.hrbp_hub_base
 UNION ALL SELECT 'hrbp_hub_attr', count(), '' FROM prod_proteus.hrbp_hub_attr
-UNION ALL SELECT 'hrbp_hub_attr_top', count(), '' FROM prod_proteus.hrbp_hub_attr_top;
+UNION ALL SELECT 'hrbp_hub_attr_top', count(), '' FROM prod_proteus.hrbp_hub_attr_top
+UNION ALL SELECT 'hrbp_hub_nr_people', count(), toString(max(ifNull(fire_dt, toDate('1970-01-01')))) FROM prod_proteus.hrbp_hub_nr_people;
 
 -- 2. Календарь: какие месяцы и недели лежат в позициях массивов, последний закрытый.
 --    Ждали: m 0–23 = январь прошлого года … декабрь текущего, closed = 1 до последнего
@@ -123,3 +125,25 @@ ORDER BY cut, headcount DESC;
 --     с пустыми фильтрами и вашим логином. Ждали: строка role = meta (в j — ваша роль,
 --     зона, zone_n — юнитов в зоне, tr_top = 1 — атрибуты трансформеров из свёртки), dict
 --     (n = zone_n + предки корней), base, scope, c, g, f, tr (17 осей); время ответа — секунды.
+
+-- 12. Уволенные без причины (поставка 56) сходятся с метрикой «Незаполненные причины» по всей компании с 1 января.
+--     n_ripe — у кого с увольнения прошло 30 дней (они в значении метрики), n_all — все, и свежие (в отчёте «дозревает»).
+--     Ждали: diff_ripe = 0 и diff_all = 0 (так же сверяет параграф «HH · проверки», 4г).
+SELECT p.n_ripe, b.b_ripe, p.n_ripe - b.b_ripe AS diff_ripe, p.n_all, b.b_all, p.n_all - b.b_all AS diff_all
+FROM (SELECT toInt64(sum(ifNull(ripe, 0))) AS n_ripe, toInt64(count()) AS n_all FROM prod_proteus.hrbp_hub_nr_people) AS p
+CROSS JOIN (
+  SELECT toInt64(sum(ifNull(arrayElement(m_nr, l.pos), 0))) AS b_ripe, toInt64(sum(ifNull(arrayElement(w_nr, l.pos), 0))) AS b_all
+  FROM prod_proteus.hrbp_hub_base
+  CROSS JOIN (SELECT toUInt32(max(idx) + 1) AS pos FROM prod_proteus.hrbp_hub_calendar WHERE grain = 'm' AND is_closed = 1) AS l
+) AS b;
+
+-- 12б. Кто это: последние 50 по дате увольнения. Уровни 3–6 — на день увольнения; ripe = 0 — 30 дней ещё не прошли.
+SELECT mdm_employee_rk, hire_dt, fire_dt, ripe, lvl3_nm, lvl4_nm, lvl5_nm, lvl6_nm, hct
+FROM prod_proteus.hrbp_hub_nr_people
+ORDER BY fire_dt DESC
+LIMIT 50;
+
+-- 13. Колонки знаменателя причин в таблицах (поставки 39, 55). Ждали: 1 и 1. Если 1, а в «Динамике» у месяца нет строки
+--     «30 дней прошли у», — колонок m_nrd / w_nrd нет в «Измерениях» чарта «HRBP HUB».
+SELECT hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_nrd') AS cube_m_nrd,
+       hasColumnInTable('prod_proteus', 'hrbp_hub_base', 'w_nrd') AS base_w_nrd;

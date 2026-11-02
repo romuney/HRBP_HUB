@@ -85,6 +85,19 @@ cross join (
                 join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
 ) c;
 
+-- 4г. Уволенные без причины (поставка 56) сходятся с метрикой: всей компании с начала года — с прошедшими 30 днями
+--     столько же, сколько m_nr базы в последнем месяце, всех (и свежих) — сколько w_nr.
+select 1 / (case when p.r = b.r and p.a = b.a then 1 else 0 end) as nr_people_check,
+       p.r as people_ripe, b.r as base_nr, p.a as people_all, b.a as base_nr_all
+from (select coalesce(sum(ripe), 0) as r, count(*) as a from hrbp_hub_nr_people) p
+cross join (
+    select coalesce(sum(k.m_nr[l.pos]), 0) as r, coalesce(sum(k.w_nr[l.pos]), 0) as a
+    from hrbp_hub_base k
+    cross join (select c.idx + 1 as pos
+                from hrbp_hub_calendar c
+                join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
+) b;
+
 -- 4в. Глубина пути: компания + не больше 10 уровней (lvl3…lvl12).
 select 1 / (case when max(array_length(path, 1)) <= 11 then 1 else 0 end) as path_depth_check,
        max(array_length(path, 1)) as max_path_len

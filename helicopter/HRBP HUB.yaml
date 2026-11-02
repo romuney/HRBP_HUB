@@ -29,6 +29,7 @@ paragraphs:
       | `hrbp_hub_access` | логин → роль и корни зоны (RLS внутри датасета) |
       | `hrbp_hub_kpi` | цели KPI (реестр правится в параграфе «KPI · реестр целей») |
       | `hrbp_hub_calendar` | 48 слотов: что значит позиция в массиве |
+      | `hrbp_hub_nr_people` | уволенные без причины с 1 января (и свежие — «дозревает»): rk сотрудника, даты найма и увольнения, уровни 3–6, путь и разрезы — список в отчёте |
 
       #### Порядок
       Параметры → календарь → строки источника → справочник юнитов → зоны HRBP →
@@ -718,6 +719,53 @@ paragraphs:
       where s.is_fire_row = 1
         and s.path_s <> ''
       distributed by (mdm_employee_rk);
+    isEnabled: true
+  - sid: 01a0c821-194c-742c-918a-8f9c5086a767
+    title: HH · уволенные без причины
+    shebang: gp
+    code: |-
+      -- ============================================================================
+      -- HH · уволенные без причины → hrbp_hub_nr_people (поставка 56, владелец 02.11: «возможность смотреть тех, у кого не
+      -- заполнена причина, — выгрузить детальные данные»). Строка — увольнение из компании с 1 января года data_dt по
+      -- data_dt без причины: то же, что числитель метрики «Незаполненные причины» (nra из «HH · увольнения»: legal_fire_dt не
+      -- пустая, причины нет), — и свежие, у кого с увольнения не прошло nr_grace_days (ripe = 0: в отчёте «дозревает», в
+      -- значение метрики пока не входят).
+      -- Колонки (владелец 02.11): mdm_employee_rk, дата найма, дата увольнения, уровни управленческой структуры 3–6 на день
+      -- увольнения (mapped-цепочка, как путь отчёта); ФИО и логинов нет. path_s и шесть разрезов — чтобы датасет отдавал
+      -- людей только из юнитов зоны логина и под фильтрами отчёта, как саму метрику.
+      -- Сверка с метрикой — «HH · проверки», 4г: строк с ripe = 1 столько же, сколько m_nr базы в последнем месяце, всех —
+      -- сколько w_nr.
+      -- ============================================================================
+      drop table if exists hrbp_hub_nr_people;
+      create table hrbp_hub_nr_people as
+      select f.mdm_employee_rk,
+             f.company_hire_dt                                                       as hire_dt,
+             f.fire_dt,
+             case when f.fire_dt <= p.data_dt - p.nr_grace_days then 1 else 0 end    as ripe,
+             coalesce(n.lvl3_nm, '-')                                                as lvl3_nm,
+             coalesce(n.lvl4_nm, '-')                                                as lvl4_nm,
+             coalesce(n.lvl5_nm, '-')                                                as lvl5_nm,
+             coalesce(n.lvl6_nm, '-')                                                as lvl6_nm,
+             f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct
+      from hh_fire f
+      cross join hh_param p
+      left join (
+          -- названия уровней на день увольнения; в источнике бывают дубли строк (сотрудник, день) — берём одну
+          select e.mdm_employee_rk, e.business_dt::date as business_dt,
+                 max(nullif(nullif(trim(e.lvl3_mapped_management_unit_nm::text), ''), '-')) as lvl3_nm,
+                 max(nullif(nullif(trim(e.lvl4_mapped_management_unit_nm::text), ''), '-')) as lvl4_nm,
+                 max(nullif(nullif(trim(e.lvl5_mapped_management_unit_nm::text), ''), '-')) as lvl5_nm,
+                 max(nullif(nullif(trim(e.lvl6_mapped_management_unit_nm::text), ''), '-')) as lvl6_nm
+          from prod_v_emart.mdm_employee_structure_d e
+          cross join hh_param pp
+          where e.business_dt >= date_trunc('year', pp.data_dt)
+            and coalesce(e.company_fire_flg, 0) = 1
+          group by 1, 2
+      ) n on n.mdm_employee_rk = f.mdm_employee_rk and n.business_dt = f.fire_dt
+      where f.nra = 1
+        and f.fire_dt >= date_trunc('year', p.data_dt)::date
+        and f.fire_dt <= p.data_dt
+      distributed by (path_s);
     isEnabled: true
   - sid: 01a0c821-1b40-70a3-a5c1-a87b5c325465
     title: HH · когорты найма
@@ -1607,6 +1655,19 @@ paragraphs:
                       join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
       ) c;
 
+      -- 4г. Уволенные без причины (поставка 56) сходятся с метрикой: всей компании с начала года — с прошедшими 30 днями
+      --     столько же, сколько m_nr базы в последнем месяце, всех (и свежих) — сколько w_nr.
+      select 1 / (case when p.r = b.r and p.a = b.a then 1 else 0 end) as nr_people_check,
+             p.r as people_ripe, b.r as base_nr, p.a as people_all, b.a as base_nr_all
+      from (select coalesce(sum(ripe), 0) as r, count(*) as a from hrbp_hub_nr_people) p
+      cross join (
+          select coalesce(sum(k.m_nr[l.pos]), 0) as r, coalesce(sum(k.w_nr[l.pos]), 0) as a
+          from hrbp_hub_base k
+          cross join (select c.idx + 1 as pos
+                      from hrbp_hub_calendar c
+                      join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
+      ) b;
+
       -- 4в. Глубина пути: компания + не больше 10 уровней (lvl3…lvl12).
       select 1 / (case when max(array_length(path, 1)) <= 11 then 1 else 0 end) as path_depth_check,
              max(array_length(path, 1)) as max_path_len
@@ -1666,6 +1727,9 @@ paragraphs:
           gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(attr_k, path_s)')
       gp_to_click('hrbp_hub_attr_top', 'prod_proteus.hrbp_hub_attr_top',
           gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(unit_id)')
+      # Уволенные без причины (поставка 56): строка на увольнение, без массивов; режется по пути юнита, как куб.
+      gp_to_click('hrbp_hub_nr_people', 'prod_proteus.hrbp_hub_nr_people',
+          gp_service='gp', upload_mode='replace', order_by_columns='(path_s, fire_dt)')
       gp_to_click('hrbp_hub_base', 'prod_proteus.hrbp_hub_base',
           gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(paint, it, stream, spec, staff, hct)')
     isEnabled: true
@@ -1680,7 +1744,7 @@ paragraphs:
       from proteus_py.database.clickhouse import set_table_owners
 
       OWNERS = ['r.kazantsev']
-      for t in ['hrbp_hub_calendar', 'hrbp_hub_unit', 'hrbp_hub_access', 'hrbp_hub_kpi', 'hrbp_hub_cube', 'hrbp_hub_attr', 'hrbp_hub_attr_top', 'hrbp_hub_base']:
+      for t in ['hrbp_hub_calendar', 'hrbp_hub_unit', 'hrbp_hub_access', 'hrbp_hub_kpi', 'hrbp_hub_cube', 'hrbp_hub_attr', 'hrbp_hub_attr_top', 'hrbp_hub_base', 'hrbp_hub_nr_people']:
           set_table_owners(database='prod_proteus', table=t, usernames=OWNERS)
     isEnabled: true
   - sid: 01a0c821-3e68-7199-a8bf-bdb5baf52164
