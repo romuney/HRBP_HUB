@@ -13,6 +13,8 @@
 --   Срок — по каждому уволенному от его дня увольнения (владелец 02.11: «уволился в начале месяца — к началу
 --   следующего причина уже должна быть»), не по месяцу целиком. Чарт берёт месяц увольнения разностью слотов «с начала
 --   года»; месяц, где срок прошёл ещё не у всех, — бледно-серым (`rip: 30` в чарте = nr_grace_days).
+--   nra, nrda — то же, что nr / nrd, но БЕЗ срока: все уволенные, и свежие (поставка 54, владелец 02.11: дозревающий
+--              месяц — по всем уволенным в нём, а «у скольких 30 дней прошли» — по nrd). В кубе едут в w_nr / w_nrd.
 -- Дни увольнения берутся с запасом в 7 месяцев до окна: по ним когорты найма
 -- узнают, дожил ли новичок до 3 и 6 месяцев.
 -- ============================================================================
@@ -30,7 +32,12 @@ select s.mdm_employee_rk, s.company_hire_dt, s.business_dt as fire_dt,
             then 1 else 0 end as nr,
        case when s.legal_fire_dt is not null
              and s.business_dt <= p.data_dt - p.nr_grace_days
-            then 1 else 0 end as nrd
+            then 1 else 0 end as nrd,
+       case when s.legal_fire_dt is not null
+             and coalesce(fr.has_reason, 0) = 0
+            then 1 else 0 end as nra,
+       case when s.legal_fire_dt is not null
+            then 1 else 0 end as nrda
 from hh_src s
 cross join hh_param p
 left join (

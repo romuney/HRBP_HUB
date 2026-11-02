@@ -4,7 +4,10 @@
 --   запасы     hc, jun          сотрудник в списочной численности на конец слота — любого
 --                               типа (hc из «строк источника»; «Активная» — фильтр hct);
 --                               джун — по hh_seniority
---   поток      fire, rg, nrg, nr, nrd в слоте дня увольнения
+--   поток      fire, rg, nrg, nr, nrd в слоте дня увольнения (nr / nrd — только месяцы: прошло 30 дней)
+--   nr / nrd   в строках grain = 'w' — НЕ недели (02.11, поставка 54): idx МЕСЯЦА увольнения и все уволенные, и свежие
+--              (nra / nrda из «HH · увольнения»): так w_nr / w_nrd куба — те же месяцы, что m_nr / m_nrd, но без срока
+--              30 дней. Недели в отчёте не показываются, колонки датасета те же.
 --   найм       hire             в слоте дня найма в компанию (company_hire_flg)
 --              hirea            в слоте прихода в активную численность (когорта 'a': найм с типом
 --                               «Активная» + переход кандидата + внутренний перевод; HRBP 13.10)
@@ -29,9 +32,15 @@ cross join hh_param p
 where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> ''
 union all
 select c.grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city,
-       0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, f.nr as nr, f.nrd as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea
+       0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, case when c.grain = 'm' then f.nr else 0 end as nr, case when c.grain = 'm' then f.nrd else 0 end as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea
 from hh_fire f
 join hh_calendar c on f.fire_dt between c.slot_start and c.slot_end
+union all
+select 'w'::text as grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city,
+       0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, f.nra as nr, f.nrda as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea
+from hh_fire f
+join hh_calendar c on c.grain = 'm' and f.fire_dt between c.slot_start and c.slot_end
+where f.nrda = 1
 union all
 select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city,
        0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, case when h.base = 'c' then 1 else 0 end as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,

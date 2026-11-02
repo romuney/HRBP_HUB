@@ -9,9 +9,11 @@
 --   hcw — знаменатель текучести, всегда по АКТИВНОЙ численности HQ, какие бы разрезы ни были выбраны
 --   (HRBP 13.10, Дьяченко): месяцы — численность активной HQ на конец месяца (hch, без окна: из неё чарт
 --   считает текучесть с начала года), недели — Σ за 52 нед (как раньше; в отчёте не показываются);
---   nr (незаполненные причины) — с начала года (месяцы: окно wy — с января того же года; недели — 13 нед):
---   увольнения с 1 января, у которых прошло 30+ дней, а причины нет (HRBP 13.10);
+--   nr (незаполненные причины) — с начала года (окно wy — с января того же года): увольнения с 1 января, у которых
+--   прошло 30+ дней, а причины нет (HRBP 13.10);
 --   nrd — знаменатель nr тем же окном: все увольнения с 1 января, у которых прошло 30+ дней (Дьяченко 16.10);
+--   w_nr / w_nrd (02.11, поставка 54) — НЕ недели: те же месяцы и то же окно wy, но все уволенные, и свежие (у кого 30 дней
+--   ещё не прошли; «HH · события по слотам» кладёт их в grain = 'w' с idx месяца) — по ним чарт рисует дозревающий месяц;
 --   hirea — найм в активную численность (без окна): найм в компанию с типом «Активная» + переходы
 --   кандидатов + внутренние переводы (candidate_transfer_flg, internal_transfer_flg; HRBP 13.10);
 --   r3*/r6* (когорта найма) — месяцы (Дьяченко 19.10, было — когорта с начала года по слоту созревания): БЕЗ окна,
@@ -62,8 +64,8 @@ select x.kid, x.grain, x.idx,
        x.rg as rgs,
        x.nrg as nrgs,
        case when x.grain = 'm' then x.hch else sum(x.hch) over w52 end as hcw,
-       case when x.grain = 'm' then sum(x.nr) over wy else sum(x.nr) over w13 end as nr,
-       case when x.grain = 'm' then sum(x.nrd) over wy else sum(x.nrd) over w13 end as nrd,
+       sum(x.nr) over wy as nr,
+       sum(x.nrd) over wy as nrd,
        case when x.grain = 'm' then x.r3n else sum(x.r3n) over w39 end as r3n,
        case when x.grain = 'm' then x.r3d else sum(x.r3d) over w39 end as r3d,
        case when x.grain = 'm' then x.r6n else sum(x.r6n) over w26 end as r6n,
@@ -105,7 +107,6 @@ window w12 as (partition by x.kid, x.grain order by x.idx rows between 11 preced
        wy as (partition by x.kid, x.grain, floor(x.idx / 12.0) order by x.idx rows between unbounded preceding and current row),
        w52 as (partition by x.kid, x.grain order by x.idx rows between 51 preceding and current row),
        w3 as (partition by x.kid, x.grain order by x.idx rows between 2 preceding and current row),
-       w13 as (partition by x.kid, x.grain order by x.idx rows between 12 preceding and current row),
        w39 as (partition by x.kid, x.grain order by x.idx rows between 38 preceding and current row),
        w26 as (partition by x.kid, x.grain order by x.idx rows between 25 preceding and current row)
 distributed by (kid);

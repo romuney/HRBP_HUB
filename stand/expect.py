@@ -12,7 +12,8 @@
   rgs, nrgs  те же увольнения без окна (поток слота)
   hcw        знаменатель текучести — численность активной HQ (13.10): месяцы — на конец месяца, недели — Σ за 52
   nrd        знаменатель nr: те же увольнения с причиной или без (16.10)
-  nr         месяцы — увольнения с начала года (недели — за 13 нед) без причины, legal_fire_dt не пуст, прошло 30+ дней
+  nr         месяцы — увольнения с начала года без причины, legal_fire_dt не пуст, прошло 30+ дней (по каждому)
+  w_nr, w_nrd  НЕ недели (02.11): те же месяцы с начала года, но все уволенные, и свежие (без срока 30 дней)
   hire       найм в компанию; при «Активной» — приход в активную: найм с типом «Активная» + переход кандидата +
              внутренний перевод (13.10); когорта закрепляемости при «Активной» — от него же
   r3*, r6*   месяцы (19.10) — когорта месяца найма, без окна: r3d — нанятые в месяце, r3n — те из них, кто работает
@@ -198,9 +199,17 @@ def component_series(grain, pred, flt, active_base=False):
     if grain == 'm':   # с начала года (13.10): с января того же года — блоки idx 0…11 и 12…23
         for k in ('nr', 'nrd'):
             out[k] = [sum(raw[k][j] for j in range(i - i % 12, i + 1)) for i in range(24)]
-    else:
+    else:   # 02.11: w_nr / w_nrd — месяцы с начала года, все уволенные (и свежие)
+        al = {'nr': [0] * 24, 'nrd': [0] * 24}
+        for kind, d, emp, p, a, pth, rp in EVENTS:
+            if kind != 'fire' or p.legal_fire_null or not passes(a, flt) or not pred(a['unit'], pth, rp):
+                continue
+            i = slot_of('m', d)
+            if i is not None and i >= 0:
+                al['nrd'][i] += 1
+                al['nr'][i] += int(p.reason != 'filled')
         for k in ('nr', 'nrd'):
-            out[k] = [sum(raw[k][j] for j in range(i - win['nr'] + 1, i + 1)) for i in range(24)]
+            out[k] = [sum(al[k][j] for j in range(i - i % 12, i + 1)) for i in range(24)]
     for k in ('r3n', 'r3d', 'r6n', 'r6d'):
         if grain == 'm':   # 19.10: когорта месяца найма — без окна
             out[k] = [raw[k][i] for i in range(24)]
