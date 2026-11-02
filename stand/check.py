@@ -217,10 +217,10 @@ def main():
                 continue
             # фасет типа численности показывает и «Вне юр. численности», а область без выбранного типа — только юридическую (13.10)
             ok(sum(int(r['n']) for r in fs if not (cut == 'hct' and r['id'] == W.NONLEGAL)) == sc[0]['hc'][last], 'фасеты «%s» == численность области [%s]' % (cut, user))
-    # Трансформеры: все 17 осей в каждом ответе; Σ значений оси == область за 12 последних
+    # Трансформеры: все 18 осей в каждом ответе (с 02.11 — и HRBP сотрудника, поставка 61); Σ значений оси == область за 12 последних
     # месяцев, прежние слоты — нули. Без разрезов у юнитов со свёрткой (attr_top) атрибуты — из
     # неё (tr_top = 1), иначе — из листового куба; оба пути дают одни и те же строки.
-    AXES = list(CARRIER) + ['grade', 'seniority', 'exp', 'gender', 'age', 'office', 'work', 'head', 'legal', 'macro', 'city']
+    AXES = list(CARRIER) + ['grade', 'seniority', 'exp', 'gender', 'age', 'office', 'work', 'head', 'legal', 'macro', 'city', 'hrbp']
     W_GRADES = len([r for r in by(ask({}, 'a.sergeeva')[0], 'tr') if r['pid'] == 'grade'])
     urows, _ = ch.run('SELECT ifNull(id, \'\') AS id, ifNull(attr_top, 0) AS t FROM prod_proteus.hrbp_hub_unit')
     TOP = {r['id'] for r in urows if int(r['t']) == 1}

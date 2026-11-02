@@ -134,7 +134,8 @@ def main():
     S.query('INSERT INTO prod_proteus.hrbp_hub_cube (%s) SELECT %s FROM prod_proteus.cube_keys' % (names, cols))
     # куб атрибутов: каждая строка куба делится между n значениями атрибута (значение — по хешу ключа)
     pools = [('grade', 16, 4), ('seniority', 7, 2), ('exp', 6, 3), ('gender', 2, 2), ('age', 6, 3), ('office', 60, 2),
-             ('work', 4, 1), ('head', 2, 2), ('legal', 5, 1), ('macro', 8, 1), ('city', 300, 2)]
+             ('work', 4, 1), ('head', 2, 2), ('legal', 5, 1), ('macro', 8, 1), ('city', 300, 2),
+             ('hrbp', 120, 1)]  # HRBP сотрудника (02.11): у юнита обычно один
     acols = ['m_' + c for c in ccomp]  # с 13.10 и у куба атрибутов — увольнения без окна (rgs, nrgs)
     S.query('INSERT INTO prod_proteus.hrbp_hub_attr (path_s, path, leaf, paint, it, stream, spec, staff, hct, attr_k, attr_v, %s) '
             'SELECT path_s, path, leaf, paint, it, stream, spec, staff, hct, ak, '

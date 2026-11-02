@@ -22,7 +22,7 @@
 -- ============================================================================
 drop table if exists hh_evt;
 create table hh_evt as
-select c.grain, c.idx, s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct, s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head, s.a_legal, s.a_macro, s.a_city,
+select c.grain, c.idx, s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct, s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head, s.a_legal, s.a_macro, s.a_city, s.a_hrbp,
        1 as hc, coalesce(j.jun, 0) as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
        case when lower(trim(s.hct)) = lower(trim(p.active_type_value)) and lower(trim(s.paint)) = lower(trim(p.hq_paint_value)) then 1 else 0 end as hch, 0 as hirea
 from hh_src s
@@ -31,24 +31,24 @@ left join hh_seniority j on j.seniority = s.seniority
 cross join hh_param p
 where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> ''
 union all
-select c.grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city,
+select c.grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city, f.a_hrbp,
        0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, case when c.grain = 'm' then f.nr else 0 end as nr, case when c.grain = 'm' then f.nrd else 0 end as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea
 from hh_fire f
 join hh_calendar c on f.fire_dt between c.slot_start and c.slot_end
 union all
-select 'w'::text as grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city,
+select 'w'::text as grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city, f.a_hrbp,
        0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, f.nra as nr, f.nrda as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea
 from hh_fire f
 join hh_calendar c on c.grain = 'm' and f.fire_dt between c.slot_start and c.slot_end
 where f.nrda = 1
 union all
-select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city,
+select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city, h.a_hrbp,
        0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, case when h.base = 'c' then 1 else 0 end as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
        0 as hch, case when h.base = 'a' then 1 else 0 end as hirea
 from hh_cohort h
 join hh_calendar c on h.hire_dt between c.slot_start and c.slot_end
 union all
-select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city,
+select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city, h.a_hrbp,
        0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, 0 as hire, case when h.base = 'c' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3n, case when h.base = 'c' and h.hz = 3 then 1 else 0 end as r3d, case when h.base = 'c' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6n, case when h.base = 'c' and h.hz = 6 then 1 else 0 end as r6d, case when h.base = 'a' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3an, case when h.base = 'a' and h.hz = 3 then 1 else 0 end as r3ad, case when h.base = 'a' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6an, case when h.base = 'a' and h.hz = 6 then 1 else 0 end as r6ad, 0 as hch, 0 as hirea
 from (
     select q.*,

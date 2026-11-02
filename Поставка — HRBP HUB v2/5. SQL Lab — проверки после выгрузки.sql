@@ -124,7 +124,7 @@ ORDER BY cut, headcount DESC;
 -- 11. Датасет целиком: вставьте в SQL Lab текст файла 2 и выполните — Jinja отработает
 --     с пустыми фильтрами и вашим логином. Ждали: строка role = meta (в j — ваша роль,
 --     зона, zone_n — юнитов в зоне, tr_top = 1 — атрибуты трансформеров из свёртки), dict
---     (n = zone_n + предки корней), base, scope, c, g, f, tr (17 осей); время ответа — секунды.
+--     (n = zone_n + предки корней), base, scope, c, g, f, tr (18 осей, с поставки 61 — и HRBP); время ответа — секунды.
 
 -- 12. Уволенные без причины (поставка 56) сходятся с метрикой «Незаполненные причины» по всей компании с 1 января.
 --     n_ripe — у кого с увольнения прошло 30 дней (они в значении метрики), n_all — все, и свежие (в отчёте «дозревает»).
@@ -147,3 +147,14 @@ LIMIT 50;
 --     «30 дней прошли у», — колонок m_nrd / w_nrd нет в «Измерениях» чарта «HRBP HUB».
 SELECT hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_nrd') AS cube_m_nrd,
        hasColumnInTable('prod_proteus', 'hrbp_hub_base', 'w_nrd') AS base_w_nrd;
+
+-- 14. Разбивка «HRBP» в «Трансформерах» (поставка 61): численность по логину HRBP сотрудника (конечный HRBP из
+--     mdm_employee_structure_d.hrbp_ad_login) в последнем закрытом месяце по всей компании. Ждали: десятки логинов;
+--     «-» — сотрудники без HRBP в источнике; сумма headcount = численность компании (юридическая), как в запросе 10.
+SELECT ifNull(a.attr_v, '') AS hrbp_login, toInt64(sum(ifNull(arrayElement(a.m_hc, l.pos), 0))) AS headcount
+FROM prod_proteus.hrbp_hub_attr_top a
+CROSS JOIN (SELECT toUInt32(max(idx) + 1) AS pos FROM prod_proteus.hrbp_hub_calendar WHERE grain = 'm' AND is_closed = 1) AS l
+WHERE ifNull(a.attr_k, '') = 'hrbp'
+  AND ifNull(a.unit_id, '') IN (SELECT ifNull(id, '') FROM prod_proteus.hrbp_hub_unit WHERE ifNull(pid, '') = '')
+GROUP BY hrbp_login
+ORDER BY headcount DESC;

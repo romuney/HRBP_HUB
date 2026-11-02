@@ -51,6 +51,8 @@ var CFG = {
     { key: 'paint', label: 'Покраска' }, { key: 'it', label: 'IT / nonIT' },
     { key: 'stream', label: 'Стрим' }, { key: 'spec', label: 'Специализация' },
     { key: 'staff', label: 'Штат / не штат' }, { key: 'hct', label: 'Тип численности' },
+    // HRBP сотрудника — логин его конечного HRBP (владелец 02.11, поставка 61; имя — подписью из списка HRBP).
+    { key: 'hrbp', label: 'HRBP' },
     { key: 'grade', label: 'Грейд' }, { key: 'seniority', label: 'Сеньорность' },
     { key: 'exp', label: 'Стаж в компании' }, { key: 'age', label: 'Возраст' },
     { key: 'gender', label: 'Пол' }, { key: 'head', label: 'Руководители' },
@@ -75,6 +77,7 @@ var CFG = {
     { m: 'headcount', a: 'city', t: 'Где работают люди', q: 'Численность по городам.' }
   ],
   trTop: 30,                 // трансформеры: у оси показываем столько крупных значений, остальные — «Остальные»
+  trTopBy: { hrbp: 300 },    // у HRBP — все (= TR_TOP_HRBP датасета): детализация по HRBP без хвоста «Остальные»
   // Порядок значений там, где он смысловой, а не по численности.
   order: {
     age: ['до 25', '25–34', '35–44', '45 и старше'],
@@ -4436,19 +4439,20 @@ function trTSV() {
   if (!avail.length || !M.scope) return { text: '', n: 0 };
   var m = avail[0];
   for (var a = 0; a < avail.length; a++) if (avail[a].key === state.tfMetric) m = avail[a];
-  var axis = wantAxis(), list = trSorted(axis), head = [axisLabel(axis), 'Численность'];
+  // У оси HRBP — колонка «Имя» рядом с логином (логин — чистый: по нему сопоставляют).
+  var axis = wantAxis(), list = trSorted(axis), hn = axis === 'hrbp', head = [axisLabel(axis)].concat(hn ? ['Имя'] : [], ['Численность']);
   for (var k = L - 11; k <= L; k++) head.push(monthLabel(k));
   head.push('За 12 мес, ' + (m.fmt === 'int' ? 'чел.' : 'п.п.'));
   out.push(tsvCell(m.name + (m.fmt === 'int' ? '' : ', %') + ' · ' + scopeLabel() + ' · ' + selLabel()));
   out.push(head.join('\t'));
-  function line(name, ser) {
-    var row = [tsvCell(name), String(hcOf(ser))];
+  function line(name, ser, nm) {
+    var row = [tsvCell(name)].concat(hn ? [tsvCell(nm || '')] : [], [String(hcOf(ser))]);
     for (var c = L - 11; c <= L; c++) row.push(tsvNum(m, mval(ser, 'm', m, c)));
     row.push(tsvNum(m, deltaOf(m, mval(ser, 'm', m, L), mval(ser, 'm', m, L - 11))));
     out.push(row.join('\t'));
   }
   line('ИТОГО · ' + scopeLabel(), M.scope);
-  for (var i = 0; i < list.length; i++) line(trName(list[i]), list[i].ser);
+  for (var i = 0; i < list.length; i++) line(trName(list[i]), list[i].ser, hn && !list[i].rest ? hrbpNm(list[i].v) : '');
   return { text: out.join('\n'), n: list.length + 1 };
 }
 // ---- окно «Уволенные без причины» (02.11, по запросу: строка p датасета, носитель nrp_f) ----
@@ -4547,7 +4551,16 @@ function nrpModalHTML() {
 
 // ---- вкладка «Трансформеры» ----
 function axisLabel(k) { for (var i = 0; i < CFG.axes.length; i++) if (CFG.axes[i].key === k) return CFG.axes[i].label; return k; }
-function wantAxis() { return state.tfAxis || MODEL.axis || CFG.defaultAxis; }
+function wantAxis() { var a = state.tfAxis || MODEL.axis || CFG.defaultAxis; return axisOk(a) ? a : CFG.defaultAxis; }
+// Ось HRBP — только когда её строки пришли (ноут поставки 61 перезапущен): иначе в списке её нет, а не пустая таблица.
+// В запасном режиме (атрибут по запросу) заранее не узнать — показываем.
+function axisOk(k) { return k !== 'hrbp' || !MODEL.trAll || !!(MODEL.trBy.hrbp && MODEL.trBy.hrbp.length); }
+// Имя HRBP по логину — из списка HRBP ответа (зоны внутри видимой части); нет в списке — только логин.
+function hrbpNm(login) {
+  var hs = MODEL.hrbps;
+  for (var i = 0; i < hs.length; i++) if (hs[i].login === login && hs[i].nm && hs[i].nm !== login) return hs[i].nm;
+  return '';
+}
 function isCutAxis(k) { for (var i = 0; i < CFG.cuts.length; i++) if (CFG.cuts[i].key === k) return true; return false; }
 // Ось уже в ответе — переключение без запроса.
 function axisReady(k) { return isCutAxis(k) || MODEL.trAll || MODEL.axis === k; }
@@ -4573,11 +4586,12 @@ function trSorted(axis) {
   // Хвост мелких значений (город, офис) датасет уже свернул в '…' (n — сколько их); если значений
   // всё равно больше CFG.trTop — крупнейшие остаются, прочие уходят туда же, в «Остальные».
   for (var r0 = 0; r0 < all.length; r0++) { if (all[r0].v === '…') { rest.push(all[r0]); restN += all[r0].n; } else list.push(all[r0]); }
-  if (list.length > CFG.trTop) {
+  var top = (CFG.trTopBy && CFG.trTopBy[axis]) || CFG.trTop;
+  if (list.length > top) {
     list.sort(function (a, b) { return hcOf(b.ser) - hcOf(a.ser) || (a.v < b.v ? -1 : 1); });
-    rest = rest.concat(list.slice(CFG.trTop));
-    restN += list.length - CFG.trTop;
-    list = list.slice(0, CFG.trTop);
+    rest = rest.concat(list.slice(top));
+    restN += list.length - top;
+    list = list.slice(0, top);
   }
   var numeric = list.length > 0;
   // Числовая ось (грейд): по возрастанию, а не по численности.
@@ -4616,19 +4630,19 @@ function presetsHTML(avail, mk, axis) {
 }
 function transformHTML() {
   var P = CFG.ns, M = MODEL, L = M.L;
-  var s = pageHead('Трансформеры', 'Метрика в разбивке по грейду, стажу, городу и другим признакам за 12 месяцев.');
+  var s = pageHead('Трансформеры', 'Метрика в разбивке по HRBP, грейду, стажу, городу и другим признакам за 12 месяцев.');
   var avail = selMetrics('');
   if (!avail.length) return s + hEmpty('Метрики не выбраны', 'Включите их в «Фильтрах», раздел «Что показывать».');
   var m = avail[0];
   for (var a = 0; a < avail.length; a++) if (avail[a].key === state.tfMetric) m = avail[a];
   var axis = wantAxis(), mOpts = [], aOpts = [];
   for (var i = 0; i < avail.length; i++) mOpts.push([avail[i].key, avail[i].name]);
-  for (var j = 0; j < CFG.axes.length; j++) aOpts.push([CFG.axes[j].key, CFG.axes[j].label]);
+  for (var j = 0; j < CFG.axes.length; j++) if (axisOk(CFG.axes[j].key)) aOpts.push([CFG.axes[j].key, CFG.axes[j].label]);
   s += '<div class="' + P + '-tools">'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Метрика</span>' + hSel('tfm', mOpts, m.key) + '</div>'
     + '<div class="' + P + '-ctl"><span class="' + P + '-ctll">Разбивка</span>' + hSel('tfa', aOpts, axis) + '</div>'
     + '</div>' + presetsHTML(avail, m.key, axis);
-  // Все 17 осей приезжают с каждым ответом — смена оси мгновенная. Запасной режим датасета
+  // Все 18 осей приезжают с каждым ответом — смена оси мгновенная. Запасной режим датасета
   // (TR_ALL_MAX): у большой ветки с разрезами атрибут догружается один раз по запросу.
   if (!axisReady(axis)) {
     if (state.pend) return s + hEmpty('Загружаю разбивку «' + axisLabel(axis) + '»', 'Для большой ветки с фильтрами разбивка считается отдельно — это один раз.');
@@ -4659,9 +4673,10 @@ function transformHTML() {
   th += (isCum(m) ? '<th class="' + P + '-vs">За 12 мес' : trTh('d', 'За 12 мес', P + '-vs', true)) + '<span class="' + P + '-hc">к ' + esc(monthDat(L - 11)) + '</span></th></tr></thead><tbody>';
   function prow(name, ser, cls, idx) {
     NOCOL = smallHide(ser, m);
+    var hnm = axis === 'hrbp' && idx > -1 && !list[idx].rest ? hrbpNm(list[idx].v) : '';
     var tot = idx < 0, r = '<tr class="' + cls + (idx === pick && !tot ? ' ' + P + '-sel' : '') + (NOCOL && !tot ? ' ' + P + '-trsm' : '') + '"'
       + (tot || list[idx].rest ? '' : ' data-trv="' + idx + '" data-action="trpick" data-key="' + idx + '" tabindex="0" aria-pressed="' + (idx === pick ? 'true' : 'false') + '"')
-      + '><td class="' + P + '-l"' + (pie.col[idx] ? ' style="background:linear-gradient(90deg,' + pie.col[idx] + ' 3px,transparent 3px)"' : '') + (NOCOL ? tip({ title: m.name, text: smallWhy(ser, m) }) : '') + '>' + esc(name) + '<span class="' + P + '-us">' + fmtInt(hcOf(ser)) + ' чел' + (NOCOL ? ' · ' + smallShort(ser, m) : '') + '</span></td>';
+      + '><td class="' + P + '-l"' + (pie.col[idx] ? ' style="background:linear-gradient(90deg,' + pie.col[idx] + ' 3px,transparent 3px)"' : '') + (NOCOL ? tip({ title: m.name, text: smallWhy(ser, m) }) : '') + '>' + esc(name) + '<span class="' + P + '-us">' + (hnm ? esc(hnm) + ' · ' : '') + fmtInt(hcOf(ser)) + ' чел' + (NOCOL ? ' · ' + smallShort(ser, m) : '') + '</span></td>';
     for (var c = 0; c < months.length; c++) {
       var k = months[c], v = cv(ser, k), t = cv(M.scope, k), bg = '', rip = closedOnly(m) && k === L;
       if (v !== null && !tot && !NOCOL && !flat && !rip) bg = heatDiv(m, v, bar);
@@ -5161,7 +5176,7 @@ function tourSteps(view) {
     add({ sel: function (R) { var x = R.querySelector('[data-dsel="tfm"]'); return x ? x.parentNode : null; }, title: 'Метрика',
       html: 'Какую метрику раскладывать по оси.' });
     add({ sel: function (R) { var x = R.querySelector('[data-dsel="tfa"]'); return x ? x.parentNode : null; }, lock: true, title: 'Разбивка',
-      html: 'По чему разбить: грейд, стаж, возраст, город и другие.' });
+      html: 'По чему разбить: HRBP, грейд, стаж, возраст, город и другие. У HRBP — логин HRBP сотрудника, под ним имя.' });
     add({ sel: '[data-tfps]', title: 'Готовые срезы',
       html: 'Частые вопросы одним кликом: на каких грейдах уходят ценные, где не задерживаются новички, где не указывают причины. Клик ставит метрику и разбивку.' });
     add({ sel: function (R) { var t = R.querySelector(P + '-trch [data-cw]'); return t ? t.parentNode : null; }, title: 'Динамика',

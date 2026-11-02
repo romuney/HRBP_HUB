@@ -23,7 +23,7 @@ create table hh_fire as
 select s.mdm_employee_rk, s.company_hire_dt, s.business_dt as fire_dt,
        s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct,
        s.seniority, s.a_grade, s.a_exp, s.a_gender, s.a_age, s.a_office, s.a_work, s.a_head,
-       s.a_legal, s.a_macro, s.a_city,
+       s.a_legal, s.a_macro, s.a_city, s.a_hrbp,
        coalesce(rt.rg, 0)  as rg,
        coalesce(rt.nrg, 0) as nrg,
        case when s.legal_fire_dt is not null

@@ -34,6 +34,9 @@
 --   staff  = «Штат» для employment_relation_type_desc = 'Штатный сотрудник', иначе «Не штат»
 --   hct    = active_type_nm как есть
 -- Пустое значение разреза = '-'. Атрибуты a_* — оси трансформеров.
+--   a_hrbp = логин HRBP сотрудника (hrbp_ad_login на дату строки, нижний регистр) — его конечный HRBP, а не корень
+--   зоны и не супер-HRBP (владелец 02.11: «детализировать метрики по HRBP»). Как у прочих атрибутов: запасы — HRBP на
+--   конец периода, события — на дату события; HRBP не указан — '-'.
 -- ============================================================================
 drop table if exists hh_src_raw;
 create table hh_src_raw as
@@ -92,6 +95,7 @@ select
     coalesce(nullif(trim(e.lvl1_legal_unit_nm::text), ''), '-')                as a_legal,
     coalesce(nullif(trim(r.macroregion_nm::text), ''), '-')                    as a_macro,
     coalesce(nullif(trim(r.city_nm::text), ''), '-')                           as a_city,
+    coalesce(nullif(lower(trim(e.hrbp_ad_login::text)), ''), '-')             as a_hrbp,
     r.valid_from_dttm                                                          as res_from,
     e.hrbp_mdm_employee_rk                                                     as hrbp_rk,
     lower(trim(e.hrbp_ad_login::text))                                         as hrbp_login,

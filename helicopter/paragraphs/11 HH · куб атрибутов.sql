@@ -6,7 +6,8 @@
 --   grade — грейд; seniority — старшинство; exp — стаж (experience_group_nm);
 --   gender — пол; age — возрастная группа; office — офис; work — тип работы
 --   (employee_contract_type_desc); head — руководитель / нет; legal — юрлицо
---   (lvl1_legal_unit_nm); macro — макрорегион; city — город (mdm_employee_residence).
+--   (lvl1_legal_unit_nm); macro — макрорегион; city — город (mdm_employee_residence); hrbp — логин HRBP
+--   сотрудника (конечный HRBP, hrbp_ad_login; 02.11, поставка 61).
 -- Окна — как в «HH · куб по разрезам» (месячные: текучесть 12 со знаменателем по активной HQ, причины — с
 -- начала года, закрепляемость — когорта месяца найма без окна, 19.10); rgs / nrgs, hch, hirea — без окна (13.10).
 -- Свёртка (без разрезов) — только юридическая численность: строки «вне юр. численности» в неё не идут.
@@ -49,9 +50,9 @@ select md5(path_s || '|' || paint || '|' || it || '|' || stream || '|' || spec |
        sum(hirea) as hirea
 from (
     select e.*, a.attr_k,
-           coalesce(case a.attr_k when 'grade' then e.a_grade when 'seniority' then e.seniority when 'exp' then e.a_exp when 'gender' then e.a_gender when 'age' then e.a_age when 'office' then e.a_office when 'work' then e.a_work when 'head' then e.a_head when 'legal' then e.a_legal when 'macro' then e.a_macro when 'city' then e.a_city end, '-') as attr_v
+           coalesce(case a.attr_k when 'grade' then e.a_grade when 'seniority' then e.seniority when 'exp' then e.a_exp when 'gender' then e.a_gender when 'age' then e.a_age when 'office' then e.a_office when 'work' then e.a_work when 'head' then e.a_head when 'legal' then e.a_legal when 'macro' then e.a_macro when 'city' then e.a_city when 'hrbp' then e.a_hrbp end, '-') as attr_v
     from hh_evt e
-    cross join (values ('grade'), ('seniority'), ('exp'), ('gender'), ('age'), ('office'), ('work'), ('head'), ('legal'), ('macro'), ('city')) a(attr_k)
+    cross join (values ('grade'), ('seniority'), ('exp'), ('gender'), ('age'), ('office'), ('work'), ('head'), ('legal'), ('macro'), ('city'), ('hrbp')) a(attr_k)
     where e.grain = 'm'
 ) t
 group by path_s, paint, it, stream, spec, staff, hct, attr_k, attr_v, idx
