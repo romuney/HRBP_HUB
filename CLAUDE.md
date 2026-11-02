@@ -50,6 +50,10 @@ node $(npm root -g)/eslint/bin/eslint.js -c stand/eslint.chart.cjs --no-config-l
 <venv chdb 2.1.1>/bin/python stand/superset.py b.kotov '{"staff_f": ["Штат"]}'  # что Superset 2 делает с SQL (sqlparse 0.4.x в venv, патч лексера Superset ставит сам): шаги, итог на «Применить», ответ после reindent == прямой
 <venv chdb 2.1.1>/bin/python stand/superset.py --hostile  # враждебные значения (апостроф, «]», комментарии, «;», 3000 знаков) в каждом носителе через путь Superset: 23 случая, 0 провалов (HH_DATASET=<старый .sql> — контроль: шаблон с \' падает)
 python3 stand/pack.py [--check]           # файлы 1–3 и 1а поставки; файл 3 — сжатая сборка stand/min.cjs (= kit/min.cjs гайда) с проверкой
+                                          # реестры npm закрыты (02.11, поставка 59): terser 5.51.2 — клон тега v5.51.2 с GitHub, dist/bundle.min.js =
+                                          # `module.exports = require('../main.js')` (Node 22 — require ESM), @jridgewell/source-map — заглушка (карты не нужны),
+                                          # симлинки terser и acorn (/opt/node-tools) в `npm root -g`; годность — `pack.py --check` прошлой поставки байт в байт
+                                          # (58-я сошлась). ESLint — /opt/node-tools/node_modules/eslint
 HH_DIST=1 … live.py / check.py            # стенд на файлах поставки: чарт — файл 3 (сборка), датасет — файл 2
 python3 stand/same.py <старый.sql> ['настройки']  # переписал датасет без смены ответа: старая и новая версии — ответ в ответ (логины × юниты × разрезы × оси × режимы)
 NODE_PATH=$(npm root -g) node stand/tour.cjs 'http://127.0.0.1:8765/?user=b.kotov' <каталог>  # тур «Как работать»: все шаги, 0 ошибок
@@ -258,7 +262,8 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   над `ex` заново считает всю цепочку CTE (≈0,2 с на масштабе). Запасной режим `TR_ALL_MAX`
   (по умолчанию без предела): ветка больше порога с разрезами — атрибут по `tr_f`. Над таблицей — готовые срезы
   (`CFG.trPresets`, владелец 13.10): вопрос HRBP → метрика × разбивка, клик ставит обе (`tfp`); показываются
-  только срезы включённых метрик. Новый срез — строкой в `trPresets`, вопрос — словами HRBP.
+  только срезы включённых метрик. Новый срез — строкой в `trPresets`, вопрос — словами HRBP (02.11, поставка 59: + «Не
+  ценные уходы по грейдам / по стажу» — non regrettable, сразу после regrettable).
 - **«Команды» без догрузки**: дерево на 3 уровня (ROLLUP по k1…k3) приезжает с каждым
   ответом, раскрытие строк — только вид; `pid` у x — путь от −1 через `/`. Глубже — только
   «Открыть юнит» (иконка у выбранной строки и в шапке «Динамики»), переключателя глубины
