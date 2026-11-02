@@ -324,7 +324,9 @@ var STATE0 = {
   split: 0,              // доля таблицы «Команд», выставленная руками (0 — по числу метрик, splitAuto)
   splitW: 0,             // ширина сетки «таблица | динамика», px (fitSplit)
   splitMode: 'both',     // 'both' | 'table' (таблица во всю ширину) | 'charts' (динамика во всю ширину)
-  cmp: 'ref',            // вторая линия графиков: ref — ориентир (цель или база; по умолчанию — владелец 14.10), prev — прошлый год
+  // Линии сравнения графиков (владелец 02.11, поставка 62: «вместо выбора» — два включателя): ориентир (KPI юнита, без
+  // KPI — база) включён по умолчанию, прошлый год — выключен, включают по желанию; можно оба. Действуют на все графики.
+  cmpRef: true, cmpPrev: false,
   ytd: true,             // текучесть в «Динамике» — с начала года (false — скользящие 12 мес)
   popOff: '',            // подпись области, для которой подсказку о популяции скрыли («Скрыть»)
   drawn: {},             // графики, уже нарисованные с анимацией: ключ → подпись данных
@@ -1381,7 +1383,7 @@ function svgLine(spec, W, H, ctx) {
 function svgLine0(spec, W, H, ctx) {
   var P = CFG.ns, C = CFG.colors, G = CFG.chart, F = CFG.fonts, m = spec.m, n = spec.labels.length;
   var anim = !!(ctx && ctx.anim);
-  var on = { cur: true, prev: !cmpRef(spec) && !spec.noPrev, ref: cmpRef(spec), avg: spec.avgV !== null && spec.avgV !== undefined, part: !!spec.part };
+  var on = { cur: true, prev: prevOn(spec), ref: cmpRef(spec), avg: spec.avgV !== null && spec.avgV !== undefined, part: !!spec.part };
   var refC = spec.refKind === 'kpi' ? C.kpi : C.bench, pC = spec.pale ? C.muted2 : C.cur;  // дозревающие причины — бледно-серым
   var all = [];
   for (var i = 0; i < n; i++) {
@@ -2300,6 +2302,10 @@ function buildCSS() {
     P + '-lgd{display:inline-flex;gap:4px;margin-left:auto;flex-wrap:wrap;}',
     P + '-lg{display:inline-flex;align-items:center;gap:6px;height:22px;border:1px solid ' + C.line2 + ';background:' + C.card + ';border-radius:999px;padding:0 10px 0 8px;font-size:' + F.note + 'px;color:' + C.ink2 + ';cursor:pointer;font-weight:500;white-space:nowrap;}',
     P + '-lgs{cursor:default;}',
+    P + '-lgt{font:inherit;font-size:' + F.note + 'px;font-weight:500;color:' + C.ink2 + ';}',
+    P + '-lgoff{background:transparent;border-style:dashed;color:' + C.muted + ';}',
+    P + '-lgp{display:inline-block;width:14px;text-align:center;font-weight:600;color:' + C.muted + ';}',
+    P + '-lgoff ' + P + '-hlk{background:none;color:' + C.muted + ';}',
     P + '-segb ' + P + '-lgk{margin-right:5px;vertical-align:middle;}',
     P + '-lg:hover{border-color:#d8dce4;background:#fafbfc;}',
     P + '-lg:focus:not(:focus-visible){outline:none;}',
@@ -3312,33 +3318,37 @@ function cohSpec(unitId, ser, m) {
                    part: 'Месяц, где ' + m.rip + ' дней на причину прошли ещё не у всех уволенных' + (ripPP() ? ': значение по тем, у кого прошли, — они уже в средней. Остальные войдут, когда пройдёт срок.' : ripAll() ? ': значение по всем уволенным в нём — у свежих причину ещё могут указать. В среднюю месяц войдёт, когда срок пройдёт у всех.' : ': в среднюю он войдёт, когда срок пройдёт у всех.'),
                    avg: 'Средняя с начала года: все ' + (rp0 ? 'уволенные' : 'нанятые') + ' с января, у кого ' + (rp0 ? m.rip + ' дней' : m.coh + ' мес') + ' прошли (' + (rp0 ? 'уволены ' : '') + cohSpan(m) + '), как одна группа. Это значение метрики в «Сводке».' } };
 }
+// Подпись графика раскрытой строки «Сводки»: какие линии сейчас на нём (этот год, ориентир, прошлый год).
+function cmpTitle(spec) {
+  var w = ['этот год'];
+  if (cmpRef(spec)) w.push(spec.refKind === 'kpi' ? 'KPI' : 'база');
+  if (prevOn(spec)) w.push('прошлый год');
+  return ': ' + (w.length > 1 ? w.slice(0, -1).join(', ') + ' и ' + w[w.length - 1] : w[0]);
+}
 // Заголовок графика — капитель серым (как «ПОЛЬЗОВАТЕЛИ ПО ПЕРИОДАМ» в Proteus Adoption),
 // справа легенда-кнопки: клик выключает линию на всех графиках, наведение подсвечивает её.
-// Две линии на графике (HRBP 13.10, Дьяченко): этот год и выбранная вторая — прошлый год или ориентир. Справа —
-// переключатель «2025 | база» (у метрик без ориентира — только прошлый год, без переключателя).
-function cmpRef(spec) { return !!spec.ref && state.cmp === 'ref'; }
+// Линии на графике: этот год, ориентир (KPI, без KPI — база; включён по умолчанию) и прошлый год (выключен по умолчанию;
+// владелец 02.11, поставка 62 — было «2025 | база», одно из двух, HRBP 13.10). Справа — включатели-легенда.
+function cmpRef(spec) { return !!spec.ref && state.cmpRef !== false; }
+// Прошлый год — по включателю. У «Трансформеров» вторая линия — «Всего» по юниту, не прошлый год: она всегда (prevFixed).
+function prevOn(spec) { return !spec.noPrev && (!!spec.prevFixed || !!state.cmpPrev); }
 function chartBlock(kind, key, title, spec, H) {
   var P = CFG.ns, C = CFG.colors, useRef = cmpRef(spec);
   var refL = spec.refKind === 'kpi' ? 'KPI' : 'база', refC = spec.refKind === 'kpi' ? C.kpi : C.bench;
   var cur = '<span class="' + P + '-lg ' + P + '-lgs"' + tip({ title: spec.curName, text: spec.tips ? spec.tips.cur : '' }) + '>'
     + '<i class="' + P + '-lgk" style="border-top-color:' + C.cur + '"></i>' + esc(spec.curName) + '</span>';
+  // Включатели линий сравнения (владелец 02.11, поставка 62): ориентир (KPI, без KPI — база) и прошлый год — независимо,
+  // кнопками-легендой; выключенная — «+ 2025» с пунктирной рамкой (видно, что линию можно добавить). У метрик без
+  // ориентира — только прошлый год.
   var sw = '';
-  if (spec.noPrev) sw = '';
-  else if (spec.ref) {
-    var opts = [['prev', spec.prevName, C.prev, false], ['ref', refL, refC, true]];
-    sw = '<span class="' + P + '-seg" role="group" aria-label="С чем сравнить">';
-    for (var i = 0; i < opts.length; i++) {
-      var on = (opts[i][0] === 'ref') === useRef;
-      sw += '<button type="button" class="' + P + '-segb' + (on ? ' ' + P + '-on' : '') + '" data-action="cmp" data-key="' + opts[i][0] + '" aria-pressed="' + (on ? 'true' : 'false') + '"'
-        + tip({ title: 'Сравнить с: ' + opts[i][1], text: spec.tips ? spec.tips[opts[i][0]] : '', note: 'Действует на все графики отчёта.' }) + '>'
-        + '<i class="' + P + '-lgk' + (opts[i][3] ? ' ' + P + '-dash' : '') + '" style="border-top-color:' + opts[i][2] + '"></i>'
-        + (opts[i][0] === 'ref' && spec.refKind === 'kpi' ? '<span class="' + P + '-hlk">' + esc(opts[i][1]) + '</span>' : esc(opts[i][1])) + '</button>';
-    }
-    sw += '</span>';
-  } else {
-    sw = '<span class="' + P + '-lg ' + P + '-lgs"' + tip({ title: spec.prevName, text: spec.tips ? spec.tips.prev : '' }) + '>'
-      + '<i class="' + P + '-lgk" style="border-top-color:' + C.prev + '"></i>' + esc(spec.prevName) + '</span>';
+  function tog(key, name, col, dash, on, kpi, text) {
+    return '<button type="button" class="' + P + '-lg ' + P + '-lgt' + (on ? '' : ' ' + P + '-lgoff') + '" data-action="cmp" data-key="' + key + '" aria-pressed="' + (on ? 'true' : 'false') + '"'
+      + tip({ title: name, text: text, note: 'Клик — показать или скрыть линию на всех графиках отчёта.' }) + '>'
+      + (on ? '<i class="' + P + '-lgk' + (dash ? ' ' + P + '-dash' : '') + '" style="border-top-color:' + col + '"></i>' : '<span class="' + P + '-lgp" aria-hidden="true">+</span>')
+      + (kpi ? '<span class="' + P + '-hlk">' + esc(name) + '</span>' : esc(name)) + '</button>';
   }
+  if (spec.ref) sw += tog('ref', refL, refC, true, useRef, spec.refKind === 'kpi', spec.tips ? spec.tips.ref : '');
+  if (!spec.noPrev) sw += tog('prev', spec.prevName, C.prev, false, prevOn(spec), false, spec.tips ? spec.tips.prev : '');
   // Дозревающие месяцы причин (02.11) — бледно-серый пунктир, в легенде — что это.
   if (spec.pale && spec.part) cur += '<span class="' + P + '-lg ' + P + '-lgs"' + tip({ title: 'Дозревает', text: spec.tips.part }) + '>'
     + '<i class="' + P + '-lgk ' + P + '-dash" style="border-top-color:' + C.muted2 + '"></i>дозревает</span>';
@@ -3886,7 +3896,7 @@ function storyItems(u, ser, m, spec) {
     if (!d) word = 'столько же';
     else if (flat) word = (up ? 'больше на ' : 'меньше на ') + fmtDelta(m, Math.abs(d)).replace('+', '');
     else word = ((m.better === 'lower') === up ? 'хуже' : 'лучше') + ' на ' + fmtDelta(m, Math.abs(d)).replace('+', '');
-    out.push({ i: cmpRef(spec) ? -1 : b, s: 'prev', html: '<b>Год назад — ' + esc(fmtVal(m, pv)) + '</b>: сейчас ' + esc(endDot(word)) });
+    out.push({ i: prevOn(spec) ? b : -1, s: 'prev', html: '<b>Год назад — ' + esc(fmtVal(m, pv)) + '</b>: сейчас ' + esc(endDot(word)) });
   }
   // 3. Экстремум года: с начала года — месяц, добавивший больше всего; иначе — худший месяц (у нейтральных — максимум)
   if (spec.cum) {
@@ -3962,7 +3972,7 @@ function storyRow(u, ser, m) {
   spec.marks = [];
   for (var i = 0; i < items.length; i++) if (items[i].n) spec.marks.push({ i: items[i].i, s: items[i].s, n: items[i].n });
   return '<tr class="' + P + '-det"><td colspan="6"><div class="' + P + '-story" data-story="1">'
-    + '<div class="' + P + '-stc">' + chartBlock('story', 'op:' + m.key + ':yoy:' + u, (spec.coh ? 'По месяцам ' + monW(m) : 'Помесячно') + (cmpRef(spec) ? ': этот год и ' + (spec.refKind === 'kpi' ? 'KPI' : 'база') : ': этот год и прошлый'), spec, -2) + '</div>'
+    + '<div class="' + P + '-stc">' + chartBlock('story', 'op:' + m.key + ':yoy:' + u, (spec.coh ? 'По месяцам ' + monW(m) : 'Помесячно') + cmpTitle(spec), spec, -2) + '</div>'
     + '<div class="' + P + '-sts">' + storyHTML(items) + '<div class="' + P + '-sta">' + aboutHTML(m) + '</div></div>'
     + '</div></td></tr>';
 }
@@ -4787,7 +4797,7 @@ function trLineSlot(m, sel, months) {
   var nm = sel ? trName(sel) : 'Всего';
   var spec = { m: m, ytd: yt, cum: isCum(m), labels: labels, cur: cur, prev: prev, ref: null, refKind: 'none', boldIdx: months.length - (closedOnly(m) ? 2 : 1), heads: heads, prevHeads: null,
     partIdx: partOf(MODEL.L) ? months.length - 1 : -1, partLine: closedOnly(m),
-               curName: nm.length > 24 ? nm.slice(0, 23) + '…' : nm, prevName: 'Всего', noPrev: !sel, tips: { cur: sel ? 'Значение «' + nm + '» по месяцам.' : 'Весь юнит по месяцам.', prev: 'Весь юнит по месяцам.' } };
+               curName: nm.length > 24 ? nm.slice(0, 23) + '…' : nm, prevName: 'Всего', noPrev: !sel, prevFixed: true, tips: { cur: sel ? 'Значение «' + nm + '» по месяцам.' : 'Весь юнит по месяцам.', prev: 'Весь юнит по месяцам.' } };
   spec.cols = true;
   return chartSlot('trc', 'tr:' + m.key + ':' + wantAxis() + ':' + (sel ? sel.v : ''), function (w, ctx) { return svgLine(spec, w, 168, ctx); });
 }
@@ -5159,9 +5169,9 @@ function tourSteps(view) {
     add({ sel: P + '-tpan tr' + P + '-sel ' + P + '-drill', lock: true, pad: 4, title: 'Открыть юнит',
       html: 'Иконка у выбранной строки делает её юнитом отчёта. Вернуться — «← Назад» или путь над таблицей.' });
     add({ sel: P + '-dpan', title: 'Динамика строки',
-      html: 'Помесячно: синяя линия — этот год, серая — прошлый, пунктир — ориентир. Наведите на график, чтобы увидеть значения месяца.' });
+      html: 'Помесячно: синяя линия — этот год, пунктир — ориентир, серая — прошлый год, если его включить. Наведите на график, чтобы увидеть значения месяца.' });
     add({ sel: function (R) { var b = R.querySelector(P + '-dpan [data-action="cmp"]'); return b ? b.parentNode : null; }, title: 'С чем сравнить',
-      html: 'На графике две линии: этот год и ориентир — KPI юнита, а без KPI база (так по умолчанию), — или этот год и прошлый. Переключатель действует на все графики.' });
+      html: 'Ориентир — KPI юнита, а без KPI база — показан сразу. Прошлый год включается кнопкой с годом; можно оба сразу. Клик по кнопке включает или прячет линию на всех графиках.' });
     add({ sel: P + '-tsw', title: 'Поиск в таблице',
       html: 'Ищет по трём уровням таблицы. По всей зоне — поиск в «Фильтрах».' });
     add({ sel: P + '-tpan [data-action="copy"]', pad: 4, title: 'Копировать таблицу',
@@ -6677,7 +6687,8 @@ function buildHTML() {
         return;
       }
       if (act === 'cmp') {
-        state.cmp = key === 'ref' ? 'ref' : 'prev';
+        if (key === 'ref') state.cmpRef = state.cmpRef === false;
+        else state.cmpPrev = !state.cmpPrev;
         state.drawn = {};
         render();
         var again = overlay.querySelector('[data-action="cmp"][data-key="' + key + '"]');
