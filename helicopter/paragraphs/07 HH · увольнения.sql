@@ -6,10 +6,14 @@
 --              дате (как в ультраширокой); в базе этих флагов нет;
 --   nr       — причина НЕ заполнена: legal_fire_dt не пустая, в
 --              legal_position_dismissal_reason (legal_position_rk + fire_dt =
---              legal_fire_dt) нет причины — и с увольнения прошло nr_grace_days.
+--              legal_fire_dt) нет причины (на data_dt).
 --              coalesce(dismissal_reason_desc, 'Причина отсутствует') = отсутствует.
 --   nrd      — знаменатель незаполненных причин (Дьяченко 16.10: «не численность юнита, а все уволенные»):
---              то же, что nr, но с причиной или без — legal_fire_dt не пустая и прошло nr_grace_days.
+--              то же, что nr, но с причиной или без — legal_fire_dt не пустая.
+--   Срок на причину (30 дней) с 02.11 — не здесь (было: только увольнения, после которых прошло nr_grace_days):
+--   метрика считается по МЕСЯЦАМ УВОЛЬНЕНИЯ, как закрепляемость по месяцам найма. В отчёте месяц — все уволенные в нём,
+--   в том числе свежие (дозревающий месяц — бледно-серым), а в среднюю с начала года чарт берёт только месяцы, где
+--   30 дней прошли у всех (конец месяца + 30 дней ≤ data_dt; срок — `rip: 30` в чарте, = hh_param.nr_grace_days).
 -- Дни увольнения берутся с запасом в 7 месяцев до окна: по ним когорты найма
 -- узнают, дожил ли новичок до 3 и 6 месяцев.
 -- ============================================================================
@@ -23,13 +27,10 @@ select s.mdm_employee_rk, s.company_hire_dt, s.business_dt as fire_dt,
        coalesce(rt.nrg, 0) as nrg,
        case when s.legal_fire_dt is not null
              and coalesce(fr.has_reason, 0) = 0
-             and s.business_dt <= p.data_dt - p.nr_grace_days
             then 1 else 0 end as nr,
        case when s.legal_fire_dt is not null
-             and s.business_dt <= p.data_dt - p.nr_grace_days
             then 1 else 0 end as nrd
 from hh_src s
-cross join hh_param p
 left join (
     select mdm_employee_rk, business_dt::date as business_dt,
            max(case when regrettable_fire_flg = 1 then 1 else 0 end)     as rg,
