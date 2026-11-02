@@ -49,6 +49,7 @@ TABLES = {
     'hrbp_hub_attr': ('(attr_k, path_s)', {}),
     'hrbp_hub_attr_top': ('(unit_id)', {}),
     'hrbp_hub_base': ('(paint, it, stream, spec, staff, hct)', {}),
+    'hrbp_hub_nr_people': ('(path_s, fire_dt)', {}),   # уволенные без причины (GP 07a, 02.11) — роль p по nrp_f
 }
 PG2CH = {'text': 'String', 'integer': 'Int32', 'bigint': 'Int64', 'smallint': 'Int16', 'numeric': 'Float64',
          'double precision': 'Float64', 'date': 'Date', 'timestamp without time zone': 'DateTime'}

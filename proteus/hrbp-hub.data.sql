@@ -34,6 +34,10 @@
              строкой '…' (n — сколько в ней значений). Массивы — только 12 последних закрытых
              месяцев («N@…»: N первых слотов пропущено, чарт заполняет их нулями)
       kpi    правила целей: id = rule_id, pid = юнит, j = поля через \t
+      p      только по запросу (nrp_f = '1', 02.11): уволенные с 1 января без причины в области и разрезах — одна
+             строка: n — сколько всего, pid — сколько в метрике (30 дней прошли), j — люди (самые свежие первыми, не
+             больше NRP_MAX): mdm_employee_rk, найм, увольнение, 1 — в метрике / 0 — дозревает, уровни 3–6 на день
+             увольнения (поля через \t, строки через \n)
       end    1 строка-маркер «ответ целиком»: всегда последняя
     Массивы m_* — 24 месяца, w_* — 24 недели (позиция = idx календаря), строкой
     через запятую без хвостовых нулей («0» — все нули; у трансформеров «N@…» — первые N слотов
@@ -48,7 +52,8 @@
 
     Кросс-фильтры (эмитит сам чарт, самовлияние ВКЛЮЧЕНО): unit_f — id юнитов;
     paint_f / it_f / stream_f / spec_f / staff_f / hct_f — значения разрезов (hct_f: нет — «Активная», «*» — все типы);
-    tr_f — атрибут трансформеров (запасной режим TR_ALL_MAX: большая ветка с разрезами);
+    tr_f — атрибут трансформеров (запасной режим TR_ALL_MAX: большая ветка с разрезами); nrp_f = '1' — список уволенных
+    без причины (роль p; без носителя текст SQL — прежний байт в байт);
     depth_f — глубина «Команд» ('all' — все уровни, в запасе). Колонки-носители в SELECT не выводятся
     (иначе Superset повесит авто-IN на внешний запрос). Доступ — current_username():
     юниты вне зоны пользователя не приезжают ни в каком виде; логин — в ключе кеша Proteus
@@ -82,6 +87,12 @@
 {% set COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd'] %}
 {% set NC = COMP|length %}
 {% set ROLES = ['meta', 'f', 'scope', 'base', 'kpi', 'hrbps', 'dict', 'c', 'g', 'tr', 'x', 'end'] %}
+{#- Список уволенных без причины (02.11, этап 2): только по запросу — чарт шлёт nrp_f = '1', когда HRBP открывает
+    список. Без носителя ни роли, ни плеча нет: текст SQL и ответ — как до списка. NRP_MAX — сколько людей везём (самые
+    свежие); n строки — сколько их всего. -#}
+{% set NRP = (filter_values('nrp_f')|first|default('', true))|string == '1' %}
+{%- set NRP_MAX = 5000 %}
+{%- if NRP %}{% set ROLES = ROLES[:5] + ['p'] + ROLES[5:] %}{% endif %}
 {#- Трансформеры: все 11 атрибутов в каждом ответе. Без разрезов — из свёртки (если она есть
     у открытых юнитов), с разрезами — из листового куба ветки, пока в ней не больше TR_ALL_MAX
     юнитов. По умолчанию предела нет; запасной режим — TR_ALL_MAX = 1500: большая ветка с
@@ -496,6 +507,27 @@ FROM (
          OR ifNull(unit_id, '') IN (SELECT ifNull(z.id, '') FROM prod_proteus.hrbp_hub_unit z CROSS JOIN ctx
                                     WHERE hasAny(z.path, ctx.roots)))
 
+{%- if NRP %}
+  UNION ALL
+  {#- ---------- уволенные без причины — только по запросу (nrp_f): одна строка на всех ----------
+      hrbp_hub_nr_people (GP 07a): увольнение с 1 января без причины, ripe = 1 — 30 дней прошли (в метрике), 0 —
+      дозревает. Область и разрезы — как у куба: ветка выбранного юнита по ключу path_s (у зоны из нескольких корней —
+      ещё и корень на пути), cond(''). Самые свежие — первыми, не больше NRP_MAX; n — все, pid — в метрике. Даты —
+      через toDate: тип даты выгрузки не важен. #}
+  SELECT 'p' AS role, '' AS id, toString(sum(rp)) AS pid, toInt64(count()) AS n,
+    arrayStringConcat(arrayMap(t -> t.2, arraySlice(arrayReverseSort(groupArray((fd, pl))), 1, {{ NRP_MAX }})), '\n') AS j,
+    emptyArrayInt64() AS a, -1 AS lw
+  FROM (
+    SELECT toUInt8(ifNull(np.ripe, 0) = 1) AS rp, ifNull(toString(toDate(np.fire_dt)), '') AS fd,
+      concat(ifNull(toString(np.mdm_employee_rk), ''), '\t', ifNull(toString(toDate(np.hire_dt)), ''), '\t', fd, '\t', toString(rp), '\t',
+             arrayStringConcat(arrayMap(x -> replaceRegexpAll(ifNull(x, ''), '[\\t\\n\\r]', ' '), [np.lvl3_nm, np.lvl4_nm, np.lvl5_nm, np.lvl6_nm]), '\t')) AS pl
+    FROM prod_proteus.hrbp_hub_nr_people AS np
+    CROSS JOIN ctx
+    WHERE np.path_s >= tupleElement({{ EX }}, 1) AND np.path_s < tupleElement({{ EX }}, 2)
+      AND notEmpty(ctx.roots) AND hasAny(splitByChar('/', ifNull(np.path_s, '')), ctx.scope) AND ({{ cond('') }})
+  )
+{%- endif %}
+
   UNION ALL
   {#- ---------- эхо и календарь: по нему чарт понимает, что именно применилось ---------- #}
   SELECT 'meta' AS role, '' AS id, '' AS pid, toInt64(0) AS n,
@@ -521,6 +553,8 @@ FROM (
       ',"ytd":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_rgs')),
       ',"hq":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_hirea')),
       ',"nrd":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_nrd')),
+      {#- датасет умеет список уволенных без причины (роль p по nrp_f): без этого чарт кнопку не показывает -#}
+      ',"nrp":1',
       ',"last_m":', toString(ctx.last_m),
       ',"fdv":', tupleElement({{ FZ }}, 12),
       ',"end":1',

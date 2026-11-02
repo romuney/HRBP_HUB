@@ -27,6 +27,10 @@
    по родителям справочника, пара — в фасет разреза, если проходит остальные разрезы)
    даёт ровно строки f и численность области ответа с тем же выбором — в том числе на
    реорганизованных и расформированных юнитах.
+9. Список уволенных без причины (nrp_f = '1', 02.11): без носителя текст SQL — байт в байт как без него (и при любом
+   другом значении); с ним — те же строки плюс одна строка p: всего = w_nr области в последнем месяце (все с 1 января,
+   и свежие), в метрике = m_nr (30 дней прошли), у каждого флаг — по дате увольнения, свежие первыми; враждебные значения
+   в носителях — через путь Superset и с носителем.
 """
 import hashlib
 import json
@@ -545,6 +549,41 @@ def main():
         # через путь Superset с патчем лексера. На шаблоне с прежним \' и […] — 8 провалов (контроль).
         for label, err in _ss.hostile_run('b.kotov', {'staff_f': ['Штат']}):
             ok(err is None, 'враждебный ввод через путь Superset: %s%s' % (label, '' if err is None else ' — ' + err))
+
+    # ---------------- 9. список уволенных без причины (nrp_f) ----------------
+    import datetime as _dt
+    for user, flt in (('a.sergeeva', {}), ('b.kotov', {'staff_f': ['Штат']}), ('s.volkov', {}),
+                      ('s.volkov', {'unit_f': [sid(U['Департамент данных'].rk)]}), ('a.sergeeva', {'hct_f': ['Активная']}),
+                      ('e.lapin', {'unit_f': [sid(U['Отдел бэкенда'].rk)], 'it_f': ['IT']}), ('nobody', {})):
+        lbl = '[%s %s]' % (user, flt)
+        for other in (['0'], ["1'"], ['1', '2']):
+            ok(ch.render(dict(flt, nrp_f=other), user) == ch.render(flt, user), 'nrp_f = %r — текст SQL как без носителя %s' % (other, lbl))
+        plain, _ = ask(flt, user)
+        rows, _ = ask(dict(flt, nrp_f=['1']), user)
+        ps = by(rows, 'p')
+        if not ok(len(ps) == 1, 'nrp_f: одна строка p %s' % lbl):
+            continue
+        ok(srt([r for r in rows if r['role'] != 'p']) == srt(plain), 'nrp_f: остальные строки — те же %s' % lbl)
+        m = meta(rows)
+        sc = by(rows, 'scope')
+        last = m['last_m']
+        want = (unarr(sc[0]['w_nr'])[last], unarr(sc[0]['m_nr'])[last]) if sc else (0, 0)
+        p0 = ps[0]
+        recs = [ln.split('\t') for ln in p0['j'].split('\n') if ln] if p0['j'] else []
+        ok((int(p0['n']), int(p0['pid'] or 0)) == want and len(recs) == min(want[0], 5000),
+           'nrp_f: всего %s, в метрике %s — как w_nr / m_nr области (%s) %s' % (p0['n'], p0['pid'], want, lbl))
+        dd = _dt.date.fromisoformat(m['cal'][0].split('|')[5])
+        good = all(len(r) == 8 and r[3] == ('1' if _dt.date.fromisoformat(r[2]) <= dd - _dt.timedelta(days=30) else '0')
+                   and r[1] <= r[2] for r in recs)
+        ok(good and [r[2] for r in recs] == sorted((r[2] for r in recs), reverse=True),
+           'nrp_f: 8 полей, «в метрике» — 30 дней прошли, найм не позже увольнения, свежие первыми %s' % lbl)
+    try:
+        import superset as _ss2
+    except ImportError:
+        pass
+    else:
+        for label, err in _ss2.hostile_run('b.kotov', {'staff_f': ['Штат'], 'nrp_f': ['1']}):
+            ok(err is None, 'враждебный ввод с nrp_f через путь Superset: %s%s' % (label, '' if err is None else ' — ' + err))
 
     print('ClickHouse %s · %d проверок, провалено %d' % (ch.VERSION, cases, bad))
     return bad

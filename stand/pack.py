@@ -5,7 +5,7 @@
 
 Файл 3 — сжатая сборка чарта (stand/min.cjs = kit/min.cjs гайда, terser 5.51.2, 09.10): Proteus кладёт код
 чарта в КАЖДЫЙ POST chart/data, отправка у владельца ≈50 КБ/с — 398 → 232 КиБ, ≈8,0 → 4,6 с на запрос.
-Сборка проверяется (--check min.cjs: ES5, option, имена верхнего уровня, нет кода из строки, ≤ 300 КиБ).
+Сборка проверяется (--check min.cjs: ES5, option, имена верхнего уровня, нет кода из строки, ≤ 310 КиБ — с 02.11, список уволенных без причины).
 Нет node или terser — код 2, а не сырой файл. Читать и править — proteus/hrbp-hub.chart.js.
 
 Исходники — источник правды: helicopter/paragraphs → build.py → YAML, датасет и
@@ -29,7 +29,7 @@ COPIES = [
 ]
 CHART_SRC = 'proteus/hrbp-hub.chart.js'
 CHART_OUT = '3. Proteus — чарт HRBP HUB.js'
-DELIVERY = '56 · 02.11'  # номер и дата поставки — в шапку сборки
+DELIVERY = '57 · 02.11'  # номер и дата поставки — в шапку сборки
 # Параграфы, изменённые в последней поставке (номер → что сделать). 16 — только допись
 # таблицы в список: OWNERS у владельца свои.
 CHANGED_DATE = '02.11'
@@ -58,7 +58,7 @@ def chart_min():
             'Править исходник в репозитории; сборка — python3 stand/pack.py.' % (DELIVERY, sha, CHART_SRC))
     try:
         root = subprocess.run(['npm', 'root', '-g'], capture_output=True, text=True, check=True).stdout.strip()
-        r = subprocess.run(['node', os.path.join(ROOT, 'stand', 'min.cjs'), head, '--check', '--budget', '300',
+        r = subprocess.run(['node', os.path.join(ROOT, 'stand', 'min.cjs'), head, '--check', '--budget', '310',
                             '--kbps', '50'], input=text, capture_output=True, text=True,
                            env=dict(os.environ, NODE_PATH=root))
     except OSError as e:
