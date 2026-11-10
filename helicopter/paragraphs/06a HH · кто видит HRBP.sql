@@ -1,0 +1,116 @@
+-- ============================================================================
+-- HH · кто видит HRBP → hrbp_hub_hrbp_viewers. Справочный параграф: отчёт и выгрузку не
+-- меняет, датасет таблицу не читает. Строится из hrbp_hub_access (параграф 06), то есть
+-- по тем же правилам, по которым доступ работает в отчёте.
+--
+-- Одна строка = (HRBP, старший, который видит его данные):
+--   HRBP     — логин с ролью hrbp или super (его зона — корни в hrbp_hub_access);
+--   старший  — любой другой логин отчёта, у которого корень зоны стоит на пути корня HRBP
+--              (выше или на том же юните): HRBP с более широкой зоной (роль hrbp), супер-HRBP
+--              и админы (super / admin видят всю компанию — значит, и любого HRBP).
+--   Младший HRBP внутри чужой зоны видит только часть — он здесь не старший и не попадает.
+-- Колонки:
+--   roots_n / seen_n — корней в зоне HRBP / из них видит старший; cover — «вся зона» или «часть зоны»;
+--   link             — как видит: «супер-HRBP», «админ», «зона выше», «тот же юнит» (корень общий);
+--   via_nm           — через какие свои корни старший видит HRBP (у super / admin — «вся компания»);
+--   is_head_flg      — 1, если старший — руководитель HRBP по структуре на data_dt (есть в его
+--                      цепочке lvl1…lvl13_management_head_mdm_employee_rk), иначе 0.
+-- ============================================================================
+drop table if exists hrbp_hub_hrbp_viewers;
+create table hrbp_hub_hrbp_viewers as
+with j as (                                  -- младший: логин и его корни
+    select a.login, max(a.hrbp_rk) as hrbp_rk, max(a.hrbp_nm) as hrbp_nm, max(a.role) as role
+    from hrbp_hub_access a
+    where a.role in ('hrbp', 'super')
+    group by a.login
+),
+jr as (
+    select distinct a.login, a.root_id
+    from hrbp_hub_access a
+    where a.role in ('hrbp', 'super')
+),
+v as (                                       -- старший: логин и его роль (admin поверх прочих)
+    select a.login, max(a.hrbp_rk) as hrbp_rk, max(a.hrbp_nm) as hrbp_nm,
+           case when max(case when a.role = 'admin' then 1 else 0 end) = 1 then 'admin'
+                when max(case when a.role = 'super' then 1 else 0 end) = 1 then 'super'
+                else 'hrbp' end as role
+    from hrbp_hub_access a
+    group by a.login
+),
+pair as (                                    -- корень младшего, который виден через корень старшего
+    select jr.login as j_login, va.login as v_login, jr.root_id, va.root_id as via_id,
+           case when va.root_id = jr.root_id then 1 else 0 end as is_same
+    from jr
+    join hrbp_hub_unit u on u.id = jr.root_id
+    join (select distinct login, root_id from hrbp_hub_access) va
+        on va.root_id = any(u.path) and va.login <> jr.login
+),
+agg as (
+    select p.j_login, p.v_login,
+           count(distinct p.root_id) as seen_n,
+           count(distinct case when p.is_same = 1 then p.root_id end) as same_n
+    from pair p
+    group by 1, 2
+),
+via as (
+    select x.j_login, x.v_login, string_agg(x.nm, ', ' order by x.nm) as via_nm
+    from (select distinct p.j_login, p.v_login, coalesce(u.nm, p.via_id) as nm
+          from pair p
+          left join hrbp_hub_unit u on u.id = p.via_id) x
+    group by 1, 2
+),
+heads as (                                   -- цепочка руководителей HRBP на data_dt
+    select e.mdm_employee_rk::text as hrbp_rk,
+           array[e.lvl1_management_head_mdm_employee_rk::text,
+                 e.lvl2_management_head_mdm_employee_rk::text,
+                 e.lvl3_management_head_mdm_employee_rk::text,
+                 e.lvl4_management_head_mdm_employee_rk::text,
+                 e.lvl5_management_head_mdm_employee_rk::text,
+                 e.lvl6_management_head_mdm_employee_rk::text,
+                 e.lvl7_management_head_mdm_employee_rk::text,
+                 e.lvl8_management_head_mdm_employee_rk::text,
+                 e.lvl9_management_head_mdm_employee_rk::text,
+                 e.lvl10_management_head_mdm_employee_rk::text,
+                 e.lvl11_management_head_mdm_employee_rk::text,
+                 e.lvl12_management_head_mdm_employee_rk::text,
+                 e.lvl13_management_head_mdm_employee_rk::text] as heads
+    from prod_v_emart.mdm_employee_structure_d e
+    join hh_param p on e.business_dt = p.data_dt
+    where e.mdm_employee_rk::text in (select hrbp_rk from j where hrbp_rk <> '')
+)
+select j.login                                       as hrbp_login,
+       j.hrbp_nm,
+       j.role                                        as hrbp_role,
+       n.roots_n,
+       v.login                                       as viewer_login,
+       v.hrbp_nm                                     as viewer_nm,
+       v.role                                        as viewer_role,
+       g.seen_n,
+       case when g.seen_n >= n.roots_n then 'вся зона' else 'часть зоны' end as cover,
+       case when v.role = 'admin' then 'админ'
+            when v.role = 'super' then 'супер-HRBP'
+            when g.same_n > 0     then 'тот же юнит'
+            else 'зона выше' end                     as link,
+       case when v.role in ('super', 'admin') then 'вся компания' else w.via_nm end as via_nm,
+       max(case when v.hrbp_rk <> '' and v.hrbp_rk = any(h.heads) then 1 else 0 end) as is_head_flg,
+       p.data_dt
+from agg g
+join j on j.login = g.j_login
+join v on v.login = g.v_login
+join (select login, count(*) as roots_n from jr group by login) n on n.login = j.login
+join via w on w.j_login = g.j_login and w.v_login = g.v_login
+left join heads h on h.hrbp_rk = j.hrbp_rk
+cross join hh_param p
+group by j.login, j.hrbp_nm, j.role, n.roots_n, v.login, v.hrbp_nm, v.role, g.seen_n, g.same_n, w.via_nm, p.data_dt
+distributed by (hrbp_login);
+
+-- Сводка: у каждого HRBP — кто из старших видит его данные (админы — в таблице, здесь опущены).
+select hrbp_login, hrbp_nm, hrbp_role,
+       string_agg(viewer_login || ' (' || link
+                  || case when cover = 'часть зоны' then ', часть зоны' else '' end
+                  || case when is_head_flg = 1 then ', руководитель' else '' end || ')', '; '
+                  order by case viewer_role when 'hrbp' then 0 else 1 end, viewer_login) as viewers
+from hrbp_hub_hrbp_viewers
+where viewer_role <> 'admin'
+group by 1, 2, 3
+order by 3, 1;
