@@ -441,6 +441,12 @@ for ln, fn, lg in names:
                         hct='Активная', sen='Senior', head=0)
     HRBPS.append(e)
 LEAD = HRBPS[0]           # супер-HRBP: сидит в HR-партнёрах, над ней HRBP нет
+# должности HRBP (legal_position_nm, 10.11): «старший» — по слову в должности (параграф 06a)
+for _e in HRBPS:
+    _e.position = 'HR бизнес-партнёр'
+LEAD.position = 'Руководитель направления HR бизнес-партнёров'
+HRBPS[1].position = 'Старший HR бизнес-партнёр'     # s.volkov: внутри его зоны — d.orlova
+HRBPS[8].position = 'старшая HR бизнес-партнёр'     # d.orlova: регистр и «старшая» тоже считаются
 HRBP_UNIT.head = LEAD
 # зоны: департамент (lvl4) -> HRBP; у пары управлений (lvl5) — «младший» HRBP внутри зоны старшего
 ZONE3 = {'Департамент платформ': HRBPS[1], 'Департамент данных': HRBPS[1], 'Департамент разработки': HRBPS[2],

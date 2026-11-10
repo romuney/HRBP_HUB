@@ -34,7 +34,8 @@ COLS = (['business_dt', 'mdm_employee_rk', 'last_day_flg', 'last_day_of_month_fl
            'hrbp_mdm_employee_rk', 'hrbp_ad_login', 'hrbp_last_nm', 'hrbp_first_nm',
            'experience_group_nm', 'gender_desc', 'birth_dt', 'office_desc', 'employee_contract_type_desc',
            'management_head_flg', 'lvl1_legal_unit_nm', 'ad_login', 'last_nm', 'first_nm', 'management_head_ad_login',
-           'company_hire_flg', 'company_fire_flg', 'candidate_transfer_flg', 'internal_transfer_flg'])
+           'company_hire_flg', 'company_fire_flg', 'candidate_transfer_flg', 'internal_transfer_flg',
+           'legal_position_nm', 'management_position_nm'])
 TYPES = {'business_dt': 'date', 'mdm_employee_rk': 'bigint', 'last_day_flg': 'smallint', 'last_day_of_month_flg': 'smallint',
          'last_state_flg': 'smallint', 'active_employee_flg': 'smallint', 'legal_employee_flg': 'smallint', 'grade': 'integer',
          'company_hire_dt': 'date', 'company_fire_dt': 'date', 'active_hire_dt': 'date', 'legal_fire_dt': 'date',
@@ -115,7 +116,8 @@ def row(e, d, last_state):
              # стал активным, внутренний перевод — W.internal_transfers
              company_hire_flg=int(d == p.hire), company_fire_flg=int(bool(p.fire) and d == p.fire),
              candidate_transfer_flg=int(bool(p.active_hire) and d == p.active_hire and p.active_hire != p.hire),
-             internal_transfer_flg=int(d in W.internal_transfers(e)))
+             internal_transfer_flg=int(d in W.internal_transfers(e)),
+             legal_position_nm=getattr(e, 'position', None) or 'Специалист', management_position_nm=None)
     for u in ch:
         r['lvl%d_mapped_management_unit_rk' % u.level] = u.rk
         r['lvl%d_mapped_management_unit_nm' % u.level] = u.name_at(d)
