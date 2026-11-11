@@ -181,3 +181,58 @@ join (select a.legal_position_rk::text as rk,
               + coalesce(a.extended_vacation_day_cnt, 0))::numeric as days
       from prod_v_hrmart.legal_position_accum_vacation a) o
   on o.rk = n.rk;
+
+
+-- 7. Штатные без записи об отпуске на дату данных — кто они (запрос 5: у «Штат» pct_cov 90+, не 100).
+--    Причина × стаж × тип численности × юрлицо, самые большие группы сверху.
+--    Причины: 0 — в структуре пустой legal_position_rk; 1 — по позиции записей нет совсем; 2 — только удалённые;
+--    3 — записи начинаются позже даты (новичок, запись ещё не завели?); 4 — записи закончились раньше;
+--    5 — дыра между версиями. Ждали: основная масса — недавно нанятые (стаж до 30 дней) или одно юрлицо;
+--    размазано по всем — вопрос к полноте источника.
+with p as (
+    select max(business_dt)::date as data_dt
+    from prod_v_emart.mdm_employee_structure_d
+    where business_dt >= current_date - 14 and last_day_flg = 1
+), s as (
+    select nullif(trim(e.legal_position_rk::text), '')                            as rk,
+           case when p.data_dt - e.company_hire_dt::date <= 30  then '1 до 30 дн.'
+                when p.data_dt - e.company_hire_dt::date <= 90  then '2 31–90 дн.'
+                when p.data_dt - e.company_hire_dt::date <= 365 then '3 до года'
+                else '4 больше года' end                                         as tenure,
+           coalesce(nullif(trim(e.active_type_nm::text), ''), '-')                as hct,
+           coalesce(nullif(trim(e.lvl1_legal_unit_nm::text), ''), '-')            as legal
+    from prod_v_emart.mdm_employee_structure_d e
+    cross join p
+    where e.business_dt = p.data_dt
+      and coalesce(e.company_hire_dt, e.business_dt) <= e.business_dt
+      and (e.company_fire_dt is null or e.company_fire_dt >= e.business_dt)
+      and coalesce(e.company_fire_flg, 0) = 0
+      and coalesce(e.legal_employee_flg, 0) = 1
+      and e.employment_relation_type_desc = 'Штатный сотрудник'
+), a as (
+    select v.legal_position_rk::text                                              as rk,
+           max(case when v.deleted_flg = 0
+                     and p.data_dt >= v.valid_from_dttm::date
+                     and p.data_dt <  v.valid_to_dttm::date then 1 else 0 end)    as now_live,
+           max(case when v.deleted_flg = 0 then 1 else 0 end)                     as any_live,
+           min(case when v.deleted_flg = 0 then v.valid_from_dttm end)::date      as first_from,
+           max(case when v.deleted_flg = 0 then v.valid_to_dttm end)::date        as last_to
+    from prod_v_sse_crossdata.legal_position_vacation v
+    cross join p
+    group by 1
+)
+select case when s.rk is null              then '0 пустой legal_position_rk'
+            when a.rk is null              then '1 по позиции записей нет совсем'
+            when a.any_live = 0            then '2 только удалённые записи'
+            when a.first_from > p.data_dt  then '3 записи начинаются позже'
+            when a.last_to <= p.data_dt    then '4 записи закончились раньше'
+            else                                '5 дыра между версиями' end   as reason,
+       s.tenure, s.hct, s.legal,
+       count(*)                                                                    as people
+from s
+cross join p
+left join a on a.rk = s.rk
+where coalesce(a.now_live, 0) = 0
+group by 1, 2, 3, 4
+order by 5 desc
+limit 100;
