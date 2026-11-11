@@ -4,7 +4,8 @@
 -- выделить один и выполнить. Каждый — с подписью «ждали».
 -- Источник: prod_v_sse_crossdata.legal_position_vacation (версионная, бизнес-версии).
 -- Срез: концы 24 закрытых месяцев + дата данных (= как месяцы в отчёте).
--- Версия на дату d: deleted_flg = 0 и d >= valid_from::date и d < valid_to::date.
+-- Версия на дату d — состояние на конец дня (11.11, запрос 2: valid_to ВКЛЮЧИТЕЛЬНЫЙ, следующая версия начинается
+-- через 1 секунду): deleted_flg = 0 и valid_from <= d 23:59:59 <= valid_to.
 -- ============================================================================
 
 
@@ -31,8 +32,8 @@ order by 2 desc;
 
 
 -- 2. Как стыкуются версии одной позиции и типа (граница включительная или нет).
---    Ждали: почти всё — «стык» (to = from следующей) или «последняя»; «пересечение» = 0.
---    Если основная масса — «+1 сек» или «+1 день», значит valid_to включительный: скажи, поправлю условие среза.
+--    Факт 11.11: 185 374 «последняя», 1 493 916 «стык +1 сек», 3 «дыры» (6–22 дня) — valid_to включительный,
+--    срез — на конец дня (условие в шапке).
 select case when q.nxt is null                                 then '1 последняя'
             when q.nxt = q.valid_to_dttm                       then '2 стык: to = from следующей'
             when q.nxt = q.valid_to_dttm + interval '1 second' then '3 стык +1 сек'
@@ -67,7 +68,7 @@ with p as (
 select d.dt, count(*) as dup_keys, max(x.n) as max_versions
 from (select d.dt, v.legal_position_rk, v.vacation_type_code, count(*) as n
       from prod_v_sse_crossdata.legal_position_vacation v
-      join d on d.dt >= v.valid_from_dttm::date and d.dt < v.valid_to_dttm::date
+      join d on v.valid_from_dttm <= (d.dt + interval '1 day' - interval '1 second') and v.valid_to_dttm >= (d.dt + interval '1 day' - interval '1 second')
       where v.deleted_flg = 0
       group by 1, 2, 3
       having count(*) > 1) x
@@ -99,7 +100,7 @@ select x.dt,
        round(avg(x.days), 2)                                                       as avg_days
 from (select d.dt, v.legal_position_rk, sum(v.accum_vacation_day)::numeric as days
       from prod_v_sse_crossdata.legal_position_vacation v
-      join d on d.dt >= v.valid_from_dttm::date and d.dt < v.valid_to_dttm::date
+      join d on v.valid_from_dttm <= (d.dt + interval '1 day' - interval '1 second') and v.valid_to_dttm >= (d.dt + interval '1 day' - interval '1 second')
       where v.deleted_flg = 0
       group by 1, 2) x
 group by 1
@@ -139,7 +140,7 @@ with p as (
 ), v as (
     select d.dt, v.legal_position_rk::text as rk, sum(v.accum_vacation_day)::numeric as days
     from prod_v_sse_crossdata.legal_position_vacation v
-    join d on d.dt >= v.valid_from_dttm::date and d.dt < v.valid_to_dttm::date
+    join d on v.valid_from_dttm <= (d.dt + interval '1 day' - interval '1 second') and v.valid_to_dttm >= (d.dt + interval '1 day' - interval '1 second')
     where v.deleted_flg = 0
     group by 1, 2
 )
@@ -212,11 +213,12 @@ with p as (
 ), a as (
     select v.legal_position_rk::text                                              as rk,
            max(case when v.deleted_flg = 0
-                     and p.data_dt >= v.valid_from_dttm::date
-                     and p.data_dt <  v.valid_to_dttm::date then 1 else 0 end)    as now_live,
+                     and v.valid_from_dttm <= p.data_dt + interval '1 day' - interval '1 second'
+                     and v.valid_to_dttm   >= p.data_dt + interval '1 day' - interval '1 second'
+                    then 1 else 0 end)                                            as now_live,
            max(case when v.deleted_flg = 0 then 1 else 0 end)                     as any_live,
-           min(case when v.deleted_flg = 0 then v.valid_from_dttm end)::date      as first_from,
-           max(case when v.deleted_flg = 0 then v.valid_to_dttm end)::date        as last_to
+           min(case when v.deleted_flg = 0 then v.valid_from_dttm end)            as first_from,
+           max(case when v.deleted_flg = 0 then v.valid_to_dttm end)              as last_to
     from prod_v_sse_crossdata.legal_position_vacation v
     cross join p
     group by 1
@@ -224,8 +226,8 @@ with p as (
 select case when s.rk is null              then '0 пустой legal_position_rk'
             when a.rk is null              then '1 по позиции записей нет совсем'
             when a.any_live = 0            then '2 только удалённые записи'
-            when a.first_from > p.data_dt  then '3 записи начинаются позже'
-            when a.last_to <= p.data_dt    then '4 записи закончились раньше'
+            when a.first_from > p.data_dt + interval '1 day' - interval '1 second' then '3 записи начинаются позже'
+            when a.last_to < p.data_dt + interval '1 day' - interval '1 second'    then '4 записи закончились раньше'
             else                                '5 дыра между версиями' end   as reason,
        s.tenure, s.hct, s.legal,
        count(*)                                                                    as people
