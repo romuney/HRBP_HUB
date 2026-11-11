@@ -43,7 +43,7 @@ ch.LEGACY_HCT = True   # регресс — «без типа = все типы�
 import expect as X  # noqa: E402
 import world as W  # noqa: E402
 
-COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd']
+COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd', 'vac', 'vacd', 'vy', 'vr']
 COMP_TR = COMP  # с 13.10 трансформеры везут все 14 (rgs / nrgs — текучесть с начала года и в «Трансформерах»)
 CARRIER = {'paint': 'paint_f', 'it': 'it_f', 'stream': 'stream_f', 'spec': 'spec_f', 'staff': 'staff_f', 'hct': 'hct_f'}
 bad = 0
@@ -523,13 +523,15 @@ def main():
     # Superset разбирает отрендеренный SQL sqlparse'ом на каждый расчёт ключа кеша и делает reindent
     # обёртки до ClickHouse; время растёт как скобки × токены (08.10: 34 КБ — «Применить» 20 с в бою).
     # Бюджет ловит возврат к выражениям по 24 колонкам в плечах (было 1 200–1 400 скобок). 640 — с 16.10
-    # (nrd — знаменатель незаполненных причин: +14 скобок, +0,3 с на «Применить» по stand/superset.py).
+    # (nrd — знаменатель незаполненных причин: +14 скобок, +0,3 с на «Применить» по stand/superset.py); 17,5 КБ / 700 и
+    # 20 КБ / 860 — с 11.11 (накопленный отпуск: 4 компонента, у плеч — в той же семёрке-матчере, у трансформеров — по
+    # колонке матчерами: +50 скобок, +0,9 КБ; шаги Superset +0,05…0,2 с, scale.py — HRBP +0,15…0,3 с, компания +1,2 с).
     heavy = {'unit_f': ['x1', 'x2'], 'depth_f': ['all'], 'tr_f': ['city'], 'paint_f': ['a', 'b'], 'it_f': ['IT'],
              'stream_f': ['s'], 'spec_f': ['p'], 'staff_f': ['Штат'], 'hct_f': ['Активная']}
-    for label, flt, kb, par in (('первое открытие', {}, 16, 640), ('все разрезы, ось, все уровни', heavy, 20, 800)):
+    for label, flt, kb, par in (('первое открытие', {}, 17.5, 700), ('все разрезы, ось, все уровни', heavy, 20, 860)):
         sql = ch.render(flt, 'a.sergeeva')
         ok(len(sql) <= kb * 1024 and sql.count('(') <= par,
-           'SQL для Superset короткий (%s): %.1f КБ ≤ %d, скобок %d ≤ %d' % (label, len(sql) / 1024, kb, sql.count('('), par))
+           'SQL для Superset короткий (%s): %.1f КБ ≤ %g, скобок %d ≤ %d' % (label, len(sql) / 1024, kb, sql.count('('), par))
     try:
         import sqlparse
         import superset as _ss

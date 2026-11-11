@@ -215,6 +215,7 @@ def component_series(grain, pred, flt, active_base=False):
             out[k] = [raw[k][i] for i in range(24)]
         else:
             out[k] = [sum(raw[k][j] for j in range(max(i - win[k[:2]] + 1, lo), i + 1)) for i in range(24)]
+    out.update(vac_series(grain, pred, flt))   # накопленный отпуск (11.11): vac, vacd, vy, vr
     return out
 
 

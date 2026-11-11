@@ -85,13 +85,17 @@
 {#- nrd (16.10, Дьяченко) — знаменатель незаполненных причин: все увольнения с начала года, у которых прошёл срок на
     причину (у nr — те же, но без причины). Тоже матчером: нет колонки — пустые слоты, meta.nrd = 0, чарт берёт запасной
     знаменатель. -#}
-{% set COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd'] %}
+{#- vac, vacd, vy, vr (11.11, «Накопленный отпуск»): штатные на конец месяца (vacd), их остаток в сотых долях дня (vac),
+    из них в жёлтой (28 ≤ дни < 56) и красной (≥ 56) зоне — запас, без окна. Тоже матчером: ноут без них (до поставки 65) —
+    пустые слоты, meta.vac = 0, чарт прячет метрики отпуска. -#}
+{% set COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd', 'vac', 'vacd', 'vy', 'vr'] %}
 {% set NC = COMP|length %}
 {% set ROLES = ['meta', 'f', 'scope', 'base', 'kpi', 'hrbps', 'dict', 'c', 'g', 'tr', 'x', 'end'] %}
 {#- Список уволенных без причины (02.11, этап 2): только по запросу — чарт шлёт nrp_f = '1', когда HRBP открывает
-    список. Без носителя ни роли, ни плеча нет: текст SQL и ответ — как до списка. NRP_MAX — сколько людей везём (самые
+    список (ровно одно значение '1'; ['1', '2'] и прочее — как без носителя, 11.11: так и задумано в check.py,
+    раздел 9). Без носителя ни роли, ни плеча нет: текст SQL и ответ — как до списка. NRP_MAX — сколько людей везём (самые
     свежие); n строки — сколько их всего. -#}
-{% set NRP = (filter_values('nrp_f')|first|default('', true))|string == '1' %}
+{% set NRP = (filter_values('nrp_f') or [])|map('string')|list == ['1'] %}
 {%- set NRP_MAX = 5000 %}
 {%- if NRP %}{% set ROLES = ROLES[:5] + ['p'] + ROLES[5:] %}{% endif %}
 {#- Трансформеры: все 12 атрибутов в каждом ответе. Без разрезов — из свёртки (если она есть
@@ -159,12 +163,16 @@
 {#- rgs / nrgs (с 12–13.10) — через матчер COLUMNS: в бою датасет вставляют раньше, чем ноут успевает выгрузить новые
     колонки, и ClickHouse падал «Unknown identifier 'o'» (13.10). Нет колонки — на её месте 24 пустых слота, а meta.ytd = 0
     говорит чарту не считать текучесть с начала года (он показывает 12 мес). -#}
-{%- macro opt(p, n) -%}arrayResize(arrayConcat(CAST([], 'Array(Nullable(Int32))'), COLUMNS('^{{ p }}_{{ '(rgs|nrgs|nrd)' if n == 72 else n }}$')), {{ n if n == 72 else 24 }}){%- endmacro -%}
-{#- плоский массив плеч — тройка одним матчером (в кубе и базе rgs, nrgs, nrd идут в этом порядке; nrd нет — его
-    24 слота пустые), массивы трансформеров — по колонке -#}
-{% set MW = (MM[:12] + [opt('m', 72)] + WW[:12] + [opt('w', 72)])|join(', ') %}
-{% set MM = MM[:12] + [opt('m', 'rgs'), opt('m', 'nrgs'), opt('m', 'nrd')] %}
-{% set MT = MM|join(', ') %}
+{#- opt — колонки по регулярке имени (rx) в порядке таблицы, k слотов: чего нет — пустые слоты в хвосте. -#}
+{%- macro opt(p, rx, k) -%}arrayResize(arrayConcat(CAST([], 'Array(Nullable(Int32))'), COLUMNS('^{{ p }}_{{ rx }}$')), {{ k }}){%- endmacro -%}
+{#- Плоский массив плеч — семёрка одним матчером: в кубе и базе rgs, nrgs, nrd, vac, vacd, vy, vr идут в этом порядке
+    (порядок колонок в таблицах держать!); нет nrd или отпусков — их слоты в хвосте пустые. Трансформеры (MT) — список
+    массивов по колонке, все необязательные — матчером по одной (в кубе атрибутов порядок колонок другой). Плоский MT
+    с нарезкой в лямбде окна (11.11, проба) замедлял ответ компании втрое (scale.py: 3,2 → 10,5 с): ClickHouse
+    пересобирал массив в каждом вызове лямбды. -#}
+{% set G7 = '(rgs|nrgs|nrd|vac|vacd|vy|vr)' %}
+{% set MW = (MM[:12] + [opt('m', G7, 168)] + WW[:12] + [opt('w', G7, 168)])|join(', ') %}
+{% set MT = '[' ~ (MM[:12] + [opt('m', 'rgs', 24), opt('m', 'nrgs', 24), opt('m', 'nrd', 24), opt('m', 'vac', 24), opt('m', 'vacd', 24), opt('m', 'vy', 24), opt('m', 'vr', 24)])|join(', ') ~ ']' %}
 {#- Условие «строка проходит разрезы», кроме разреза skip (для фасетов). -#}
 {% macro cond(skip) -%}
 {%- set parts = [] -%}
@@ -361,7 +369,7 @@ FROM (
           {% for c in CUT_COLS %}if({{ cond(c) }}, array(('{{ c }}', ifNull(cb.{{ c }}, '-'), toUInt8({{ cond('') }}))), []){% if not loop.last %},
           {% endif %}{% endfor %}
         )) AS fv,
-        {{ win('[' ~ MT ~ ']', 'ctx.last_m') }} AS v
+        {{ win(MT, 'ctx.last_m') }} AS v
       FROM (
         SELECT * FROM prod_proteus.hrbp_hub_cube
         WHERE path_s >= tupleElement({{ EX }}, 1) AND path_s < tupleElement({{ EX }}, 2)
@@ -392,12 +400,12 @@ FROM (
           arrayMap(x -> ifNull(x, 0), sumForEach({{ win('ab.mm', 'ctx.last_m') }})) AS s0
         FROM (
           {%- if not ANYCUT %}
-          SELECT CAST([], 'Array(Nullable(String))') AS path, attr_k, attr_v, [{{ MT }}] AS mm, toUInt8(1) AS top
+          SELECT CAST([], 'Array(Nullable(String))') AS path, attr_k, attr_v, {{ MT }} AS mm, toUInt8(1) AS top
           FROM prod_proteus.hrbp_hub_attr_top
           WHERE has(tupleElement({{ EX }}, 5), ifNull(unit_id, ''))
           UNION ALL
           {%- endif %}
-          SELECT path, attr_k, attr_v, [{{ MT }}] AS mm, toUInt8(0) AS top
+          SELECT path, attr_k, attr_v, {{ MT }} AS mm, toUInt8(0) AS top
           FROM prod_proteus.hrbp_hub_attr
           WHERE ({% if axis in ATTRS %}(attr_k = {{ qs(axis) }} AND empty(tupleElement({{ EX }}, 5)) AND path_s >= tupleElement({{ EX }}, 1) AND path_s < tupleElement({{ EX }}, 2)) OR {% endif %}(path_s >= tupleElement({{ EX }}, 3) AND path_s < tupleElement({{ EX }}, 4)))
             AND ({{ cond('') }})
@@ -557,6 +565,7 @@ FROM (
       ',"ytd":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_rgs')),
       ',"hq":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_hirea')),
       ',"nrd":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_nrd')),
+      ',"vac":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_vac')),
       {#- датасет умеет список уволенных без причины (роль p по nrp_f): без этого чарт кнопку не показывает -#}
       ',"nrp":1',
       ',"last_m":', toString(ctx.last_m),

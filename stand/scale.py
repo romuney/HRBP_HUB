@@ -119,9 +119,10 @@ def main():
             'stream String, spec String, staff String, hct String, w Float64) ENGINE = MergeTree ORDER BY path_s')
     S.query('INSERT INTO prod_proteus.cube_keys FORMAT JSONEachRow\n' + '\n'.join(json.dumps(k, ensure_ascii=False) for k in keys))
     comp = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'r3an', 'r3ad', 'r6an', 'r6ad', 'hire', 'fire']
-    ccomp = comp + ['rgs', 'nrgs', 'nrd']   # увольнения без окна (12.10): куб, база и (с 13.10) куб атрибутов; nrd — 16.10
+    ccomp = comp + ['rgs', 'nrgs', 'nrd', 'vac', 'vacd', 'vy', 'vr']   # увольнения без окна (12.10): куб, база и (с 13.10) куб атрибутов; nrd — 16.10; накопленный отпуск — 11.11
     scale = dict(hc=1.0, jun=.15, rg=.03, nrg=.05, hcw=12.0, nr=.01, r3n=.06, r3d=.07, r6n=.05, r6d=.07,
-                 r3an=.06, r3ad=.07, r6an=.05, r6ad=.07, hire=.03, fire=.02, rgs=.003, nrgs=.005, nrd=.12)
+                 r3an=.06, r3ad=.07, r6an=.05, r6ad=.07, hire=.03, fire=.02, rgs=.003, nrgs=.005, nrd=.12,
+                 vac=1500.0, vacd=.9, vy=.3, vr=.1)
 
     def gen(c, g):
         return ('arrayMap(i -> toInt32(if(%s AND i > 19, 0, round(w * %s * (0.8 + (cityHash64(path_s, paint, spec, hct, i, \'%s%s\') %% 400) / 1000.0)))), range(24))'

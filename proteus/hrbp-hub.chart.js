@@ -31,9 +31,11 @@ var CFG = {
   fields: {
     role: 'role', id: 'id', pid: 'pid', n: 'n', j: 'j',
     m: { hc: 'm_hc', jun: 'm_jun', rg: 'm_rg', nrg: 'm_nrg', hcw: 'm_hcw', nr: 'm_nr',
-         r3n: 'm_r3n', r3d: 'm_r3d', r6n: 'm_r6n', r6d: 'm_r6d', hire: 'm_hire', fire: 'm_fire', rgs: 'm_rgs', nrgs: 'm_nrgs', nrd: 'm_nrd' },
+         r3n: 'm_r3n', r3d: 'm_r3d', r6n: 'm_r6n', r6d: 'm_r6d', hire: 'm_hire', fire: 'm_fire', rgs: 'm_rgs', nrgs: 'm_nrgs', nrd: 'm_nrd',
+         vac: 'm_vac', vacd: 'm_vacd', vy: 'm_vy', vr: 'm_vr' },
     w: { hc: 'w_hc', jun: 'w_jun', rg: 'w_rg', nrg: 'w_nrg', hcw: 'w_hcw', nr: 'w_nr',
-         r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire', rgs: 'w_rgs', nrgs: 'w_nrgs', nrd: 'w_nrd' }
+         r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire', rgs: 'w_rgs', nrgs: 'w_nrgs', nrd: 'w_nrd',
+         vac: 'w_vac', vacd: 'w_vacd', vy: 'w_vy', vr: 'w_vr' }
   },
   carriers: { unit: 'unit_f', axis: 'tr_f', depth: 'depth_f', nrp: 'nrp_f' },
   // Разрезы численности: ключ колонки куба → носитель кросс-фильтра. Один перечень
@@ -74,7 +76,10 @@ var CFG = {
     { m: 'retention_new_6', a: 'work', t: 'Новички и формат работы', q: 'Закрепляемость новичков через 6 месяцев по формату работы.' },
     { m: 'exit_reasons', a: 'legal', t: 'Где не указывают причины', q: 'Увольнения без причины по юрлицам: кому напомнить заполнить.' },
     { m: 'jun_team', a: 'spec', t: 'Где растим джунов', q: 'Доля джунов и стажёров по специализациям.' },
-    { m: 'headcount', a: 'city', t: 'Где работают люди', q: 'Численность по городам.' }
+    { m: 'headcount', a: 'city', t: 'Где работают люди', q: 'Численность по городам.' },
+    // Накопленный отпуск (11.11): у кого из HRBP и на каких грейдах копится отпуск.
+    { m: 'vac_red', a: 'hrbp', t: 'Где копится отпуск', q: 'Доля штатных с 56 и больше днями отпуска — по HRBP: с кого начать разговор об отпусках.' },
+    { m: 'vac_yellow', a: 'grade', t: 'Отпуск по грейдам', q: 'Доля штатных с 28–56 днями отпуска — по грейдам.' }
   ],
   trTop: 30,                 // трансформеры: у оси показываем столько крупных значений, остальные — «Остальные»
   trTopBy: { hrbp: 300 },    // у HRBP — все (= TR_TOP_HRBP датасета): детализация по HRBP без хвоста «Остальные»
@@ -90,7 +95,8 @@ var CFG = {
   blocks: [
     { key: 'retention', name: 'Удержание', tab: 'Удержание', hint: 'Сколько новичков остаются в компании через 3 и 6 месяцев.' },
     { key: 'turnover', name: 'Текучесть', tab: 'Текучесть', hint: 'Уходы, о которых жалеем и не жалеем, и заполнение причин.' },
-    { key: 'structure', name: 'Структура команды', tab: 'Структура', hint: 'Размер команды и доля джунов.' }
+    { key: 'structure', name: 'Структура команды', tab: 'Структура', hint: 'Размер команды и доля джунов.' },
+    { key: 'balance', name: 'Дисциплина и баланс', tab: 'Баланс', hint: 'У скольких штатных накопилось много дней отпуска.' }
   ],
   // num / den — компоненты куба; denDiv — знаменатель-сумма за окно → средняя.
   // better: higher | lower | flat (у flat цвета и целей нет — «больше» не значит «лучше»).
@@ -151,11 +157,27 @@ var CFG = {
       hint: 'Доля джунов и стажёров в команде.',
       frac: ['джуны и стажёры', 'численность на конец месяца'],
       notes: ['Джуны — уровни Intern, Junior и Junior+.'],
-      numL: 'джунов', denL: 'численность', cnt: { of: ['чел.', 'чел.', 'чел.'] }, exL: 'джунов не хватает до ориентира', exA: 'до ориентира не хватает' }
+      numL: 'джунов', denL: 'численность', cnt: { of: ['чел.', 'чел.', 'чел.'] }, exL: 'джунов не хватает до ориентира', exA: 'до ориентира не хватает' },
+    // Накопленный отпуск (11.11, план — docs/unused-vac/plan.md): доля ШТАТНЫХ, у кого на конец месяца накоплено 28–56 дней
+    // (жёлтая зона) и 56 и больше (красная). Только штатные — и в числителе, и в знаменателе (vacd), какие бы разрезы ни
+    // выбрали; остаток — по основной позиции, сумма всех типов отпуска; без записи об отпуске — в знаменателе, не в зоне.
+    // Месяцы до начала истории отпусков — пустые (vacd = 0). need — метрика есть, только если датасет и ноут её везут
+    // (MODEL.vacOk); pop — численность для порога «мало людей» (штатные); avg — средний остаток в подсказке (vac — сотые дня).
+    { key: 'vac_yellow', block: 'balance', name: 'Накопленный отпуск 28–56 дней', short: 'Отпуск 28–56 дн.',
+      fmt: 'pct', better: 'lower', share: true, num: 'vy', den: 'vacd', need: 'vacOk', pop: 'vacd', avg: 'vac', staffOnly: true,
+      hint: 'Доля штатных, у кого накопилось от 28 до 56 дней отпуска.',
+      frac: ['штатные с 28–56 днями отпуска', 'все штатные на конец месяца'],
+      notes: ['Дни — сумма всех типов отпуска по основной должности: основной, дополнительный, северный и другие.', 'Месяцы, за которые истории отпусков нет, — пустые.'],
+      numL: 'накоплено 28–56 дней', denL: 'штатных', cnt: { of: ['штатного', 'штатных', 'штатных'] }, exL: 'сотрудников сверх ориентира', exA: 'сверх ориентира' },
+    { key: 'vac_red', block: 'balance', name: 'Накопленный отпуск 56+ дней', short: 'Отпуск 56+ дн.',
+      fmt: 'pct', better: 'lower', share: true, num: 'vr', den: 'vacd', need: 'vacOk', pop: 'vacd', avg: 'vac', staffOnly: true,
+      hint: 'Доля штатных, у кого накопилось 56 и больше дней отпуска.',
+      frac: ['штатные с 56 и больше днями отпуска', 'все штатные на конец месяца'],
+      notes: ['Дни — сумма всех типов отпуска по основной должности: основной, дополнительный, северный и другие.', 'Месяцы, за которые истории отпусков нет, — пустые.'],
+      numL: 'накоплено 56+ дней', denL: 'штатных', cnt: { of: ['штатного', 'штатных', 'штатных'] }, exL: 'сотрудников сверх ориентира', exA: 'сверх ориентира' }
   ],
   catalog: {
     postponed: [
-      { name: 'Неотгуленные отпуска', note: 'Появится, когда доработаем расчёт накопленных отпусков.' },
       { name: 'Прогульщики', note: 'Появится, когда подключим источник данных.' },
       { name: '% джунов в найме', note: 'Нужны данные по найму — подключим отдельно.' },
       { name: '% найма в регионах', note: 'Нужны данные по найму — подключим отдельно.' }
@@ -187,7 +209,7 @@ var CFG = {
   pop: { share: 0.6, cuts: ['paint', 'it', 'stream', 'spec'] },
   // min — порог численности для цвета, один на все метрики (владелец 14.10: 30, не 50 / 100); у метрики можно задать свой minHc.
   // У regrettable / non-regrettable считаем по активной HQ (popOf).
-  small: { min: 30, blocks: ['retention', 'turnover'] },
+  small: { min: 30, blocks: ['retention', 'turnover', 'balance'] },
   // Норматив текучести — активная численность HQ (HRBP 13.10): кнопка на «Сводке» ставит оба разреза.
   hq: { hct: 'Активная', paint: 'HQ' },
   // «Тип численности» по умолчанию — как ACTIVE в датасете: без носителя hct_f ответ по нему (15.10).
@@ -428,9 +450,10 @@ function splitRecords(s) {
 // ---------- БЛОК 3: ТРАНСФОРМАЦИЯ ДАННЫХ ----------
 // rawData → MODEL. SQL отдаёт числители и знаменатели по слотам; проценты, окна
 // в знаменателе, дельты, наследование целей и светофор считаются здесь.
-var COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd'];
-// Необязательные колонки: датасет до 12.10 их не везёт — тогда «с начала года» в «Динамике» нет; nrd (16.10) — запасной знаменатель.
-var COMP_OPT = { rgs: 1, nrgs: 1, nrd: 1 };
+var COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd', 'vac', 'vacd', 'vy', 'vr'];
+// Необязательные колонки: датасет до 12.10 их не везёт — тогда «с начала года» в «Динамике» нет; nrd (16.10) — запасной знаменатель;
+// vac, vacd, vy, vr (11.11) — накопленный отпуск: нет их — метрик отпуска нет (MODEL.vacOk).
+var COMP_OPT = { rgs: 1, nrgs: 1, nrd: 1, vac: 1, vacd: 1, vy: 1, vr: 1 };
 // Разрезы распределения численности в справочнике — в порядке CUT_COLS датасета (в нём записан код
 // сочетания); FDC — кэш чисел окна фильтров по набранному выбору (fdCalc). Объявлены до buildModel.
 var FD_KEYS = ['paint', 'it', 'stream', 'spec', 'staff', 'hct'];
@@ -464,6 +487,7 @@ function buildModel() {
   for (var ci = 0; ci < COMP.length; ci++) if (!COMP_OPT[COMP[ci]]) { need.push(F.m[COMP[ci]]); need.push(F.w[COMP[ci]]); }
   M.ytdOk = (F.m.rgs in rawData[0]) && (F.m.nrgs in rawData[0]);
   M.nrdOk = F.m.nrd in rawData[0];
+  M.vacOk = (F.m.vy in rawData[0]) && (F.m.vr in rawData[0]) && (F.m.vacd in rawData[0]);
   for (var ni = 0; ni < need.length; ni++) if (!(need[ni] in rawData[0])) M.missing.push(need[ni]);
   if (M.missing.length) return M;
   for (var i = 0; i < rawData.length; i++) {
@@ -523,6 +547,8 @@ function buildModel() {
   M.hqOk = M.meta.hq === 1;
   // Знаменатель незаполненных причин (16.10): колонка есть и ноут её выгрузил — иначе запасной (denFb).
   if (M.meta.nrd !== 1) M.nrdOk = false;
+  // Накопленный отпуск (11.11): колонки в «Измерениях» и в таблицах (ноут с поставки 65) — иначе метрик отпуска нет.
+  if (M.meta.vac !== 1) M.vacOk = false;
   // Датасет умеет список уволенных без причины (nrp_f): без этого кнопки «кто без причины» нет.
   M.nrpOk = M.meta.nrp === 1;
   var meta = M.meta;
@@ -915,7 +941,11 @@ function smallGate(m) { return CFG.small.blocks.indexOf(m.block) > -1; }
 function isSmall(ser) { return hcOf(ser) < CFG.small.min; }
 function smallMin(m) { return m && m.minHc ? m.minHc : CFG.small.min; }
 // Порог — по численности, от которой метрика считается: у текучести — активная HQ (её знаменатель, 13.10), иначе — вся.
-function popOf(ser, m) { var L = MODEL.L; return m && m.hq && MODEL.hqOk && ser && ser.m && ser.m.hcw ? (ser.m.hcw[L] || 0) : hcOf(ser); }
+function popOf(ser, m) {
+  var L = MODEL.L;
+  if (m && m.pop) return ser && ser.m && ser.m[m.pop] ? (ser.m[m.pop][L] || 0) : 0;   // отпуск — штатные (11.11)
+  return m && m.hq && MODEL.hqOk && ser && ser.m && ser.m.hcw ? (ser.m.hcw[L] || 0) : hcOf(ser);
+}
 function smallHide(ser, m) { return smallGate(m) && popOf(ser, m) < smallMin(m); }
 // Числитель и знаменатель метрики в людях (знаменатель-окно → средняя численность).
 function absParts(m, ser, i) {
@@ -936,9 +966,20 @@ function absRows(m, ser, i) {
   // Закрепляемость (Дьяченко 16.10, для сверки): сколько новичков пришло в этом месяце — найм месяца (при «Активной» — приход в неё).
   var h = m.hireRow && ser && ser.m && ser.m.hire ? ser.m.hire[i] : null;
   if (h !== null && h !== undefined) r.push({ label: 'новичков пришло в этом месяце', value: fmtInt(h) });
+  // Накопленный отпуск (11.11): средний остаток на штатного (vac — сотые доли дня, с дробной частью).
+  var av = avgDays(m, ser, i);
+  if (av !== null) r.push({ label: 'в среднем накоплено', value: fmtNum1(av) + THIN + 'дн.' });
   // Незаполненные причины (02.11): значение — средняя созревших месяцев, отток месяца (20.10) — в «Динамике» по месяцам.
   return r;
 }
+// Средний остаток отпуска на штатного, дней (11.11): Σ остатков (сотые дня) / штатные; нет штатных — null.
+function avgDays(m, ser, i) {
+  if (!m.avg || !ser || !ser.m || !ser.m[m.avg] || !ser.m[m.den]) return null;
+  var d = ser.m[m.den][i] || 0;
+  return d > 0 ? (ser.m[m.avg][i] || 0) / 100 / d : null;
+}
+// Метрика есть в данных: у отпусков — только если датасет и ноут её везут (11.11).
+function mAvail(m) { return !m.need || !!MODEL[m.need]; }
 // Коротко под значением: «16 из 17 новичков», «9 уходов за год».
 function absText(m, ser, i) {
   var a = absParts(m, ser, i), c = m.cnt;
@@ -970,7 +1011,7 @@ function selMetrics(block) {
   var out = [];
   for (var i = 0; i < CFG.metrics.length; i++) {
     var m = CFG.metrics[i];
-    if (state.metricOff[m.key]) continue;
+    if (state.metricOff[m.key] || !mAvail(m)) continue;
     if (block && m.block !== block) continue;
     out.push(m);
   }
@@ -3078,7 +3119,7 @@ function metricListHTML() {
     var bl = CFG.blocks[b], all = 0, on = 0, rows = '', hitB = !q || bl.name.toLowerCase().indexOf(q) > -1;
     for (var i = 0; i < CFG.metrics.length; i++) {
       var m = CFG.metrics[i];
-      if (m.block !== bl.key) continue;
+      if (m.block !== bl.key || !mAvail(m)) continue;
       all++;
       if (!sv.off[m.key]) on++;
       if (!hitB && (m.name + ' ' + (m.short || '')).toLowerCase().indexOf(q) < 0) continue;
@@ -3093,8 +3134,8 @@ function metricListHTML() {
   return s || '<div class="' + P + '-nores">Ничего не найдено</div>';
 }
 function viewZoneHTML() {
-  var P = CFG.ns, sv = stagedView(), fo = !!sv.focus, on = 0, all = CFG.metrics.length;
-  for (var i = 0; i < all; i++) if (!sv.off[CFG.metrics[i].key]) on++;
+  var P = CFG.ns, sv = stagedView(), fo = !!sv.focus, on = 0, all = 0;
+  for (var i = 0; i < CFG.metrics.length; i++) if (mAvail(CFG.metrics[i])) { all++; if (!sv.off[CFG.metrics[i].key]) on++; }
   return '<div class="' + P + '-mdz" data-tz="view">'
     + '<button type="button" class="' + P + '-ft ' + P + '-ftw' + (fo ? ' ' + P + '-on' : '') + '" data-action="focus" aria-pressed="' + (fo ? 'true' : 'false') + '">'
     + '<span class="' + P + '-ft-tr"><span class="' + P + '-ft-kn"></span></span><span class="' + P + '-ft-tx">Только с KPI — метрики и юниты, где он стоит</span></button>'
@@ -3159,8 +3200,9 @@ function filterChips() {
     for (var j = 0; j < sel.length; j++) names.push(cutName(sel[j]));
     if (sel.length) out.push({ key: 'cut:' + c.key, label: c.label, value: names.length === 1 ? names[0] : names[0] + ' +' + (names.length - 1), list: names });
   }
-  var on = selMetrics('').length;
-  if (on < CFG.metrics.length) out.push({ key: 'metrics', label: 'Метрики', value: on + ' из ' + CFG.metrics.length, list: [] });
+  var on = selMetrics('').length, avN = 0;
+  for (var ai = 0; ai < CFG.metrics.length; ai++) if (mAvail(CFG.metrics[ai])) avN++;
+  if (on < avN) out.push({ key: 'metrics', label: 'Метрики', value: on + ' из ' + avN, list: [] });
   if (state.focusOnly) out.push({ key: 'focus', label: '', value: 'Только с KPI', list: [] });
   return out;
 }
@@ -3250,8 +3292,9 @@ function yoySpec(unitId, ser, m) {
   if (isMon(m)) return cohSpec(unitId, ser, m);
   var M = MODEL, L = M.L, cur = [], prev = [], labels = [], heads = [], ref = null, ytd = ytdOn(m);
   var val = ytd ? function (s, i) { return ytdVal(s, m, i); } : function (s, i) { return mval(s, 'm', m, i); };
-  // В тултипе — люди (hireRow: новички и сколько пришло в месяце); закрепляемость и причины — в cohSpec.
-  var extra = m.hireRow ? [] : null;
+  // В тултипе — люди (hireRow: новички и сколько пришло в месяце; отпуск — штатные и средний остаток, 11.11);
+  // закрепляемость и причины — в cohSpec.
+  var extra = m.hireRow || m.avg ? [] : null;
   for (var k = 0; k < 12; k++) {
     if (extra) extra.push(12 + k <= L ? absRows(m, ser, 12 + k) : null);
     cur.push(12 + k <= L ? val(ser, 12 + k) : null);
@@ -3800,7 +3843,9 @@ function retActive(m) { return (m.num === 'r3n' || m.num === 'r6n') && !!MODEL.m
 function metricNotes(m) {
   var out = [];
   if (m.hq) out.push('Знаменатель — всегда активная численность HQ, какие бы фильтры ни были выбраны.');
-  if (smallGate(m)) out.push('Если в юните меньше ' + smallMin(m) + ' человек, значение без цвета: один уход сдвигает процент на несколько пунктов.');
+  if (m.staffOnly) out.push('Считаем только штатных — и тех, у кого много дней, и всех, — какие бы фильтры ни были выбраны. При фильтре «Не штат» значения нет.');
+  if (smallGate(m)) out.push(m.staffOnly ? 'Если в юните меньше ' + smallMin(m) + ' штатных, значение без цвета: один человек сдвигает процент на несколько пунктов.'
+    : 'Если в юните меньше ' + smallMin(m) + ' человек, значение без цвета: один уход сдвигает процент на несколько пунктов.');
   if (retActive(m)) out.push('Выбран тип «Активная»: новички — пришедшие в активную численность (найм, переход кандидата, внутренний перевод), срок — от прихода.');
   var nt = m.notes || [];
   if (m.rip && MODEL.nrpOk) nt = nt.slice(0, -1).concat('Кто именно — «кто без причины» под названием метрики: MDM ID, даты и структура; копируется в Excel.');
@@ -3818,6 +3863,7 @@ function metricTip(m) {
 function rowNote(m) {
   var P = CFG.ns, s = esc(dirText(m));
   if (m.hq) s += ' · по активной HQ';
+  if (m.staffOnly) s += ' · только штатные';
   if (retActive(m)) s += ' · новички — приход в активную';
   // Причины (02.11): список уволенных без причины — окно по кнопке (датасет везёт его по запросу).
   if (m.rip && MODEL.nrpOk) s += ' · <button type="button" class="' + P + '-lnk" data-action="nrp">кто без причины</button>';
@@ -3837,6 +3883,7 @@ function gapText(m, ex, bl) {
   if (m.num === 'r3n' || m.num === 'r6n') return 'Чтобы выйти на уровень ' + w + ', нужно было удержать ещё ≈' + NBSP + n + ' ' + plural(n, 'новичка', 'новичков', 'новичков') + '.';
   if (m.num === 'nr') return '≈' + NBSP + n + ' ' + plural(n, 'увольнение', 'увольнения', 'увольнений') + ' без причины сверх ' + w + '.';
   if (m.num === 'jun') return 'До ' + w + ' не хватает ≈' + NBSP + n + ' ' + plural(n, 'джуна', 'джунов', 'джунов') + '.';
+  if (m.staffOnly) return '≈' + NBSP + n + ' ' + plural(n, 'сотрудник', 'сотрудника', 'сотрудников') + ' с таким отпуском сверх ' + w + '.';
   return '≈' + NBSP + n + ' ' + plural(n, 'уход', 'ухода', 'уходов') + ' сверх ' + w + '.';
 }
 // Сравнение словами: «лучше цели 5,0 %», «хуже базы 92,0 %», «на уровне цели» (мёртвая зона ±5 %).
@@ -4027,7 +4074,9 @@ function onepagerHTML() {
       if (isMon(it.m)) { if (cohSpan(it.m)) abH += '<span class="' + P + '-us ' + P + '-abs"' + tip({ title: it.m.name, text: ripeNote(it.m) }) + '>' + esc(cohSpan(it.m)) + '</span>'; }
       else if (Lm !== L) abH += '<span class="' + P + '-us ' + P + '-abs"' + tip({ title: it.m.name, text: ripeNote(it.m) }) + '>за ' + esc(monthName(Lm)) + ' · ' + esc(monthName(L)) + ' дозревает</span>';
       // Юнит меньше порога (HRBP 13.10): значение, динамика и график — как у всех, только без цвета.
-      if (sm) abH += '<span class="' + P + '-us ' + P + '-abs"' + tip({ title: it.m.name, text: smallWhy(M.scope, it.m), rows: absRows(it.m, M.scope, Lm) }) + '>без цвета: мало людей</span>';
+      // Отпуск при «Не штат» (11.11): штатных в области нет — значения нет, а не «мало людей».
+      if (it.m.staffOnly && !popOf(M.scope, it.m)) abH = '<span class="' + P + '-us ' + P + '-abs">штатных нет — считаем только по ним</span>';
+      else if (sm) abH += '<span class="' + P + '-us ' + P + '-abs"' + tip({ title: it.m.name, text: smallWhy(M.scope, it.m), rows: absRows(it.m, M.scope, Lm) }) + '>без цвета: мало людей</span>';
       rows += '<tr class="' + P + '-row' + (open ? ' ' + P + '-opn' : '') + '" data-action="openm" data-key="' + mk + '" aria-expanded="' + (open ? 'true' : 'false') + '">'
         + '<td class="' + P + '-l"><span class="' + P + '-rl">' + hCaret(open, 'openm', mk, open ? 'Скрыть динамику' : 'Показать динамику')
         + name + '</span></td>'
@@ -4174,12 +4223,12 @@ function crefHTML(m, bl) {
 // Маленькая команда: значение без цвета, в подсказке — почему и сколько это людей.
 function smallWhy(ser, m) {
   var n = popOf(ser, m), hq = m.hq && MODEL.hqOk;
-  return 'Без цвета: в команде ' + fmtInt(n) + ' ' + plural(n, 'человек', 'человека', 'человек') + (hq ? ' активной HQ' : '') + ', нужно от ' + smallMin(m)
+  return 'Без цвета: в команде ' + fmtInt(n) + ' ' + (m.staffOnly ? plural(n, 'штатный', 'штатных', 'штатных') : plural(n, 'человек', 'человека', 'человек') + (hq ? ' активной HQ' : '')) + ', нужно от ' + smallMin(m)
     + '. Один человек здесь сдвигает процент на несколько пунктов.';
 }
 // Коротко под именем строки: по каким людям порог (у regrettable — активная HQ, не все «N чел» строки).
 function smallShort(ser, m) {
-  return (m.hq && MODEL.hqOk ? 'активной HQ ' + fmtInt(popOf(ser, m)) + ' из нужных ' + smallMin(m) : 'меньше ' + smallMin(m) + ' человек') + ' — без цвета';
+  return (m.hq && MODEL.hqOk ? 'активной HQ ' + fmtInt(popOf(ser, m)) + ' из нужных ' + smallMin(m) : m.staffOnly ? 'штатных ' + fmtInt(popOf(ser, m)) + ' из нужных ' + smallMin(m) : 'меньше ' + smallMin(m) + ' человек') + ' — без цвета';
 }
 function smallRule() { return 'от ' + CFG.small.min + ' человек, у нежелательного и желательного оттока — ' + CFG.small.min + ' человек активной HQ'; }
 function smallTd(m, ser, cls) {
@@ -4981,7 +5030,7 @@ function kdNow(d) {
 function kdEditorHTML() {
   var P = CFG.ns, M = MODEL, d = kdDraft(), K = CFG.kpiForm, m = METRIC[d.metric], err = kdErrors(d), del = d.mode === 'del';
   var mOpts = [];
-  for (var k = 0; k < CFG.metrics.length; k++) if (targetable(CFG.metrics[k])) mOpts.push([CFG.metrics[k].key, CFG.metrics[k].name]);
+  for (var k = 0; k < CFG.metrics.length; k++) if (targetable(CFG.metrics[k]) && mAvail(CFG.metrics[k])) mOpts.push([CFG.metrics[k].key, CFG.metrics[k].name]);
   var unitH = d.unit ? '<span class="' + P + '-chip ' + P + '-chipro"><span class="' + P + '-ddv">' + esc(unitName(M, d.unit)) + '</span></span>' + (M.units[d.unit] ? '<span class="' + P + '-us">' + esc(levelLabel(M.units[d.unit].lvl)) + ' · KPI действует на юнит и его подразделения</span>' : '')
     : '<span class="' + P + '-kerr">Выберите один юнит в «Фильтрах»</span> <button type="button" class="' + P + '-lnk" data-action="drawer">Открыть фильтры</button>';
   var title = del ? 'Удалить KPI' : (d.mode === 'update' ? 'Изменить KPI' : 'Новый KPI');
@@ -5078,7 +5127,7 @@ function catalogHTML() {
       var n = 0;
       for (var r = 0; r < MODEL.rules.length; r++) if (MODEL.rules[r].metric === m.key) n++;
       list += '<li><span class="' + P + '-cn">' + esc(m.name) + hInfo(metricTip(m))
-        + (state.metricOff[m.key] ? '' : '<span class="' + P + '-cb">показывается</span>') + '</span>'
+        + (state.metricOff[m.key] || !mAvail(m) ? '' : '<span class="' + P + '-cb">показывается</span>') + '</span>'
         + '<span class="' + P + '-cm">' + esc(dirText(m) + (targetable(m) ? ' · KPI ставятся' : ' · без KPI и цвета') + (n ? ' · KPI в зоне: ' + n : '')) + '</span>'
         + '<span class="' + P + '-cd">' + esc(m.hint) + '</span>' + catFrac(m) + '</li>';
     }
