@@ -108,9 +108,12 @@ order by 1;
 
 -- 5. Главный: численность × отпуска по основной позиции — покрытие и зоны по месяцам.
 --    Численность — как в отчёте (параграф 04): юридическая, нанят, не уволен, не уволен в этот день.
---    Зоны: жёлтая 28 ≤ дни < 56, красная ≥ 56; доли — от людей с записью об отпуске.
---    Ждали: pct_cov у «Активной» — близко к 100 % (сколько людей без записи — главный вопрос);
---    доли зон месяц к месяцу меняются плавно (скачок — смотреть версии в этом месяце).
+--    Метрика — только по штатным (владелец 11.11): числитель и знаменатель — штатные
+--    (employment_relation_type_desc = 'Штатный сотрудник' = разрез «Штат» отчёта); строки «Не штат» — справочно.
+--    Зоны: жёлтая 28 ≤ дни < 56, красная ≥ 56; доли — от штатной численности (hc строки «Штат»).
+--    Ждали: у «Штат» pct_cov близко к 100 % (штатные без записи считаются как «не в зоне» — их доля
+--    занижает метрику); у «Не штат» записей почти нет; доли зон месяц к месяцу меняются плавно
+--    (скачок — смотреть версии в этом месяце).
 with p as (
     select max(business_dt)::date as data_dt
     from prod_v_emart.mdm_employee_structure_d
@@ -124,7 +127,9 @@ with p as (
     select e.business_dt::date                                                   as dt,
            e.legal_position_rk::text                                             as rk,
            case when lower(trim(e.active_type_nm)) = 'активная'
-                then 'Активная' else 'Прочие типы' end                           as hct
+                then 'Активная' else 'Прочие типы' end                           as hct,
+           case when e.employment_relation_type_desc = 'Штатный сотрудник'
+                then 'Штат' else 'Не штат' end                                   as staff
     from prod_v_emart.mdm_employee_structure_d e
     where e.business_dt in (select dt from d)
       and coalesce(e.company_hire_dt, e.business_dt) <= e.business_dt
@@ -138,14 +143,14 @@ with p as (
     where v.deleted_flg = 0
     group by 1, 2
 )
-select q.dt, q.hct, q.hc, q.with_vac,
+select q.dt, q.staff, q.hct, q.hc, q.with_vac,
        round(100.0 * q.with_vac / nullif(q.hc, 0), 1)       as pct_cov,
        q.yellow,
-       round(100.0 * q.yellow / nullif(q.with_vac, 0), 1)   as pct_yellow,
+       round(100.0 * q.yellow / nullif(q.hc, 0), 1)         as pct_yellow,
        q.red,
-       round(100.0 * q.red / nullif(q.with_vac, 0), 1)      as pct_red,
+       round(100.0 * q.red / nullif(q.hc, 0), 1)            as pct_red,
        q.avg_days
-from (select s.dt, s.hct,
+from (select s.dt, s.staff, s.hct,
              count(*)                                                          as hc,
              sum(case when v.rk is not null then 1 else 0 end)                 as with_vac,
              sum(case when v.days >= 28 and v.days < 56 then 1 else 0 end)     as yellow,
@@ -153,8 +158,8 @@ from (select s.dt, s.hct,
              round(avg(v.days), 2)                                             as avg_days
       from s
       left join v on v.dt = s.dt and v.rk = s.rk
-      group by 1, 2) q
-order by 1, 2;
+      group by 1, 2, 3) q
+order by 1, 2 desc, 3;
 
 
 -- 6. Сверка с витриной старого хелика «Накопленные дни отпуска» (prod_v_hrmart.legal_position_accum_vacation)
