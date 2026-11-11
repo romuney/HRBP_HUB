@@ -158,3 +158,21 @@ WHERE ifNull(a.attr_k, '') = 'hrbp'
   AND ifNull(a.unit_id, '') IN (SELECT ifNull(id, '') FROM prod_proteus.hrbp_hub_unit WHERE ifNull(pid, '') = '')
 GROUP BY hrbp_login
 ORDER BY headcount DESC;
+
+-- 15. Накопленный отпуск (поставка 65, пока только ноут): вся компания по месяцам — штатных, из них в жёлтой
+--     (28 ≤ дни < 56) и красной (56+) зоне, доли и средний остаток на штатного. idx 0 — январь прошлого года.
+--     Ждали: месяцы до начала метрики (vac_start_dt в диагностике «HH · проверки») — строк нет; дальше staff — штатная
+--     численность, доли — как в запросе 5 этапа 0 (docs/unused-vac/stage0_checks.sql, строки «Штат»).
+--     Ошибка «Missing columns: m_vacd» — ноут после поставки 65 ещё не перезапускали.
+SELECT idx, staff, yellow, round(100 * yellow / staff, 1) AS pct_yellow, red, round(100 * red / staff, 1) AS pct_red,
+       round(vac / 100 / staff, 2) AS avg_days
+FROM (
+  SELECT arrayJoin(arrayEnumerate(d)) - 1 AS idx, d[idx + 1] AS staff, y[idx + 1] AS yellow, r[idx + 1] AS red, v[idx + 1] AS vac
+  FROM (SELECT sumForEach(arrayMap(x -> toInt64(ifNull(x, 0)), m_vacd)) AS d,
+               sumForEach(arrayMap(x -> toInt64(ifNull(x, 0)), m_vy)) AS y,
+               sumForEach(arrayMap(x -> toInt64(ifNull(x, 0)), m_vr)) AS r,
+               sumForEach(arrayMap(x -> toInt64(ifNull(x, 0)), m_vac)) AS v
+        FROM prod_proteus.hrbp_hub_base)
+)
+WHERE staff > 0
+ORDER BY idx;

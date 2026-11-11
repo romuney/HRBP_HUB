@@ -9,6 +9,7 @@
   usr_cross_data.regrettable_n_non_regrettable_base    разметка regrettable на день увольнения
   prod_v_hrmart.legal_position_dismissal_reason        причины увольнений
   prod_v_sse_crossdata.mdm_employee_residence          город / регион / макрорегион
+  prod_v_sse_crossdata.legal_position_vacation         накопленные дни отпуска по позиции — версии (world.VAC, 11.11)
 """
 import csv
 import datetime as dt
@@ -190,6 +191,20 @@ def main():
         c, reg, mac = W.CITY[e.office]
         rows.append((e.rk, '2000-01-01', '5999-01-01', 0, reg, c, mac))
     cur.executemany('insert into prod_v_sse_crossdata.mdm_employee_residence values (%s,%s,%s,%s,%s,%s,%s)', rows)
+    # отпуска (11.11): версии по (позиция, тип), valid_to включительный, + удалённые строки — world.vac_rows
+    cur.execute('drop table if exists prod_v_sse_crossdata.legal_position_vacation')
+    cur.execute('create table prod_v_sse_crossdata.legal_position_vacation (legal_position_rk text, vacation_type_code text, '
+                'valid_from_dttm timestamp, valid_to_dttm timestamp, deleted_flg smallint, accum_vacation_day numeric(10,2), '
+                'accrual_vacation_day numeric(10,2), expense_vacation_day numeric(10,2), accum_vacation_end_year_day numeric(10,2))')
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    for lp in W.VAC:
+        for t, f, to, val, dl in W.vac_rows(lp):
+            w.writerow([lp, t, f.isoformat(' '), to.isoformat(' '), dl, '%.2f' % (val / 100), '', '', ''])
+    buf.seek(0)
+    cur.copy_expert('copy prod_v_sse_crossdata.legal_position_vacation from stdin with (format csv)', buf)
+    cur.execute('select count(*), sum(deleted_flg), count(distinct legal_position_rk) from prod_v_sse_crossdata.legal_position_vacation')
+    print('legal_position_vacation:', cur.fetchone())
     cur.execute('select count(*), count(distinct mdm_employee_rk), min(business_dt), max(business_dt) '
                 'from prod_v_emart.mdm_employee_structure_d')
     print('mdm_employee_structure_d:', cur.fetchone(), '| сотрудников в мире:', len(W.EMPS))

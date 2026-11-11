@@ -24,30 +24,33 @@ from hrbp_hub_unit;
 select 1 / (case when count(*) > 0 then 0 else 1 end) as cube_array_length_check
 from hrbp_hub_cube
 where array_length(m_hc, 1) <> 24 or array_length(w_hc, 1) <> 24
-   or array_length(m_hcw, 1) <> 24 or array_length(w_r6ad, 1) <> 24;
+   or array_length(m_hcw, 1) <> 24 or array_length(w_r6ad, 1) <> 24
+   or array_length(m_vr, 1) <> 24 or array_length(w_vr, 1) <> 24;
 select 1 / (case when count(*) > 0 then 0 else 1 end) as attr_array_length_check
 from hrbp_hub_attr
-where array_length(m_hc, 1) <> 24 or array_length(m_r6ad, 1) <> 24;
+where array_length(m_hc, 1) <> 24 or array_length(m_r6ad, 1) <> 24 or array_length(m_vr, 1) <> 24;
 select 1 / (case when count(*) > 0 then 0 else 1 end) as attr_top_array_length_check
 from hrbp_hub_attr_top
-where array_length(m_hc, 1) <> 24 or array_length(m_r6ad, 1) <> 24;
+where array_length(m_hc, 1) <> 24 or array_length(m_r6ad, 1) <> 24 or array_length(m_vr, 1) <> 24;
 
 -- 3б. Свёртка атрибутов = листовой куб: свёртки верхних узлов дерева (pid = '') вместе —
 --     это весь куб юридической численности (свёртка — «без разрезов», 13.10); по каждому атрибуту сходятся
---     численность и увольнения за все месяцы.
+--     численность, увольнения и накопленный отпуск (штатные и их остаток, 11.11) за все месяцы.
 select 1 / (case when count(*) > 0 then 0 else 1 end) as attr_top_equals_leaf_check
 from (
     select coalesce(l.attr_k, t.attr_k) as attr_k
-    from (select x.attr_k, sum(x.hc) as hc, sum(x.fire) as fire
-          from (select attr_k, unnest(m_hc) as hc, unnest(m_fire) as fire from hrbp_hub_attr a cross join hh_param pr where a.hct <> pr.nonlegal_type) x
+    from (select x.attr_k, sum(x.hc) as hc, sum(x.fire) as fire, sum(x.vacd) as vacd, sum(x.vac) as vac
+          from (select attr_k, unnest(m_hc) as hc, unnest(m_fire) as fire, unnest(m_vacd) as vacd, unnest(m_vac) as vac
+                from hrbp_hub_attr a cross join hh_param pr where a.hct <> pr.nonlegal_type) x
           group by 1) l
-    full join (select x.attr_k, sum(x.hc) as hc, sum(x.fire) as fire
-               from (select a.attr_k, unnest(a.m_hc) as hc, unnest(a.m_fire) as fire
+    full join (select x.attr_k, sum(x.hc) as hc, sum(x.fire) as fire, sum(x.vacd) as vacd, sum(x.vac) as vac
+               from (select a.attr_k, unnest(a.m_hc) as hc, unnest(a.m_fire) as fire, unnest(a.m_vacd) as vacd, unnest(a.m_vac) as vac
                      from hrbp_hub_attr_top a
                      join hrbp_hub_unit u on u.id = a.unit_id and u.pid = '') x
                group by 1) t
         on t.attr_k = l.attr_k
     where coalesce(l.hc, -1) <> coalesce(t.hc, -1) or coalesce(l.fire, -1) <> coalesce(t.fire, -1)
+       or coalesce(l.vacd, -1) <> coalesce(t.vacd, -1) or coalesce(l.vac, -1) <> coalesce(t.vac, -1)
 ) d;
 
 -- 4. Куб сходится с источником: численность на конец последнего закрытого месяца.
@@ -98,6 +101,40 @@ cross join (
                 join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
 ) b;
 
+-- 4д. Накопленный отпуск (11.11) сходится с «HH · отпуска»: на конец последнего месяца штатные в численности (vacd),
+--     их остаток в сотых долях дня (vac) и люди в жёлтой / красной зоне (vy / vr) — в кубе, в базе и в hh_vac одно и
+--     то же; если метрика ещё не началась (покрытие ниже порога) — везде нули.
+select 1 / (case when c.d = s.d and c.v = s.v and c.y = s.y and c.r = s.r
+                  and b.d = s.d and b.v = s.v and b.y = s.y and b.r = s.r then 1 else 0 end) as vac_check,
+       s.d as src_staff, c.d as cube_staff, s.v as src_vac, c.v as cube_vac, s.y as src_yellow, c.y as cube_yellow,
+       s.r as src_red, c.r as cube_red
+from (
+    select coalesce(sum(k.m_vacd[l.pos]), 0) as d, coalesce(sum(k.m_vac[l.pos]), 0) as v,
+           coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r
+    from hrbp_hub_cube k
+    cross join (select c.idx + 1 as pos
+                from hrbp_hub_calendar c
+                join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
+) c
+cross join (
+    select coalesce(sum(k.m_vacd[l.pos]), 0) as d, coalesce(sum(k.m_vac[l.pos]), 0) as v,
+           coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r
+    from hrbp_hub_base k
+    cross join (select c.idx + 1 as pos
+                from hrbp_hub_calendar c
+                join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
+) b
+cross join (
+    select coalesce(sum(o.ison), 0) as d,
+           coalesce(sum(o.ison * round(v.days * 100)), 0) as v,
+           coalesce(sum(o.ison * case when v.days >= 28 and v.days < 56 then 1 else 0 end), 0) as y,
+           coalesce(sum(o.ison * case when v.days >= 56 then 1 else 0 end), 0) as r
+    from hh_vac v
+    join hh_param p on v.business_dt = p.last_month_end
+    cross join (select case when p.last_month_end >= s.vac_start_dt then 1 else 0 end as ison
+                from hh_param p cross join hh_vac_start s) o
+) s;
+
 -- 4в. Глубина пути: компания + не больше 10 уровней (lvl3…lvl12).
 select 1 / (case when max(array_length(path, 1)) <= 11 then 1 else 0 end) as path_depth_check,
        max(array_length(path, 1)) as max_path_len
@@ -129,5 +166,15 @@ select r.rule_id, r.unit_rk, r.metric_id,
 from hh_kpi_src r
 left join hrbp_hub_unit u on u.rk = trim(r.unit_rk)
 where u.id is null
-   or trim(r.metric_id) not in ('retention_new_3', 'retention_new_6', 'regret', 'exit_reasons', 'jun_team')
+   or trim(r.metric_id) not in ('retention_new_3', 'retention_new_6', 'regret', 'exit_reasons', 'jun_team', 'vac_yellow', 'vac_red')
    or r.target is null;
+
+-- Диагностика отпусков (11.11): с какого месяца метрика в отчёте (vac_start_dt; 5999-01-01 — ни один месяц не набрал
+-- порог покрытия), покрытие штатных записями об отпуске в последнем месяце и сколько месяцев после начала ниже порога
+-- (их отчёт показывает — проверить источник; помесячно — таблица hh_vac_cov).
+select s.vac_start_dt,
+       (select c.cov from hh_vac_cov c where c.slot_end = p.last_month_end)                          as vac_cov_now,
+       p.vac_min_cov,
+       (select count(*) from hh_vac_cov c where c.slot_start >= s.vac_start_dt and c.cov < p.vac_min_cov) as vac_low_months
+from hh_vac_start s
+cross join hh_param p;

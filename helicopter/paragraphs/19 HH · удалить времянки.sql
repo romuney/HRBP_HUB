@@ -10,3 +10,4 @@ drop table if exists hh_base_win;
 drop table if exists hh_attr_long;
 drop table if exists hh_attr_win;
 drop table if exists hh_attr_arr;
+drop table if exists hh_vac;

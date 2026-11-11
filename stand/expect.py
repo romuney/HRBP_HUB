@@ -216,3 +216,66 @@ def component_series(grain, pred, flt, active_base=False):
         else:
             out[k] = [sum(raw[k][j] for j in range(max(i - win[k[:2]] + 1, lo), i + 1)) for i in range(24)]
     return out
+
+
+# ---------------------------------------------------------------- накопленный отпуск (11.11)
+VAC_MIN_COV = 0.85   # = hh_param.vac_min_cov
+VAC_KEYS = ('vac', 'vacd', 'vy', 'vr')
+
+
+def _staff_stock(e_):
+    """Штатные в численности на дату (любой тип, путь отчёта есть): (атрибуты, юнит, rk пути, путь, остаток | None)."""
+    out = []
+    for emp in W.EMPS:
+        st = W.state(emp, e_)
+        if st is None or st[0].fire == e_:
+            continue
+        p, a = st
+        if a['rel'] != 'Штатный сотрудник':
+            continue
+        rp = rpath(a['unit'], e_)
+        out.append((a, a['unit'], frozenset(rp), rp, W.vac_eod(p.lp, e_)))
+    return out
+
+
+_VSTOCK = {}
+
+
+def vac_stock(e_):
+    if e_ not in _VSTOCK:
+        _VSTOCK[e_] = _staff_stock(e_)
+    return _VSTOCK[e_]
+
+
+def vac_start():
+    """Первый день первого месяца отчёта, где запись об отпуске есть у ≥ 85 % штатных компании (иначе 5999-01-01)."""
+    for i in range(24):
+        s, e_ = slot('m', i)
+        if e_ > W.D:
+            break
+        rows = vac_stock(e_)
+        if rows and sum(r[4] is not None for r in rows) / len(rows) >= VAC_MIN_COV:
+            return s
+    return dt.date(5999, 1, 1)
+
+
+def vac_series(grain, pred, flt, attr=None):
+    """→ {vac, vacd, vy, vr: [24]} (или {значение атрибута: {...}} при attr): только штатные, основная позиция, остаток
+    в сотых долях дня на конец слота; слоты раньше начала метрики — нули."""
+    start = vac_start()
+    out = {}
+    for i in range(24):
+        e_ = slot(grain, i)[1]
+        if e_ > W.D or e_ < start:
+            continue
+        for a, unit, pth, rp, v in vac_stock(e_):
+            if not passes(a, flt) or not pred(unit, pth, rp):
+                continue
+            key = a[attr] if attr else None
+            o = out.setdefault(key, {k: [0] * 24 for k in VAC_KEYS})
+            o['vacd'][i] += 1
+            if v is not None:
+                o['vac'][i] += v
+                o['vy'][i] += int(2800 <= v < 5600)
+                o['vr'][i] += int(v >= 5600)
+    return out if attr else out.get(None, {k: [0] * 24 for k in VAC_KEYS})

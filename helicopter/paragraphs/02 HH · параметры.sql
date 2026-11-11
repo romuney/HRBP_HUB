@@ -15,6 +15,8 @@
 --   nonlegal_type      — значение «Тип численности» для строк legal_employee_flg <> 1: без выбранного
 --                        типа отчёт берёт только юридическую численность (датасет исключает это значение),
 --                        выбрать его можно явно (HRBP 13.10)
+--   vac_min_cov        — накопленный отпуск (11.11): метрика начинается с первого месяца, где запись об отпуске есть
+--                        хотя бы у этой доли штатных по компании; месяцы раньше — пустые («нет данных»), а не нулевые
 -- Окна метрик (12 мес / 52 нед и т. д.) — в параграфе «HH · куб по разрезам».
 -- ============================================================================
 drop table if exists hh_param;
@@ -26,7 +28,8 @@ select d.data_dt                                                          as dat
        '50eb70d6df69372ceb7f354df8e8aa53'::text                            as super_hrbp_unit_rk,
        'Активная'::text                                                    as active_type_value,
        'HQ'::text                                                          as hq_paint_value,
-       'Вне юр. численности'::text                                         as nonlegal_type
+       'Вне юр. численности'::text                                         as nonlegal_type,
+       0.85::numeric                                                       as vac_min_cov
 from (select max(business_dt)::date as data_dt
       from prod_v_emart.mdm_employee_structure_d
       where business_dt >= current_date - 14

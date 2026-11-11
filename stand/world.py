@@ -532,3 +532,114 @@ def path_rks(unit, d):
 def is_junior(sen):
     s = (sen or '').lower()
     return any(s.startswith(x) for x in JUN_PATTERNS)
+
+
+# ---------------------------------------------------------------- отпуска (11.11, unused_vac)
+# Накопленные дни по позиции — как prod_v_sse_crossdata.legal_position_vacation: бизнес-версии по (позиция, тип
+# отпуска); valid_to ВКЛЮЧИТЕЛЬНЫЙ — следующая версия начинается через 1 секунду (этап 0, запрос 2), вечная — 5999-01-01.
+# Значения — в сотых долях дня (целые: сумма без потерь). Ловушки, которые ноут обязан пережить:
+#   история — с двух дат: половина позиций с 10.02.2025, остальные с 20.03.2025 (покрытие февраля ниже 85 % — метрика
+#   начинается с марта); начисление — 1-го числа в 00:00 (срез «по датам версии» потерял бы позицию на каждом конце
+#   месяца); правки внутри дня (на конец дня — последняя); удалённые строки (deleted_flg = 1, с мусорным значением);
+#   дыры между версиями; позиции без записей (4 % штатных) и записи у нештатных (их метрика не берёт); ровно 28,00 и
+#   56,00 дня (границы зон) и рядом; отрицательные остатки; у нового сотрудника запись — через 0–10 дней после найма.
+VAC_STARTS = (dt.date(2025, 2, 10), dt.date(2025, 3, 20))
+VAC_FAR = dt.datetime(5999, 1, 1)
+VAC_RATE = {'MAIN': 233, 'ADDITIONAL': 50, 'NORTHERN': 133, 'EXTENDED': 100}   # начисление в месяц, сотые дня
+_VR = random.Random(20261111)   # свой генератор: остальной мир не сдвигается
+
+
+def _vac_one(p):
+    """→ {'ch': {тип: [(с, значение)]}, 'holes': [(тип, с, по — исключительно)], 'deleted': [(тип, с, по, значение)]}."""
+    VR = _VR
+    staff = p.segs[0][2]['rel'] == 'Штатный сотрудник'
+    if VR.random() < (.04 if staff else .7):
+        return None
+    first = max(VAC_STARTS[VR.random() < .5], p.hire + dt.timedelta(days=VR.randint(0, 10)))
+    if first > D:
+        return None
+    t0 = dt.datetime(first.year, first.month, first.day, 10, 15) if VR.random() < .1 \
+        else dt.datetime(first.year, first.month, first.day)
+    fixed = VR.random()
+    if fixed < .04:      # граница зоны и рядом с ней: остаток не меняется
+        v = VR.choice([2800, 2799, 5600, 5599])
+        return {'ch': {'MAIN': [(t0, v)]}, 'holes': [], 'deleted': []}
+    types = ['MAIN'] + (['ADDITIONAL'] if VR.random() < .5 else []) + (['NORTHERN'] if VR.random() < .05 else []) \
+        + (['EXTENDED'] if VR.random() < .03 else [])
+    ch = {}
+    for t in types:
+        v = VR.randint(-300, 7000) if t == 'MAIN' else VR.randint(0, 1500)
+        lst = {t0: v}
+        for ms in month_starts(first + dt.timedelta(days=1), D):
+            if ms <= first:
+                continue
+            v += VAC_RATE[t]
+            lst[dt.datetime(ms.year, ms.month, ms.day)] = v
+            if t == 'MAIN' and VR.random() < .25:           # ушёл в отпуск — остаток падает
+                day = ms + dt.timedelta(days=VR.randint(2, 26))
+                if day <= D:
+                    tm = dt.datetime(day.year, day.month, day.day, *((VR.randint(8, 19), VR.choice([0, 30])) if VR.random() < .3 else (0, 0)))
+                    v -= VR.choice([350, 700, 1400])
+                    lst[tm] = v
+            if VR.random() < .04:                            # правка внутри дня: днём — другое, к вечеру — как было
+                day = ms + dt.timedelta(days=VR.randint(1, 27))
+                if day <= D:
+                    a, b = dt.datetime(day.year, day.month, day.day, 9), dt.datetime(day.year, day.month, day.day, 15, 30)
+                    if a not in lst and b not in lst and not any(a <= k <= b for k in lst):
+                        prev = [val for k, val in lst.items() if k < a]
+                        lst[a] = (prev[-1] if prev else v) + 550
+                        lst[b] = prev[-1] if prev else v
+        ch[t] = sorted(lst.items())
+    holes, deleted = [], []
+    for t, lst in ch.items():
+        if len(lst) > 3 and VR.random() < .02:               # дыра: версия кончилась на 12 дней раньше начала следующей
+            k = VR.randint(1, len(lst) - 1)
+            gap_from = lst[k][0] - dt.timedelta(days=12)
+            if gap_from > lst[k - 1][0]:
+                holes.append((t, gap_from, lst[k][0]))
+        for i, (f, val) in enumerate(lst):
+            if VR.random() < .03:
+                to = lst[i + 1][0] - dt.timedelta(seconds=1) if i + 1 < len(lst) else VAC_FAR
+                deleted.append((t, f, to, val + 10000))
+    return {'ch': ch, 'holes': holes, 'deleted': deleted}
+
+
+VAC = {}
+for _e in EMPS:
+    for _p in _e.periods:
+        _r = _vac_one(_p)
+        if _r:
+            VAC[_p.lp] = _r
+
+
+def vac_rows(lp):
+    """Строки источника по позиции: (тип, valid_from, valid_to, остаток в сотых, deleted_flg)."""
+    r = VAC.get(lp)
+    if not r:
+        return []
+    out = []
+    for t, lst in r['ch'].items():
+        for i, (f, val) in enumerate(lst):
+            to = lst[i + 1][0] - dt.timedelta(seconds=1) if i + 1 < len(lst) else VAC_FAR
+            for ht, hf, hto in r['holes']:
+                if ht == t and f < hf <= to:
+                    to = hf - dt.timedelta(seconds=1)
+            out.append((t, f, to, val, 0))
+    out += [(t, f, to, val, 1) for t, f, to, val in r['deleted']]
+    return out
+
+
+def vac_eod(lp, d):
+    """Остаток по позиции на конец дня d (сотые дня) — по истории изменений, не по версиям; None — записи нет."""
+    r = VAC.get(lp)
+    if not r:
+        return None
+    t = dt.datetime(d.year, d.month, d.day, 23, 59, 59)
+    tot, seen = 0, False
+    for typ, lst in r['ch'].items():
+        cur = [val for f, val in lst if f <= t]
+        if not cur or any(ht == typ and hf <= t < hto for ht, hf, hto in r['holes']):
+            continue
+        tot += cur[-1]
+        seen = True
+    return tot if seen else None

@@ -47,7 +47,11 @@ select md5(path_s || '|' || paint || '|' || it || '|' || stream || '|' || spec |
        sum(r6an) as r6an,
        sum(r6ad) as r6ad,
        sum(hch) as hch,
-       sum(hirea) as hirea
+       sum(hirea) as hirea,
+       sum(vac) as vac,
+       sum(vacd) as vacd,
+       sum(vy) as vy,
+       sum(vr) as vr
 from (
     select e.*, a.attr_k,
            coalesce(case a.attr_k when 'grade' then e.a_grade when 'seniority' then e.seniority when 'exp' then e.a_exp when 'gender' then e.a_gender when 'age' then e.a_age when 'office' then e.a_office when 'work' then e.a_work when 'head' then e.a_head when 'legal' then e.a_legal when 'macro' then e.a_macro when 'city' then e.a_city when 'hrbp' then e.a_hrbp end, '-') as attr_v
@@ -82,7 +86,11 @@ select md5('T:' || u.id || '|' || l.attr_k || '|' || l.attr_v) as kid,
        sum(l.r6an) as r6an,
        sum(l.r6ad) as r6ad,
        sum(l.hch) as hch,
-       sum(l.hirea) as hirea
+       sum(l.hirea) as hirea,
+       sum(l.vac) as vac,
+       sum(l.vacd) as vacd,
+       sum(l.vy) as vy,
+       sum(l.vr) as vr
 from hh_attr_long l
 join (select q.path_s, unnest(string_to_array(q.path_s, '/')) as uid
       from (select distinct path_s from hh_attr_long) q) p
@@ -114,6 +122,10 @@ select x.kid, x.grain, x.idx,
        x.r6an as r6an,
        x.r6ad as r6ad,
        x.hirea,
+       x.vac,
+       x.vacd,
+       x.vy,
+       x.vr,
        x.hire,
        x.fire
 from (
@@ -135,7 +147,11 @@ from (
                    coalesce(l.r6an, 0) as r6an,
                    coalesce(l.r6ad, 0) as r6ad,
                    coalesce(l.hch, 0) as hch,
-                   coalesce(l.hirea, 0) as hirea
+                   coalesce(l.hirea, 0) as hirea,
+                   coalesce(l.vac, 0) as vac,
+                   coalesce(l.vacd, 0) as vacd,
+                   coalesce(l.vy, 0) as vy,
+                   coalesce(l.vr, 0) as vr
     from (select k.kid, c.grain, c.idx
           from (select distinct kid from hh_attr_long) k
           cross join hh_calendar c
@@ -171,7 +187,11 @@ select kid,
        array_agg(hire::int order by idx) as hire,
        array_agg(fire::int order by idx) as fire,
        array_agg(hirea::int order by idx) as hirea,
-       sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) as tot
+       array_agg(vac::int order by idx) as vac,
+       array_agg(vacd::int order by idx) as vacd,
+       array_agg(vy::int order by idx) as vy,
+       array_agg(vr::int order by idx) as vr,
+       sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) + sum(abs(vac)) + sum(abs(vacd)) + sum(abs(vy)) + sum(abs(vr)) as tot
 from hh_attr_win
 where grain = 'm' and idx >= 0
 group by kid
@@ -201,6 +221,10 @@ select k.path_s,
        m.hire as m_hire,
        m.fire as m_fire,
        m.hirea as m_hirea,
+       m.vac as m_vac,
+       m.vacd as m_vacd,
+       m.vy as m_vy,
+       m.vr as m_vr,
        m.rgs as m_rgs,
        m.nrgs as m_nrgs
 from (select distinct kid, path_s, paint, it, stream, spec, staff, hct, attr_k, attr_v
@@ -233,6 +257,10 @@ select substr(k.path_s, 3) as unit_id, k.attr_k, k.attr_v,
        m.hire as m_hire,
        m.fire as m_fire,
        m.hirea as m_hirea,
+       m.vac as m_vac,
+       m.vacd as m_vacd,
+       m.vy as m_vy,
+       m.vr as m_vr,
        m.rgs as m_rgs,
        m.nrgs as m_nrgs
 from (select distinct kid, path_s, attr_k, attr_v

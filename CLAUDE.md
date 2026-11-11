@@ -39,6 +39,7 @@ sqlparse 0.4.4 и sqlglot (`/home/user/.venvs/sp044`: 516 проверок с 09
 python3 stand/gen_sources.py              # синтетический мир (stand/world.py) → источники в БД gp
 python3 stand/run_gp.py --seed-kpi        # ВСЕ gp-параграфы из YAML, в том числе стоп-проверки (current_date = день после даты мира)
 python3 stand/ch.py load [nullable|plain] # hrbp_hub_* → prod_proteus.* в chdb (Nullable, как gp_to_click)
+python3 stand/vac_check.py                # накопленный отпуск (11.11): база / куб / атрибуты в GP против expect.vac_series
 python3 stand/check.py                    # 514 проверок датасета против stand/expect.py (независимый расчёт), свёртка == куб атрибутов, окно фильтров из справочника == фасеты, логин в ключе кеша, бюджет длины SQL и шаги Superset над ним (нужен sqlparse==0.4.4)
 <venv chdb 2.1.1>/bin/python stand/check.py   # то же на ClickHouse 24.8 — 493 (+ старый анализатор); HH_CHDB=stand/.chdb24plain после `ch.py load plain` — без Nullable
 <venv chdb 2.1.1>/bin/python stand/scale.py <каталог>  # 100 тыс. сотрудников, 10 тыс. юнитов, куб атрибутов 0,86 млн + свёртка: время, строки, JSON, справочник, источник атрибутов (HH_SCALE_COMBOS=4 — тяжёлый куб)
@@ -73,7 +74,8 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
 ## Инварианты — не ломать
 
 - **Метрика = Σ числителя / Σ знаменателя.** В таблицах и датасете — только компоненты
-  (`hc, jun, rg, nrg, hcw, nr, r3n, r3d, r6n, r6d, hire, fire, rgs, nrgs, nrd`), проценты — в JS.
+  (`hc, jun, rg, nrg, hcw, nr, r3n, r3d, r6n, r6d, hire, fire, rgs, nrgs, nrd`; с 11.11 в ноуте — `vac, vacd, vy, vr`:
+  накопленный отпуск штатных, `vac` — в сотых долях дня, план — `docs/unused-vac/plan.md`), проценты — в JS.
 - **Текучесть «с начала года» — везде** (HRBP 13.10): `rgs`/`nrgs` — увольнения месяца без окна (параграфы 10
   и 11; в датасете — в конце `COMP`, трансформеры с 13.10 везут все 14, `MT`). Значение regrettable и
   non regrettable в любом месте отчёта (`mval` → `ytdVal`) — Σ помесячных значений с января: увольнения месяца /
