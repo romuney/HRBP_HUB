@@ -643,3 +643,78 @@ def vac_eod(lp, d):
         tot += cur[-1]
         seen = True
     return tot if seen else None
+
+
+# ---------------------------------------------------------------- неосновные позиции (12.11, совместительство)
+# Решение владельца 11.11: доли зон — по основной позиции; отдельно — штатные, у кого СУММА остатков по неосновным
+# позициям на конец месяца попала в 28–56 / 56+ (vxy / vxr). Позиции сотрудника — prod_v_emart.legal_position_d
+# (подневная, main_legal_position_flg); на стенде — строки на те же дни, что у витрины структуры.
+# Ловушки: позиция закрылась раньше даты (её остаток не в счёт — позиции нет в legal_position_d на эту дату), две
+# неосновные позиции у одного (сумма), совместительство у нештатного (не в счёт), без записей об отпуске, большие
+# остатки (красная зона, в бою — до 654 дней), границы ровно 28,00 и 56,00.
+_SR = random.Random(20261112)
+SEC = []   # (сотрудник, период основной позиции, rk неосновной, с, по — включительно, None — открыта)
+
+
+def _vac_sec(start):
+    """Остатки неосновной позиции: {'ch': {тип: [(с, значение)]}, 'holes': [], 'deleted': []} или None."""
+    VR = _SR
+    if VR.random() < .12:
+        return None
+    first = max(VAC_STARTS[VR.random() < .5], start + dt.timedelta(days=VR.randint(0, 10)))
+    if first > D:
+        return None
+    t0 = dt.datetime(first.year, first.month, first.day)
+    if VR.random() < .06:
+        return {'ch': {'MAIN': [(t0, VR.choice([2800, 2799, 5600, 5599]))]}, 'holes': [], 'deleted': []}
+    ch = {}
+    for t in ['MAIN'] + (['ADDITIONAL'] if VR.random() < .3 else []):
+        v = VR.randint(0, 9000) if t == 'MAIN' else VR.randint(0, 800)
+        lst = {t0: v}
+        for ms in month_starts(first + dt.timedelta(days=1), D):
+            if ms <= first:
+                continue
+            v += VAC_RATE[t]
+            lst[dt.datetime(ms.year, ms.month, ms.day)] = v
+            if t == 'MAIN' and VR.random() < .15:
+                day = ms + dt.timedelta(days=VR.randint(2, 26))
+                if day <= D:
+                    v -= VR.choice([700, 1400])
+                    lst[dt.datetime(day.year, day.month, day.day)] = v
+        ch[t] = sorted(lst.items())
+    return {'ch': ch, 'holes': [], 'deleted': []}
+
+
+for _e in EMPS:
+    for _p in _e.periods:
+        _staff = _p.segs[0][2]['rel'] == 'Штатный сотрудник'
+        if _SR.random() >= (.08 if _staff else .05):
+            continue
+        for _k in range(1 + (_SR.random() < .2)):
+            _s = _p.hire + dt.timedelta(days=_SR.randint(0, 500))
+            if _s > D or (_p.fire and _s > _p.fire):
+                continue
+            _to = None if _SR.random() < .6 else _s + dt.timedelta(days=_SR.randint(20, 400))
+            if _p.fire and (_to is None or _to > _p.fire):
+                _to = _p.fire
+            _rk = 'SEC-%s-%d' % (_p.lp, _k)
+            SEC.append((_e, _p, _rk, _s, _to))
+            _r = _vac_sec(_s)
+            if _r:
+                VAC[_rk] = _r
+
+
+SEC_BY = {}
+for _x in SEC:
+    SEC_BY.setdefault(id(_x[0]), []).append(_x)
+
+
+def sec_positions(e, d):
+    """Неосновные позиции сотрудника, действующие на дату d (rk)."""
+    return [rk for ee, p, rk, s, to in SEC_BY.get(id(e), []) if s <= d and (to is None or d <= to)]
+
+
+def sec_eod(e, d):
+    """Сумма остатков по неосновным позициям на конец дня d (сотые дня); None — ни по одной записи нет."""
+    vals = [v for v in (vac_eod(rk, d) for rk in sec_positions(e, d)) if v is not None]
+    return sum(vals) if vals else None

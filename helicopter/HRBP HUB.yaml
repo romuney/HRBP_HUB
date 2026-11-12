@@ -17,6 +17,8 @@ paragraphs:
       - `usr_cross_data.regrettable_n_non_regrettable_base` — разметка regrettable / non-regrettable
       - `prod_v_hrmart.legal_position_dismissal_reason` — причины увольнений
       - `prod_v_sse_crossdata.mdm_employee_residence` — город и макрорегион (только для трансформеров)
+      - `prod_v_sse_crossdata.legal_position_vacation` — накопленные дни отпуска по позиции (версии; метрика «Накопленный отпуск»)
+      - `prod_v_emart.legal_position_d` — позиции сотрудника на дату: неосновные (совместительство) — для пометки у метрик отпуска
 
       #### Target (ClickHouse, база Proteus CROSS)
       | Таблица | Что внутри |
@@ -36,7 +38,7 @@ paragraphs:
       (в должности — «старший»).
 
       #### Порядок
-      Параметры → календарь → строки источника → справочник юнитов → зоны HRBP → кто видит HRBP →
+      Параметры → календарь → строки источника → отпуска → справочник юнитов → зоны HRBP → кто видит HRBP →
       увольнения → когорты найма → события по слотам → куб и база → куб атрибутов и его свёртка → цели →
       проверки (падают делением на ноль) → выгрузка в ClickHouse → права → удаление времянок.
 
@@ -56,6 +58,7 @@ paragraphs:
               , 'prod_v_hrmart.legal_position_dismissal_reason'
               , 'prod_v_sse_crossdata.mdm_employee_residence'
               , 'prod_v_sse_crossdata.legal_position_vacation'
+              , 'prod_v_emart.legal_position_d'
           ],
           gp_service='cross',
       )
@@ -354,14 +357,17 @@ paragraphs:
       -- всей компании; раньше — история отпусков не загружена, слоты пустые (не нули). Месяц после начала с покрытием
       -- ниже порога не прячется — его печатает «HH · проверки».
       --   hh_vac        сотрудник × дата слота (только штатные в численности, слоты отчёта idx >= 0): days — точная сумма,
-      --                 NULL — записи об отпуске нет (сотрудник в знаменателе и «не в зоне»)
+      --                 NULL — записи об отпуске нет (сотрудник в знаменателе и «не в зоне»); xdays — сумма по НЕОСНОВНЫМ
+      --                 позициям (12.11): позиции сотрудника на ту же дату из prod_v_emart.legal_position_d, кроме основной
+      --                 (legal_position_rk строки структуры; признак main_legal_position_flg с ней совпадает — этап 0б,
+      --                 запрос 3), NULL — неосновных позиций с записью об отпуске нет. Долю зон не меняет: штатные с xdays в
+      --                 зоне — отдельные компоненты vxy / vxr (пометка у метрики, владелец 11.11).
       --   hh_vac_cov    покрытие по месяцам отчёта: штатных, из них с записью, доля
       --   hh_vac_start  vac_start_dt — первый день месяца начала (5999-01-01 — порога не достиг ни один месяц)
-      -- Неосновные позиции (совместительство) — на будущее: показывать, только если по ним накоплено больше 30 дней.
       -- ============================================================================
       drop table if exists hh_vac;
       create table hh_vac as
-      select s.mdm_employee_rk, s.business_dt, v.days
+      select s.mdm_employee_rk, s.business_dt, v.days, w.xdays
       from hh_src s
       left join (
           select q.mdm_employee_rk, q.business_dt, sum(x.accum_vacation_day)::numeric as days
@@ -377,6 +383,23 @@ paragraphs:
           group by 1, 2
       ) v
           on v.mdm_employee_rk = s.mdm_employee_rk and v.business_dt = s.business_dt
+      left join (
+          select q.mdm_employee_rk, q.business_dt, sum(x.accum_vacation_day)::numeric as xdays
+          from (select distinct s2.mdm_employee_rk, s2.business_dt, d.legal_position_rk::text as rk
+                from hh_src s2
+                join prod_v_emart.legal_position_d d
+                    on d.mdm_employee_rk = s2.mdm_employee_rk and d.business_dt = s2.business_dt
+                where s2.is_slot_row = 1 and s2.hc = 1 and s2.staff = 'Штат'
+                  and s2.business_dt in (select slot_end from hh_calendar where idx >= 0)
+                  and d.legal_position_rk::text <> coalesce(s2.legal_position_rk, '')) q
+          join prod_v_sse_crossdata.legal_position_vacation x
+              on x.legal_position_rk::text = q.rk
+             and x.valid_from_dttm <= q.business_dt + interval '1 day' - interval '1 second'
+             and x.valid_to_dttm   >= q.business_dt + interval '1 day' - interval '1 second'
+          where x.deleted_flg = 0
+          group by 1, 2
+      ) w
+          on w.mdm_employee_rk = s.mdm_employee_rk and w.business_dt = s.business_dt
       where s.is_slot_row = 1 and s.hc = 1 and s.staff = 'Штат' and s.path_s <> ''
         and s.business_dt in (select slot_end from hh_calendar where idx >= 0)
       distributed by (mdm_employee_rk);
@@ -404,8 +427,10 @@ paragraphs:
       where c.cov >= p.vac_min_cov
       distributed replicated;
 
-      -- Справочно: покрытие по месяцам и месяц начала метрики.
+      -- Справочно: покрытие по месяцам, месяц начала метрики и штатные с неосновными позициями в зонах.
       select c.slot_end, c.staff_hc, c.with_vac, c.cov,
+             (select count(*) from hh_vac x where x.business_dt = c.slot_end and x.xdays >= 28 and x.xdays < 56) as sec_yellow,
+             (select count(*) from hh_vac x where x.business_dt = c.slot_end and x.xdays >= 56)                    as sec_red,
              case when c.slot_start >= s.vac_start_dt then 'в отчёте' else 'нет данных' end as vac_in_report
       from hh_vac_cov c
       cross join hh_vac_start s
@@ -1075,7 +1100,9 @@ paragraphs:
       --   отпуска    vac, vacd, vy, vr (11.11, «Накопленный отпуск»): запас на конец слота, только штатные (hh_vac — основная
       --              позиция, «HH · отпуска»): vacd — штатный в численности, vac — его остаток в сотых долях дня, vy / vr — в
       --              жёлтой (28 ≤ дни < 56) / красной (≥ 56) зоне. Слоты раньше начала метрики (hh_vac_start) — нули: истории
-      --              отпусков там нет. Без записи об отпуске — в vacd, но не в зоне.
+      --              отпусков там нет. Без записи об отпуске — в vacd, но не в зоне. vxy / vxr (12.11) — штатные, у кого сумма
+      --              по НЕОСНОВНЫМ позициям (hh_vac.xdays) в жёлтой / красной зоне: пометка у метрики, долю не меняют; в куб
+      --              атрибутов (11) не идут — в «Трансформерах» пометки нет.
       --   когорты    r3d / r3n        месяцы (Дьяченко 19.10): новичок в слоте МЕСЯЦА НАЙМА — r3d, и работает ли
       --              r6d / r6n        через 3 / 6 мес от найма — r3n; только те, у кого срок уже прошёл (найм + 3 (6)
       --                               ≤ data_dt). Месяц, где срок прошёл не у всех, — дозревающий: чарт рисует его пунктиром.
@@ -1091,7 +1118,9 @@ paragraphs:
              case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt then coalesce(round(v.days * 100), 0)::bigint else 0 end as vac,
              case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and s.staff = 'Штат' then 1 else 0 end as vacd,
              case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and v.days >= 28 and v.days < 56 then 1 else 0 end as vy,
-             case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and v.days >= 56 then 1 else 0 end as vr
+             case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and v.days >= 56 then 1 else 0 end as vr,
+             case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and v.xdays >= 28 and v.xdays < 56 then 1 else 0 end as vxy,
+             case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and v.xdays >= 56 then 1 else 0 end as vxr
       from hh_src s
       join hh_calendar c on c.slot_end = s.business_dt
       left join hh_seniority j on j.seniority = s.seniority
@@ -1101,24 +1130,24 @@ paragraphs:
       where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> ''
       union all
       select c.grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city, f.a_hrbp,
-             0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, case when c.grain = 'm' then f.nr else 0 end as nr, case when c.grain = 'm' then f.nrd else 0 end as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr
+             0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, case when c.grain = 'm' then f.nr else 0 end as nr, case when c.grain = 'm' then f.nrd else 0 end as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr, 0 as vxy, 0 as vxr
       from hh_fire f
       join hh_calendar c on f.fire_dt between c.slot_start and c.slot_end
       union all
       select 'w'::text as grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city, f.a_hrbp,
-             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, f.nra as nr, f.nrda as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr
+             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, f.nra as nr, f.nrda as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr, 0 as vxy, 0 as vxr
       from hh_fire f
       join hh_calendar c on c.grain = 'm' and f.fire_dt between c.slot_start and c.slot_end
       where f.nrda = 1
       union all
       select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city, h.a_hrbp,
              0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, case when h.base = 'c' then 1 else 0 end as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
-             0 as hch, case when h.base = 'a' then 1 else 0 end as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr
+             0 as hch, case when h.base = 'a' then 1 else 0 end as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr, 0 as vxy, 0 as vxr
       from hh_cohort h
       join hh_calendar c on h.hire_dt between c.slot_start and c.slot_end
       union all
       select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city, h.a_hrbp,
-             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, 0 as hire, case when h.base = 'c' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3n, case when h.base = 'c' and h.hz = 3 then 1 else 0 end as r3d, case when h.base = 'c' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6n, case when h.base = 'c' and h.hz = 6 then 1 else 0 end as r6d, case when h.base = 'a' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3an, case when h.base = 'a' and h.hz = 3 then 1 else 0 end as r3ad, case when h.base = 'a' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6an, case when h.base = 'a' and h.hz = 6 then 1 else 0 end as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr
+             0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, 0 as hire, case when h.base = 'c' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3n, case when h.base = 'c' and h.hz = 3 then 1 else 0 end as r3d, case when h.base = 'c' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6n, case when h.base = 'c' and h.hz = 6 then 1 else 0 end as r6d, case when h.base = 'a' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3an, case when h.base = 'a' and h.hz = 3 then 1 else 0 end as r3ad, case when h.base = 'a' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6an, case when h.base = 'a' and h.hz = 6 then 1 else 0 end as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr, 0 as vxy, 0 as vxr
       from (
           select q.*,
                  case when q.fire_dt is null or q.fire_dt >= q.md then 1 else 0 end as ret
@@ -1197,7 +1226,9 @@ paragraphs:
              sum(vac) as vac,
              sum(vacd) as vacd,
              sum(vy) as vy,
-             sum(vr) as vr
+             sum(vr) as vr,
+             sum(vxy) as vxy,
+             sum(vxr) as vxr
       from hh_evt
       group by path_s, paint, it, stream, spec, staff, hct, grain, idx
       distributed by (kid);
@@ -1228,6 +1259,8 @@ paragraphs:
              x.vacd,
              x.vy,
              x.vr,
+             x.vxy,
+             x.vxr,
              x.hire,
              x.fire
       from (
@@ -1253,7 +1286,9 @@ paragraphs:
                          coalesce(l.vac, 0) as vac,
                          coalesce(l.vacd, 0) as vacd,
                          coalesce(l.vy, 0) as vy,
-                         coalesce(l.vr, 0) as vr
+                         coalesce(l.vr, 0) as vr,
+                         coalesce(l.vxy, 0) as vxy,
+                         coalesce(l.vxr, 0) as vxr
           from (select k.kid, c.grain, c.idx
                 from (select distinct kid from hh_cube_long) k
                 cross join hh_calendar c) g
@@ -1298,6 +1333,8 @@ paragraphs:
              m.vacd as m_vacd,
              m.vy as m_vy,
              m.vr as m_vr,
+             m.vxy as m_vxy,
+             m.vxr as m_vxr,
              w.hc as w_hc,
              w.jun as w_jun,
              w.rg as w_rg,
@@ -1321,7 +1358,9 @@ paragraphs:
              w.vac as w_vac,
              w.vacd as w_vacd,
              w.vy as w_vy,
-             w.vr as w_vr
+             w.vr as w_vr,
+             w.vxy as w_vxy,
+             w.vxr as w_vxr
       from (select distinct kid, path_s, paint, it, stream, spec, staff, hct from hh_cube_long) k
       join (select kid,
                  array_agg(hc::int order by idx) as hc,
@@ -1348,7 +1387,9 @@ paragraphs:
                  array_agg(vacd::int order by idx) as vacd,
                  array_agg(vy::int order by idx) as vy,
                  array_agg(vr::int order by idx) as vr,
-                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) + sum(abs(vac)) + sum(abs(vacd)) + sum(abs(vy)) + sum(abs(vr)) as tot
+                 array_agg(vxy::int order by idx) as vxy,
+                 array_agg(vxr::int order by idx) as vxr,
+                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) + sum(abs(vac)) + sum(abs(vacd)) + sum(abs(vy)) + sum(abs(vr)) + sum(abs(vxy)) + sum(abs(vxr)) as tot
           from hh_cube_win
           where grain = 'm' and idx >= 0
           group by kid) m
@@ -1378,7 +1419,9 @@ paragraphs:
                  array_agg(vacd::int order by idx) as vacd,
                  array_agg(vy::int order by idx) as vy,
                  array_agg(vr::int order by idx) as vr,
-                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) + sum(abs(vac)) + sum(abs(vacd)) + sum(abs(vy)) + sum(abs(vr)) as tot
+                 array_agg(vxy::int order by idx) as vxy,
+                 array_agg(vxr::int order by idx) as vxr,
+                 sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) + sum(abs(vac)) + sum(abs(vacd)) + sum(abs(vy)) + sum(abs(vr)) + sum(abs(vxy)) + sum(abs(vxr)) as tot
           from hh_cube_win
           where grain = 'w' and idx >= 0
           group by kid) w
@@ -1420,7 +1463,9 @@ paragraphs:
              sum(w.vac) as vac,
              sum(w.vacd) as vacd,
              sum(w.vy) as vy,
-             sum(w.vr) as vr
+             sum(w.vr) as vr,
+             sum(w.vxy) as vxy,
+             sum(w.vxr) as vxr
       from hh_cube_win w
       join (select distinct kid, paint, it, stream, spec, staff, hct from hh_cube_long) k
           on k.kid = w.kid
@@ -1455,6 +1500,8 @@ paragraphs:
              m.vacd as m_vacd,
              m.vy as m_vy,
              m.vr as m_vr,
+             m.vxy as m_vxy,
+             m.vxr as m_vxr,
              w.hc as w_hc,
              w.jun as w_jun,
              w.rg as w_rg,
@@ -1478,7 +1525,9 @@ paragraphs:
              w.vac as w_vac,
              w.vacd as w_vacd,
              w.vy as w_vy,
-             w.vr as w_vr
+             w.vr as w_vr,
+             w.vxy as w_vxy,
+             w.vxr as w_vxr
       from (select paint, it, stream, spec, staff, hct,
                    array_agg(hc::int order by idx) as hc,
                    array_agg(jun::int order by idx) as jun,
@@ -1503,7 +1552,9 @@ paragraphs:
                    array_agg(vac::int order by idx) as vac,
                    array_agg(vacd::int order by idx) as vacd,
                    array_agg(vy::int order by idx) as vy,
-                   array_agg(vr::int order by idx) as vr
+                   array_agg(vr::int order by idx) as vr,
+                   array_agg(vxy::int order by idx) as vxy,
+                   array_agg(vxr::int order by idx) as vxr
             from hh_base_win
             where grain = 'm'
             group by 1, 2, 3, 4, 5, 6) m
@@ -1531,7 +1582,9 @@ paragraphs:
                    array_agg(vac::int order by idx) as vac,
                    array_agg(vacd::int order by idx) as vacd,
                    array_agg(vy::int order by idx) as vy,
-                   array_agg(vr::int order by idx) as vr
+                   array_agg(vr::int order by idx) as vr,
+                   array_agg(vxy::int order by idx) as vxy,
+                   array_agg(vxr::int order by idx) as vxr
             from hh_base_win
             where grain = 'w'
             group by 1, 2, 3, 4, 5, 6) w
@@ -1929,7 +1982,8 @@ paragraphs:
       from hrbp_hub_cube
       where array_length(m_hc, 1) <> 24 or array_length(w_hc, 1) <> 24
          or array_length(m_hcw, 1) <> 24 or array_length(w_r6ad, 1) <> 24
-         or array_length(m_vr, 1) <> 24 or array_length(w_vr, 1) <> 24;
+         or array_length(m_vr, 1) <> 24 or array_length(w_vr, 1) <> 24
+         or array_length(m_vxr, 1) <> 24 or array_length(w_vxr, 1) <> 24;
       select 1 / (case when count(*) > 0 then 0 else 1 end) as attr_array_length_check
       from hrbp_hub_attr
       where array_length(m_hc, 1) <> 24 or array_length(m_r6ad, 1) <> 24 or array_length(m_vr, 1) <> 24;
@@ -2007,14 +2061,17 @@ paragraphs:
 
       -- 4д. Накопленный отпуск (11.11) сходится с «HH · отпуска»: на конец последнего месяца штатные в численности (vacd),
       --     их остаток в сотых долях дня (vac) и люди в жёлтой / красной зоне (vy / vr) — в кубе, в базе и в hh_vac одно и
-      --     то же; если метрика ещё не началась (покрытие ниже порога) — везде нули.
-      select 1 / (case when c.d = s.d and c.v = s.v and c.y = s.y and c.r = s.r
-                        and b.d = s.d and b.v = s.v and b.y = s.y and b.r = s.r then 1 else 0 end) as vac_check,
+      --     то же; если метрика ещё не началась (покрытие ниже порога) — везде нули. С 12.11 — и штатные, у кого сумма по
+      --     неосновным позициям в жёлтой / красной зоне (vxy / vxr, sec_*).
+      select 1 / (case when c.d = s.d and c.v = s.v and c.y = s.y and c.r = s.r and c.xy = s.xy and c.xr = s.xr
+                        and b.d = s.d and b.v = s.v and b.y = s.y and b.r = s.r and b.xy = s.xy and b.xr = s.xr
+                   then 1 else 0 end) as vac_check,
              s.d as src_staff, c.d as cube_staff, s.v as src_vac, c.v as cube_vac, s.y as src_yellow, c.y as cube_yellow,
-             s.r as src_red, c.r as cube_red
+             s.r as src_red, c.r as cube_red, s.xy as sec_yellow, c.xy as cube_sec_yellow, s.xr as sec_red, c.xr as cube_sec_red
       from (
           select coalesce(sum(k.m_vacd[l.pos]), 0) as d, coalesce(sum(k.m_vac[l.pos]), 0) as v,
-                 coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r
+                 coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r,
+                 coalesce(sum(k.m_vxy[l.pos]), 0) as xy, coalesce(sum(k.m_vxr[l.pos]), 0) as xr
           from hrbp_hub_cube k
           cross join (select c.idx + 1 as pos
                       from hrbp_hub_calendar c
@@ -2022,7 +2079,8 @@ paragraphs:
       ) c
       cross join (
           select coalesce(sum(k.m_vacd[l.pos]), 0) as d, coalesce(sum(k.m_vac[l.pos]), 0) as v,
-                 coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r
+                 coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r,
+                 coalesce(sum(k.m_vxy[l.pos]), 0) as xy, coalesce(sum(k.m_vxr[l.pos]), 0) as xr
           from hrbp_hub_base k
           cross join (select c.idx + 1 as pos
                       from hrbp_hub_calendar c
@@ -2032,7 +2090,9 @@ paragraphs:
           select coalesce(sum(o.ison), 0) as d,
                  coalesce(sum(o.ison * round(v.days * 100)), 0) as v,
                  coalesce(sum(o.ison * case when v.days >= 28 and v.days < 56 then 1 else 0 end), 0) as y,
-                 coalesce(sum(o.ison * case when v.days >= 56 then 1 else 0 end), 0) as r
+                 coalesce(sum(o.ison * case when v.days >= 56 then 1 else 0 end), 0) as r,
+                 coalesce(sum(o.ison * case when v.xdays >= 28 and v.xdays < 56 then 1 else 0 end), 0) as xy,
+                 coalesce(sum(o.ison * case when v.xdays >= 56 then 1 else 0 end), 0) as xr
           from hh_vac v
           join hh_param p on v.business_dt = p.last_month_end
           cross join (select case when p.last_month_end >= s.vac_start_dt then 1 else 0 end as ison

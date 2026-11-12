@@ -25,7 +25,8 @@ select 1 / (case when count(*) > 0 then 0 else 1 end) as cube_array_length_check
 from hrbp_hub_cube
 where array_length(m_hc, 1) <> 24 or array_length(w_hc, 1) <> 24
    or array_length(m_hcw, 1) <> 24 or array_length(w_r6ad, 1) <> 24
-   or array_length(m_vr, 1) <> 24 or array_length(w_vr, 1) <> 24;
+   or array_length(m_vr, 1) <> 24 or array_length(w_vr, 1) <> 24
+   or array_length(m_vxr, 1) <> 24 or array_length(w_vxr, 1) <> 24;
 select 1 / (case when count(*) > 0 then 0 else 1 end) as attr_array_length_check
 from hrbp_hub_attr
 where array_length(m_hc, 1) <> 24 or array_length(m_r6ad, 1) <> 24 or array_length(m_vr, 1) <> 24;
@@ -103,14 +104,17 @@ cross join (
 
 -- 4д. Накопленный отпуск (11.11) сходится с «HH · отпуска»: на конец последнего месяца штатные в численности (vacd),
 --     их остаток в сотых долях дня (vac) и люди в жёлтой / красной зоне (vy / vr) — в кубе, в базе и в hh_vac одно и
---     то же; если метрика ещё не началась (покрытие ниже порога) — везде нули.
-select 1 / (case when c.d = s.d and c.v = s.v and c.y = s.y and c.r = s.r
-                  and b.d = s.d and b.v = s.v and b.y = s.y and b.r = s.r then 1 else 0 end) as vac_check,
+--     то же; если метрика ещё не началась (покрытие ниже порога) — везде нули. С 12.11 — и штатные, у кого сумма по
+--     неосновным позициям в жёлтой / красной зоне (vxy / vxr, sec_*).
+select 1 / (case when c.d = s.d and c.v = s.v and c.y = s.y and c.r = s.r and c.xy = s.xy and c.xr = s.xr
+                  and b.d = s.d and b.v = s.v and b.y = s.y and b.r = s.r and b.xy = s.xy and b.xr = s.xr
+             then 1 else 0 end) as vac_check,
        s.d as src_staff, c.d as cube_staff, s.v as src_vac, c.v as cube_vac, s.y as src_yellow, c.y as cube_yellow,
-       s.r as src_red, c.r as cube_red
+       s.r as src_red, c.r as cube_red, s.xy as sec_yellow, c.xy as cube_sec_yellow, s.xr as sec_red, c.xr as cube_sec_red
 from (
     select coalesce(sum(k.m_vacd[l.pos]), 0) as d, coalesce(sum(k.m_vac[l.pos]), 0) as v,
-           coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r
+           coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r,
+           coalesce(sum(k.m_vxy[l.pos]), 0) as xy, coalesce(sum(k.m_vxr[l.pos]), 0) as xr
     from hrbp_hub_cube k
     cross join (select c.idx + 1 as pos
                 from hrbp_hub_calendar c
@@ -118,7 +122,8 @@ from (
 ) c
 cross join (
     select coalesce(sum(k.m_vacd[l.pos]), 0) as d, coalesce(sum(k.m_vac[l.pos]), 0) as v,
-           coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r
+           coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r,
+           coalesce(sum(k.m_vxy[l.pos]), 0) as xy, coalesce(sum(k.m_vxr[l.pos]), 0) as xr
     from hrbp_hub_base k
     cross join (select c.idx + 1 as pos
                 from hrbp_hub_calendar c
@@ -128,7 +133,9 @@ cross join (
     select coalesce(sum(o.ison), 0) as d,
            coalesce(sum(o.ison * round(v.days * 100)), 0) as v,
            coalesce(sum(o.ison * case when v.days >= 28 and v.days < 56 then 1 else 0 end), 0) as y,
-           coalesce(sum(o.ison * case when v.days >= 56 then 1 else 0 end), 0) as r
+           coalesce(sum(o.ison * case when v.days >= 56 then 1 else 0 end), 0) as r,
+           coalesce(sum(o.ison * case when v.xdays >= 28 and v.xdays < 56 then 1 else 0 end), 0) as xy,
+           coalesce(sum(o.ison * case when v.xdays >= 56 then 1 else 0 end), 0) as xr
     from hh_vac v
     join hh_param p on v.business_dt = p.last_month_end
     cross join (select case when p.last_month_end >= s.vac_start_dt then 1 else 0 end as ison

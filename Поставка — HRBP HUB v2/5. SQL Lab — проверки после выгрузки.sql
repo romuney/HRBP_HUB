@@ -176,3 +176,17 @@ FROM (
 )
 WHERE staff > 0
 ORDER BY idx;
+
+-- 16. Отпуск по совместительству (поставка 67): вся компания по месяцам — штатных и сколько из них накопили по неосновным
+--     позициям 28–56 (sec_yellow) и 56+ дней (sec_red). Ждали: на последний месяц — как sec_yellow / sec_red в строке
+--     vac_check параграфа «HH · проверки». Ошибка «Missing columns: m_vxy» — ноут после поставки 67 ещё не перезапускали.
+SELECT idx, staff, sec_yellow, sec_red
+FROM (
+  SELECT arrayJoin(arrayEnumerate(d)) - 1 AS idx, d[idx + 1] AS staff, y[idx + 1] AS sec_yellow, r[idx + 1] AS sec_red
+  FROM (SELECT sumForEach(arrayMap(x -> toInt64(ifNull(x, 0)), m_vacd)) AS d,
+               sumForEach(arrayMap(x -> toInt64(ifNull(x, 0)), m_vxy)) AS y,
+               sumForEach(arrayMap(x -> toInt64(ifNull(x, 0)), m_vxr)) AS r
+        FROM prod_proteus.hrbp_hub_base)
+)
+WHERE staff > 0
+ORDER BY idx;

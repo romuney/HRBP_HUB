@@ -10,6 +10,7 @@
   prod_v_hrmart.legal_position_dismissal_reason        причины увольнений
   prod_v_sse_crossdata.mdm_employee_residence          город / регион / макрорегион
   prod_v_sse_crossdata.legal_position_vacation         накопленные дни отпуска по позиции — версии (world.VAC, 11.11)
+  prod_v_emart.legal_position_d                        позиции сотрудника на дату (основная + неосновные world.SEC, 12.11)
 """
 import csv
 import datetime as dt
@@ -191,6 +192,26 @@ def main():
         c, reg, mac = W.CITY[e.office]
         rows.append((e.rk, '2000-01-01', '5999-01-01', 0, reg, c, mac))
     cur.executemany('insert into prod_v_sse_crossdata.mdm_employee_residence values (%s,%s,%s,%s,%s,%s,%s)', rows)
+    # позиции сотрудника (12.11): на те же дни, что строки структуры, — основная (флаг 1) и действующие неосновные (0)
+    cur.execute('drop table if exists prod_v_emart.legal_position_d')
+    cur.execute('create table prod_v_emart.legal_position_d (business_dt date, mdm_employee_rk bigint, legal_position_rk text, '
+                'main_legal_position_flg smallint)')
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    base = base_dates()
+    for e in W.EMPS:
+        for d in sorted(base | event_dates(e)):
+            st = W.state(e, d)
+            if st is None:
+                continue
+            w.writerow([d.isoformat(), e.rk, st[0].lp, 1])
+            for rk in W.sec_positions(e, d):
+                w.writerow([d.isoformat(), e.rk, rk, 0])
+    buf.seek(0)
+    cur.copy_expert('copy prod_v_emart.legal_position_d from stdin with (format csv)', buf)
+    cur.execute('create index on prod_v_emart.legal_position_d (business_dt)')
+    cur.execute('select count(*), sum(1 - main_legal_position_flg) from prod_v_emart.legal_position_d')
+    print('legal_position_d:', cur.fetchone())
     # отпуска (11.11): версии по (позиция, тип), valid_to включительный, + удалённые строки — world.vac_rows
     cur.execute('drop table if exists prod_v_sse_crossdata.legal_position_vacation')
     cur.execute('create table prod_v_sse_crossdata.legal_position_vacation (legal_position_rk text, vacation_type_code text, '

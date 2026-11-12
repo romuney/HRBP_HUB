@@ -32,10 +32,10 @@ var CFG = {
     role: 'role', id: 'id', pid: 'pid', n: 'n', j: 'j',
     m: { hc: 'm_hc', jun: 'm_jun', rg: 'm_rg', nrg: 'm_nrg', hcw: 'm_hcw', nr: 'm_nr',
          r3n: 'm_r3n', r3d: 'm_r3d', r6n: 'm_r6n', r6d: 'm_r6d', hire: 'm_hire', fire: 'm_fire', rgs: 'm_rgs', nrgs: 'm_nrgs', nrd: 'm_nrd',
-         vac: 'm_vac', vacd: 'm_vacd', vy: 'm_vy', vr: 'm_vr' },
+         vac: 'm_vac', vacd: 'm_vacd', vy: 'm_vy', vr: 'm_vr', vxy: 'm_vxy', vxr: 'm_vxr' },
     w: { hc: 'w_hc', jun: 'w_jun', rg: 'w_rg', nrg: 'w_nrg', hcw: 'w_hcw', nr: 'w_nr',
          r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire', rgs: 'w_rgs', nrgs: 'w_nrgs', nrd: 'w_nrd',
-         vac: 'w_vac', vacd: 'w_vacd', vy: 'w_vy', vr: 'w_vr' }
+         vac: 'w_vac', vacd: 'w_vacd', vy: 'w_vy', vr: 'w_vr', vxy: 'w_vxy', vxr: 'w_vxr' }
   },
   carriers: { unit: 'unit_f', axis: 'tr_f', depth: 'depth_f', nrp: 'nrp_f' },
   // Разрезы численности: ключ колонки куба → носитель кросс-фильтра. Один перечень
@@ -163,14 +163,15 @@ var CFG = {
     // выбрали; остаток — по основной позиции, сумма всех типов отпуска; без записи об отпуске — в знаменателе, не в зоне.
     // Месяцы до начала истории отпусков — пустые (vacd = 0). need — метрика есть, только если датасет и ноут её везут
     // (MODEL.vacOk); pop — численность для порога «мало людей» (штатные); avg — средний остаток в подсказке (vac — сотые дня).
+    // sec (12.11) — штатные, у кого сумма по НЕОСНОВНЫМ позициям в этой же зоне: пометка, в долю не входят (MODEL.vxOk).
     { key: 'vac_yellow', block: 'balance', name: 'Накопленный отпуск 28–56 дней', short: 'Отпуск 28–56 дн.',
-      fmt: 'pct', better: 'lower', share: true, num: 'vy', den: 'vacd', need: 'vacOk', pop: 'vacd', avg: 'vac', staffOnly: true,
+      fmt: 'pct', better: 'lower', share: true, num: 'vy', den: 'vacd', need: 'vacOk', pop: 'vacd', avg: 'vac', staffOnly: true, sec: 'vxy',
       hint: 'Доля штатных, у кого накопилось от 28 до 56 дней отпуска.',
       frac: ['штатные с 28–56 днями отпуска', 'все штатные на конец месяца'],
       notes: ['Дни — сумма всех типов отпуска по основной должности: основной, дополнительный, северный и другие.', 'Месяцы, за которые истории отпусков нет, — пустые.'],
       numL: 'накоплено 28–56 дней', denL: 'штатных', cnt: { of: ['штатного', 'штатных', 'штатных'] }, exL: 'сотрудников сверх ориентира', exA: 'сверх ориентира' },
     { key: 'vac_red', block: 'balance', name: 'Накопленный отпуск 56+ дней', short: 'Отпуск 56+ дн.',
-      fmt: 'pct', better: 'lower', share: true, num: 'vr', den: 'vacd', need: 'vacOk', pop: 'vacd', avg: 'vac', staffOnly: true,
+      fmt: 'pct', better: 'lower', share: true, num: 'vr', den: 'vacd', need: 'vacOk', pop: 'vacd', avg: 'vac', staffOnly: true, sec: 'vxr',
       hint: 'Доля штатных, у кого накопилось 56 и больше дней отпуска.',
       frac: ['штатные с 56 и больше днями отпуска', 'все штатные на конец месяца'],
       notes: ['Дни — сумма всех типов отпуска по основной должности: основной, дополнительный, северный и другие.', 'Месяцы, за которые истории отпусков нет, — пустые.'],
@@ -450,10 +451,11 @@ function splitRecords(s) {
 // ---------- БЛОК 3: ТРАНСФОРМАЦИЯ ДАННЫХ ----------
 // rawData → MODEL. SQL отдаёт числители и знаменатели по слотам; проценты, окна
 // в знаменателе, дельты, наследование целей и светофор считаются здесь.
-var COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd', 'vac', 'vacd', 'vy', 'vr'];
+var COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd', 'vac', 'vacd', 'vy', 'vr', 'vxy', 'vxr'];
 // Необязательные колонки: датасет до 12.10 их не везёт — тогда «с начала года» в «Динамике» нет; nrd (16.10) — запасной знаменатель;
-// vac, vacd, vy, vr (11.11) — накопленный отпуск: нет их — метрик отпуска нет (MODEL.vacOk).
-var COMP_OPT = { rgs: 1, nrgs: 1, nrd: 1, vac: 1, vacd: 1, vy: 1, vr: 1 };
+// vac, vacd, vy, vr (11.11) — накопленный отпуск: нет их — метрик отпуска нет (MODEL.vacOk); vxy, vxr (12.11) — неосновные
+// позиции в зоне: нет — нет пометки (MODEL.vxOk).
+var COMP_OPT = { rgs: 1, nrgs: 1, nrd: 1, vac: 1, vacd: 1, vy: 1, vr: 1, vxy: 1, vxr: 1 };
 // Разрезы распределения численности в справочнике — в порядке CUT_COLS датасета (в нём записан код
 // сочетания); FDC — кэш чисел окна фильтров по набранному выбору (fdCalc). Объявлены до buildModel.
 var FD_KEYS = ['paint', 'it', 'stream', 'spec', 'staff', 'hct'];
@@ -488,6 +490,7 @@ function buildModel() {
   M.ytdOk = (F.m.rgs in rawData[0]) && (F.m.nrgs in rawData[0]);
   M.nrdOk = F.m.nrd in rawData[0];
   M.vacOk = (F.m.vy in rawData[0]) && (F.m.vr in rawData[0]) && (F.m.vacd in rawData[0]);
+  M.vxOk = (F.m.vxy in rawData[0]) && (F.m.vxr in rawData[0]);
   for (var ni = 0; ni < need.length; ni++) if (!(need[ni] in rawData[0])) M.missing.push(need[ni]);
   if (M.missing.length) return M;
   for (var i = 0; i < rawData.length; i++) {
@@ -549,6 +552,7 @@ function buildModel() {
   if (M.meta.nrd !== 1) M.nrdOk = false;
   // Накопленный отпуск (11.11): колонки в «Измерениях» и в таблицах (ноут с поставки 65) — иначе метрик отпуска нет.
   if (M.meta.vac !== 1) M.vacOk = false;
+  if (M.meta.vx !== 1 || !M.vacOk) M.vxOk = false;   // неосновные позиции (12.11): ноут с поставки 67
   // Датасет умеет список уволенных без причины (nrp_f): без этого кнопки «кто без причины» нет.
   M.nrpOk = M.meta.nrp === 1;
   var meta = M.meta;
@@ -969,6 +973,8 @@ function absRows(m, ser, i) {
   // Накопленный отпуск (11.11): средний остаток на штатного (vac — сотые доли дня, с дробной частью).
   var av = avgDays(m, ser, i);
   if (av !== null) r.push({ label: 'в среднем накоплено', value: fmtNum1(av) + THIN + 'дн.' });
+  var sx = secN(m, ser, i);
+  if (sx !== null) r.push({ label: 'по совместительству в зоне', value: fmtInt(sx) });
   // Незаполненные причины (02.11): значение — средняя созревших месяцев, отток месяца (20.10) — в «Динамике» по месяцам.
   return r;
 }
@@ -977,6 +983,19 @@ function avgDays(m, ser, i) {
   if (!m.avg || !ser || !ser.m || !ser.m[m.avg] || !ser.m[m.den]) return null;
   var d = ser.m[m.den][i] || 0;
   return d > 0 ? (ser.m[m.avg][i] || 0) / 100 / d : null;
+}
+// Неосновные позиции (12.11): штатные, у кого сумма дней по совместительству в зоне метрики; null — колонок нет.
+function secN(m, ser, i) {
+  if (!m.sec || !MODEL.vxOk || !ser || !ser.m || !ser.m[m.sec]) return null;
+  return ser.m[m.sec][i] || 0;
+}
+var SEC_TIP = 'Штатные, у кого столько же дней накопилось по совместительству — сумма по неосновным должностям. В долю не входят: доля считается по основной должности.';
+// Пометка под значением: «совместительство: N» — только если такие есть; что это — в подсказке.
+function secHTML(m, ser, i, cls) {
+  var n = secN(m, ser, i), P = CFG.ns;
+  if (!n) return '';
+  return '<span class="' + P + '-' + cls + '"' + tip({ title: m.name, text: SEC_TIP, rows: [{ label: 'по совместительству в зоне', value: fmtInt(n) }] })
+    + '>совместительство: ' + fmtInt(n) + '</span>';
 }
 // Метрика есть в данных: у отпусков — только если датасет и ноут её везут (11.11).
 function mAvail(m) { return !m.need || !!MODEL[m.need]; }
@@ -3844,6 +3863,7 @@ function metricNotes(m) {
   var out = [];
   if (m.hq) out.push('Знаменатель — всегда активная численность HQ, какие бы фильтры ни были выбраны.');
   if (m.staffOnly) out.push('Считаем только штатных — и тех, у кого много дней, и всех, — какие бы фильтры ни были выбраны. При фильтре «Не штат» значения нет.');
+  if (m.sec && MODEL.vxOk) out.push('Совместительство не входит в долю. Отдельно, под значением, — сколько штатных накопили столько же дней по неосновным должностям.');
   if (smallGate(m)) out.push(m.staffOnly ? 'Если в юните меньше ' + smallMin(m) + ' штатных, значение без цвета: один человек сдвигает процент на несколько пунктов.'
     : 'Если в юните меньше ' + smallMin(m) + ' человек, значение без цвета: один уход сдвигает процент на несколько пунктов.');
   if (retActive(m)) out.push('Выбран тип «Активная»: новички — пришедшие в активную численность (найм, переход кандидата, внутренний перевод), срок — от прихода.');
@@ -4077,6 +4097,8 @@ function onepagerHTML() {
       // Отпуск при «Не штат» (11.11): штатных в области нет — значения нет, а не «мало людей».
       if (it.m.staffOnly && !popOf(M.scope, it.m)) abH = '<span class="' + P + '-us ' + P + '-abs">штатных нет — считаем только по ним</span>';
       else if (sm) abH += '<span class="' + P + '-us ' + P + '-abs"' + tip({ title: it.m.name, text: smallWhy(M.scope, it.m), rows: absRows(it.m, M.scope, Lm) }) + '>без цвета: мало людей</span>';
+      // Неосновные позиции в зоне (12.11) — пометкой, долю не меняют.
+      abH += secHTML(it.m, M.scope, Lm, 'us ' + P + '-abs');
       rows += '<tr class="' + P + '-row' + (open ? ' ' + P + '-opn' : '') + '" data-action="openm" data-key="' + mk + '" aria-expanded="' + (open ? 'true' : 'false') + '">'
         + '<td class="' + P + '-l"><span class="' + P + '-rl">' + hCaret(open, 'openm', mk, open ? 'Скрыть динамику' : 'Показать динамику')
         + name + '</span></td>'
@@ -4200,7 +4222,7 @@ function unitCell(unitId, ser, m, selected, cls) {
     if (v === null) return smallTd(m, ser, cls);
     var sb = selected && m.better !== 'flat' ? baseline(unitId, m, v, 'm', L) : null;
     return '<td class="' + P + '-sm1' + (cls ? ' ' + cls : '') + '"' + tip({ title: m.name, text: smallWhy(ser, m), rows: [{ label: 'факт', value: txt }].concat(absRows(m, ser, L)) }) + '>' + esc(txt)
-      + (sb && sb.kind === 'kpi' ? crefHTML(m, sb) : '') + '</td>';
+      + (sb && sb.kind === 'kpi' ? crefHTML(m, sb) : '') + secCell(m, ser, L) + '</td>';
   }
   if (v === null) return '<td class="' + P + '-muted' + (cls ? ' ' + cls : '') + '">' + esc(txt) + '</td>';
   var bl = baseline(unitId, m, v, 'm', L), fact = [{ label: 'факт' + (L !== MODEL.L ? ', ' + monthName(L) : ''), value: txt }].concat(absRows(m, ser, L));
@@ -4212,7 +4234,12 @@ function unitCell(unitId, ser, m, selected, cls) {
     : { title: m.name, text: 'KPI нет — сравнение с базой.',
         rows: fact.concat([{ label: benchLabel(), value: fmtVal(m, bl.ref), dash: true, color: CFG.colors.bench }, { label: 'отклонение', value: fmtDelta(m, deltaOf(m, v, bl.ref)) }]),
         note: stTxt(bl.state) };
-  return '<td' + c + tip(t) + '>' + hPill(bl.state, txt) + (selected ? crefHTML(m, bl) : '') + '</td>';
+  return '<td' + c + tip(t) + '>' + hPill(bl.state, txt) + (selected ? crefHTML(m, bl) : '') + secCell(m, ser, L) + '</td>';
+}
+// «Команды» (12.11): неосновные позиции в зоне — короткой серой строкой под значением, подробности — в подсказке ячейки.
+function secCell(m, ser, L) {
+  var n = secN(m, ser, L);
+  return n ? '<span class="' + CFG.ns + '-cref">совм.: ' + fmtInt(n) + '</span>' : '';
 }
 // Подпись ориентира под значением выбранной строки: цель — тёмно-жёлтым полужирным, база — серым (владелец 14.10:
 // «нажал на юнит — вижу, на каких метриках стоят цели»).

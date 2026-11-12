@@ -16,6 +16,7 @@ import expect as X  # noqa: E402
 import world as W  # noqa: E402
 
 KEYS = X.VAC_KEYS
+AKEYS = KEYS[:4]   # в кубе атрибутов неосновных позиций нет (12.11)
 ALL = lambda unit, pth, rp: True  # noqa: E731
 
 
@@ -23,18 +24,18 @@ def uid(rk):
     return hashlib.md5(rk.encode()).hexdigest()[:12]
 
 
-def sums(cur, table, where, args, grain, group=None):
-    cols = ', '.join('%s_%s' % (grain, k) for k in KEYS)
+def sums(cur, table, where, args, grain, group=None, keys=KEYS):
+    cols = ', '.join('%s_%s' % (grain, k) for k in keys)
     g = (group + ', ') if group else ''
     cur.execute('select %s%s from %s where %s' % (g, cols, table, where), args)
     out = {}
     for row in cur.fetchall():
         key = row[0] if group else None
-        o = out.setdefault(key, {k: [0] * 24 for k in KEYS})
-        for k, arr in zip(KEYS, row[1 if group else 0:]):
+        o = out.setdefault(key, {k: [0] * 24 for k in keys})
+        for k, arr in zip(keys, row[1 if group else 0:]):
             for i, x in enumerate(arr or []):
                 o[k][i] += x or 0
-    return out if group else out.get(None, {k: [0] * 24 for k in KEYS})
+    return out if group else out.get(None, {k: [0] * 24 for k in keys})
 
 
 def main():
@@ -42,10 +43,10 @@ def main():
     cur = con.cursor()
     bad, n = [], 0
 
-    def cmp(name, got, exp):
+    def cmp(name, got, exp, keys=KEYS):
         nonlocal n
         n += 1
-        for k in KEYS:
+        for k in keys:
             if list(got[k]) != list(exp[k]):
                 bad.append('%s %s: ноут %s ≠ расчёт %s' % (name, k, got[k], exp[k]))
                 return
@@ -74,16 +75,16 @@ def main():
     # куб атрибутов: юрлицо (только месяцы) — компания и каждый блок
     roots = [u for u in W.UNITS if u.level in (1, 3) and uid(u.rk) in ids]
     for u in roots:
-        got = sums(cur, 'hrbp_hub_attr', "attr_k = 'legal' and hct <> %s and %s = any(path)", [nl, uid(u.rk)], 'm', group='attr_v')
+        got = sums(cur, 'hrbp_hub_attr', "attr_k = 'legal' and hct <> %s and %s = any(path)", [nl, uid(u.rk)], 'm', group='attr_v', keys=AKEYS)
         exp = X.vac_series('m', X.under({u.rk}), {}, attr='legal')
         for v in set(got) | set(exp):
             z = {k: [0] * 24 for k in KEYS}
-            cmp('атрибут юрлицо=%s %s' % (v, u.name_at(W.D)), got.get(v, z), exp.get(v, z))
-        top = sums(cur, 'hrbp_hub_attr_top', "attr_k = 'legal' and unit_id = %s", [uid(u.rk)], 'm', group='attr_v')
+            cmp('атрибут юрлицо=%s %s' % (v, u.name_at(W.D)), got.get(v, z), exp.get(v, z), AKEYS)
+        top = sums(cur, 'hrbp_hub_attr_top', "attr_k = 'legal' and unit_id = %s", [uid(u.rk)], 'm', group='attr_v', keys=AKEYS)
         if top:
             for v in set(top) | set(exp):
                 z = {k: [0] * 24 for k in KEYS}
-                cmp('свёртка юрлицо=%s %s' % (v, u.name_at(W.D)), top.get(v, z), exp.get(v, z))
+                cmp('свёртка юрлицо=%s %s' % (v, u.name_at(W.D)), top.get(v, z), exp.get(v, z), AKEYS)
     print('сравнений: %d, расхождений: %d' % (n, len(bad)))
     for b in bad[:20]:
         print('  ', b)

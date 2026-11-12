@@ -221,7 +221,7 @@ def component_series(grain, pred, flt, active_base=False):
 
 # ---------------------------------------------------------------- накопленный отпуск (11.11)
 VAC_MIN_COV = 0.85   # = hh_param.vac_min_cov
-VAC_KEYS = ('vac', 'vacd', 'vy', 'vr')
+VAC_KEYS = ('vac', 'vacd', 'vy', 'vr', 'vxy', 'vxr')   # vxy / vxr (12.11) — сумма по неосновным позициям в зоне; в атрибутах их нет
 
 
 def _staff_stock(e_):
@@ -235,7 +235,7 @@ def _staff_stock(e_):
         if a['rel'] != 'Штатный сотрудник':
             continue
         rp = rpath(a['unit'], e_)
-        out.append((a, a['unit'], frozenset(rp), rp, W.vac_eod(p.lp, e_)))
+        out.append((a, a['unit'], frozenset(rp), rp, W.vac_eod(p.lp, e_), W.sec_eod(emp, e_)))
     return out
 
 
@@ -269,7 +269,7 @@ def vac_series(grain, pred, flt, attr=None):
         e_ = slot(grain, i)[1]
         if e_ > W.D or e_ < start:
             continue
-        for a, unit, pth, rp, v in vac_stock(e_):
+        for a, unit, pth, rp, v, x in vac_stock(e_):
             if not passes(a, flt) or not pred(unit, pth, rp):
                 continue
             key = a[attr] if attr else None
@@ -279,4 +279,7 @@ def vac_series(grain, pred, flt, attr=None):
                 o['vac'][i] += v
                 o['vy'][i] += int(2800 <= v < 5600)
                 o['vr'][i] += int(v >= 5600)
+            if x is not None:   # неосновные позиции (12.11): долю не меняют — отдельные счётчики
+                o['vxy'][i] += int(2800 <= x < 5600)
+                o['vxr'][i] += int(x >= 5600)
     return out if attr else out.get(None, {k: [0] * 24 for k in VAC_KEYS})

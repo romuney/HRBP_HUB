@@ -16,7 +16,9 @@
 --   отпуска    vac, vacd, vy, vr (11.11, «Накопленный отпуск»): запас на конец слота, только штатные (hh_vac — основная
 --              позиция, «HH · отпуска»): vacd — штатный в численности, vac — его остаток в сотых долях дня, vy / vr — в
 --              жёлтой (28 ≤ дни < 56) / красной (≥ 56) зоне. Слоты раньше начала метрики (hh_vac_start) — нули: истории
---              отпусков там нет. Без записи об отпуске — в vacd, но не в зоне.
+--              отпусков там нет. Без записи об отпуске — в vacd, но не в зоне. vxy / vxr (12.11) — штатные, у кого сумма
+--              по НЕОСНОВНЫМ позициям (hh_vac.xdays) в жёлтой / красной зоне: пометка у метрики, долю не меняют; в куб
+--              атрибутов (11) не идут — в «Трансформерах» пометки нет.
 --   когорты    r3d / r3n        месяцы (Дьяченко 19.10): новичок в слоте МЕСЯЦА НАЙМА — r3d, и работает ли
 --              r6d / r6n        через 3 / 6 мес от найма — r3n; только те, у кого срок уже прошёл (найм + 3 (6)
 --                               ≤ data_dt). Месяц, где срок прошёл не у всех, — дозревающий: чарт рисует его пунктиром.
@@ -32,7 +34,9 @@ select c.grain, c.idx, s.path_s, s.paint, s.it, s.stream, s.spec, s.staff, s.hct
        case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt then coalesce(round(v.days * 100), 0)::bigint else 0 end as vac,
        case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and s.staff = 'Штат' then 1 else 0 end as vacd,
        case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and v.days >= 28 and v.days < 56 then 1 else 0 end as vy,
-       case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and v.days >= 56 then 1 else 0 end as vr
+       case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and v.days >= 56 then 1 else 0 end as vr,
+       case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and v.xdays >= 28 and v.xdays < 56 then 1 else 0 end as vxy,
+       case when c.idx >= 0 and c.slot_end >= vs.vac_start_dt and v.xdays >= 56 then 1 else 0 end as vxr
 from hh_src s
 join hh_calendar c on c.slot_end = s.business_dt
 left join hh_seniority j on j.seniority = s.seniority
@@ -42,24 +46,24 @@ left join hh_vac v on v.mdm_employee_rk = s.mdm_employee_rk and v.business_dt = 
 where s.is_slot_row = 1 and s.hc = 1 and s.path_s <> ''
 union all
 select c.grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city, f.a_hrbp,
-       0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, case when c.grain = 'm' then f.nr else 0 end as nr, case when c.grain = 'm' then f.nrd else 0 end as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr
+       0 as hc, 0 as jun, 1 as fire, f.rg as rg, f.nrg as nrg, case when c.grain = 'm' then f.nr else 0 end as nr, case when c.grain = 'm' then f.nrd else 0 end as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr, 0 as vxy, 0 as vxr
 from hh_fire f
 join hh_calendar c on f.fire_dt between c.slot_start and c.slot_end
 union all
 select 'w'::text as grain, c.idx, f.path_s, f.paint, f.it, f.stream, f.spec, f.staff, f.hct, f.seniority, f.a_grade, f.a_exp, f.a_gender, f.a_age, f.a_office, f.a_work, f.a_head, f.a_legal, f.a_macro, f.a_city, f.a_hrbp,
-       0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, f.nra as nr, f.nrda as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr
+       0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, f.nra as nr, f.nrda as nrd, 0 as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr, 0 as vxy, 0 as vxr
 from hh_fire f
 join hh_calendar c on c.grain = 'm' and f.fire_dt between c.slot_start and c.slot_end
 where f.nrda = 1
 union all
 select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city, h.a_hrbp,
        0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, case when h.base = 'c' then 1 else 0 end as hire, 0 as r3n, 0 as r3d, 0 as r6n, 0 as r6d, 0 as r3an, 0 as r3ad, 0 as r6an, 0 as r6ad,
-       0 as hch, case when h.base = 'a' then 1 else 0 end as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr
+       0 as hch, case when h.base = 'a' then 1 else 0 end as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr, 0 as vxy, 0 as vxr
 from hh_cohort h
 join hh_calendar c on h.hire_dt between c.slot_start and c.slot_end
 union all
 select c.grain, c.idx, h.path_s, h.paint, h.it, h.stream, h.spec, h.staff, h.hct, h.seniority, h.a_grade, h.a_exp, h.a_gender, h.a_age, h.a_office, h.a_work, h.a_head, h.a_legal, h.a_macro, h.a_city, h.a_hrbp,
-       0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, 0 as hire, case when h.base = 'c' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3n, case when h.base = 'c' and h.hz = 3 then 1 else 0 end as r3d, case when h.base = 'c' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6n, case when h.base = 'c' and h.hz = 6 then 1 else 0 end as r6d, case when h.base = 'a' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3an, case when h.base = 'a' and h.hz = 3 then 1 else 0 end as r3ad, case when h.base = 'a' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6an, case when h.base = 'a' and h.hz = 6 then 1 else 0 end as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr
+       0 as hc, 0 as jun, 0 as fire, 0 as rg, 0 as nrg, 0 as nr, 0 as nrd, 0 as hire, case when h.base = 'c' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3n, case when h.base = 'c' and h.hz = 3 then 1 else 0 end as r3d, case when h.base = 'c' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6n, case when h.base = 'c' and h.hz = 6 then 1 else 0 end as r6d, case when h.base = 'a' and h.hz = 3 and h.ret = 1 then 1 else 0 end as r3an, case when h.base = 'a' and h.hz = 3 then 1 else 0 end as r3ad, case when h.base = 'a' and h.hz = 6 and h.ret = 1 then 1 else 0 end as r6an, case when h.base = 'a' and h.hz = 6 then 1 else 0 end as r6ad, 0 as hch, 0 as hirea, 0 as vac, 0 as vacd, 0 as vy, 0 as vr, 0 as vxy, 0 as vxr
 from (
     select q.*,
            case when q.fire_dt is null or q.fire_dt >= q.md then 1 else 0 end as ret

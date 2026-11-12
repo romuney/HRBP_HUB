@@ -43,8 +43,8 @@ ch.LEGACY_HCT = True   # регресс — «без типа = все типы�
 import expect as X  # noqa: E402
 import world as W  # noqa: E402
 
-COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd', 'vac', 'vacd', 'vy', 'vr']
-COMP_TR = COMP  # с 13.10 трансформеры везут все 14 (rgs / nrgs — текучесть с начала года и в «Трансформерах»)
+COMP = ['hc', 'jun', 'rg', 'nrg', 'hcw', 'nr', 'r3n', 'r3d', 'r6n', 'r6d', 'hire', 'fire', 'rgs', 'nrgs', 'nrd', 'vac', 'vacd', 'vy', 'vr', 'vxy', 'vxr']
+COMP_TR = COMP[:19]  # с 13.10 трансформеры везут все (rgs / nrgs — текучесть с начала года и в «Трансформерах»), кроме vxy / vxr (12.11)
 CARRIER = {'paint': 'paint_f', 'it': 'it_f', 'stream': 'stream_f', 'spec': 'spec_f', 'staff': 'staff_f', 'hct': 'hct_f'}
 bad = 0
 cases = 0

@@ -52,7 +52,9 @@ select md5(path_s || '|' || paint || '|' || it || '|' || stream || '|' || spec |
        sum(vac) as vac,
        sum(vacd) as vacd,
        sum(vy) as vy,
-       sum(vr) as vr
+       sum(vr) as vr,
+       sum(vxy) as vxy,
+       sum(vxr) as vxr
 from hh_evt
 group by path_s, paint, it, stream, spec, staff, hct, grain, idx
 distributed by (kid);
@@ -83,6 +85,8 @@ select x.kid, x.grain, x.idx,
        x.vacd,
        x.vy,
        x.vr,
+       x.vxy,
+       x.vxr,
        x.hire,
        x.fire
 from (
@@ -108,7 +112,9 @@ from (
                    coalesce(l.vac, 0) as vac,
                    coalesce(l.vacd, 0) as vacd,
                    coalesce(l.vy, 0) as vy,
-                   coalesce(l.vr, 0) as vr
+                   coalesce(l.vr, 0) as vr,
+                   coalesce(l.vxy, 0) as vxy,
+                   coalesce(l.vxr, 0) as vxr
     from (select k.kid, c.grain, c.idx
           from (select distinct kid from hh_cube_long) k
           cross join hh_calendar c) g
@@ -153,6 +159,8 @@ select k.path_s,
        m.vacd as m_vacd,
        m.vy as m_vy,
        m.vr as m_vr,
+       m.vxy as m_vxy,
+       m.vxr as m_vxr,
        w.hc as w_hc,
        w.jun as w_jun,
        w.rg as w_rg,
@@ -176,7 +184,9 @@ select k.path_s,
        w.vac as w_vac,
        w.vacd as w_vacd,
        w.vy as w_vy,
-       w.vr as w_vr
+       w.vr as w_vr,
+       w.vxy as w_vxy,
+       w.vxr as w_vxr
 from (select distinct kid, path_s, paint, it, stream, spec, staff, hct from hh_cube_long) k
 join (select kid,
            array_agg(hc::int order by idx) as hc,
@@ -203,7 +213,9 @@ join (select kid,
            array_agg(vacd::int order by idx) as vacd,
            array_agg(vy::int order by idx) as vy,
            array_agg(vr::int order by idx) as vr,
-           sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) + sum(abs(vac)) + sum(abs(vacd)) + sum(abs(vy)) + sum(abs(vr)) as tot
+           array_agg(vxy::int order by idx) as vxy,
+           array_agg(vxr::int order by idx) as vxr,
+           sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) + sum(abs(vac)) + sum(abs(vacd)) + sum(abs(vy)) + sum(abs(vr)) + sum(abs(vxy)) + sum(abs(vxr)) as tot
     from hh_cube_win
     where grain = 'm' and idx >= 0
     group by kid) m
@@ -233,7 +245,9 @@ join (select kid,
            array_agg(vacd::int order by idx) as vacd,
            array_agg(vy::int order by idx) as vy,
            array_agg(vr::int order by idx) as vr,
-           sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) + sum(abs(vac)) + sum(abs(vacd)) + sum(abs(vy)) + sum(abs(vr)) as tot
+           array_agg(vxy::int order by idx) as vxy,
+           array_agg(vxr::int order by idx) as vxr,
+           sum(abs(hc)) + sum(abs(jun)) + sum(abs(rg)) + sum(abs(nrg)) + sum(abs(hcw)) + sum(abs(nr)) + sum(abs(nrd)) + sum(abs(r3n)) + sum(abs(r3d)) + sum(abs(r6n)) + sum(abs(r6d)) + sum(abs(r3an)) + sum(abs(r3ad)) + sum(abs(r6an)) + sum(abs(r6ad)) + sum(abs(hire)) + sum(abs(fire)) + sum(abs(hirea)) + sum(abs(vac)) + sum(abs(vacd)) + sum(abs(vy)) + sum(abs(vr)) + sum(abs(vxy)) + sum(abs(vxr)) as tot
     from hh_cube_win
     where grain = 'w' and idx >= 0
     group by kid) w
@@ -275,7 +289,9 @@ select k.paint, k.it, k.stream, k.spec, k.staff, k.hct, w.grain, w.idx,
        sum(w.vac) as vac,
        sum(w.vacd) as vacd,
        sum(w.vy) as vy,
-       sum(w.vr) as vr
+       sum(w.vr) as vr,
+       sum(w.vxy) as vxy,
+       sum(w.vxr) as vxr
 from hh_cube_win w
 join (select distinct kid, paint, it, stream, spec, staff, hct from hh_cube_long) k
     on k.kid = w.kid
@@ -310,6 +326,8 @@ select m.paint, m.it, m.stream, m.spec, m.staff, m.hct,
        m.vacd as m_vacd,
        m.vy as m_vy,
        m.vr as m_vr,
+       m.vxy as m_vxy,
+       m.vxr as m_vxr,
        w.hc as w_hc,
        w.jun as w_jun,
        w.rg as w_rg,
@@ -333,7 +351,9 @@ select m.paint, m.it, m.stream, m.spec, m.staff, m.hct,
        w.vac as w_vac,
        w.vacd as w_vacd,
        w.vy as w_vy,
-       w.vr as w_vr
+       w.vr as w_vr,
+       w.vxy as w_vxy,
+       w.vxr as w_vxr
 from (select paint, it, stream, spec, staff, hct,
              array_agg(hc::int order by idx) as hc,
              array_agg(jun::int order by idx) as jun,
@@ -358,7 +378,9 @@ from (select paint, it, stream, spec, staff, hct,
              array_agg(vac::int order by idx) as vac,
              array_agg(vacd::int order by idx) as vacd,
              array_agg(vy::int order by idx) as vy,
-             array_agg(vr::int order by idx) as vr
+             array_agg(vr::int order by idx) as vr,
+             array_agg(vxy::int order by idx) as vxy,
+             array_agg(vxr::int order by idx) as vxr
       from hh_base_win
       where grain = 'm'
       group by 1, 2, 3, 4, 5, 6) m
@@ -386,7 +408,9 @@ join (select paint, it, stream, spec, staff, hct,
              array_agg(vac::int order by idx) as vac,
              array_agg(vacd::int order by idx) as vacd,
              array_agg(vy::int order by idx) as vy,
-             array_agg(vr::int order by idx) as vr
+             array_agg(vr::int order by idx) as vr,
+             array_agg(vxy::int order by idx) as vxy,
+             array_agg(vxr::int order by idx) as vxr
       from hh_base_win
       where grain = 'w'
       group by 1, 2, 3, 4, 5, 6) w
