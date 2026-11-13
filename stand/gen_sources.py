@@ -6,7 +6,7 @@
   prod_v_emart.mdm_employee_structure_d                подневная витрина (подмножество колонок,
                                                         которое читает ноут; дни — концы месяцев и
                                                         недель, дни событий, срез и каждый 5-й день)
-  prod_v_sse_crossdata.mdm_employee_regrettable    разметка regrettable на день увольнения
+  prod_v_sse_crossdata.mdm_employee_regrettable    разметка regrettable — версии (valid_from / valid_to / deleted_flg)
   prod_v_hrmart.legal_position_dismissal_reason        причины увольнений
   prod_v_sse_crossdata.mdm_employee_residence          город / регион / макрорегион
   prod_v_sse_crossdata.legal_position_vacation         накопленные дни отпуска по позиции — версии (world.VAC, 11.11)
@@ -155,19 +155,30 @@ def main():
     cur.execute('create index on prod_v_emart.mdm_employee_structure_d (business_dt)')
     cur.execute('analyze prod_v_emart.mdm_employee_structure_d')
 
-    # regrettable-разметка: строка на день увольнения + шум нулевыми строками
+    # regrettable-разметка — версионная витрина, как в бою (13.11: valid_from_dttm / valid_to_dttm / deleted_flg, без
+    # business_dt). На сотрудника — цепочка версий без пересечений: с дня увольнения — флаги этого увольнения до начала
+    # следующей версии (повторный найм — флаги следующего увольнения); у 20 % — до увольнения версия с «potential».
+    # Ловушки: удалённая версия с обратным флагом на день увольнения (deleted_flg = 1) и закрытие версии в 23:59:59.
     cur.execute('drop table if exists prod_v_sse_crossdata.mdm_employee_regrettable')
-    cur.execute('create table prod_v_sse_crossdata.mdm_employee_regrettable (mdm_employee_rk bigint, business_dt date, '
-                'regrettable_fire_flg smallint, non_regrettable_fire_flg smallint, potential_regrettable_flg smallint, '
-                'potential_non_regrettable_flg smallint)')
+    cur.execute('create table prod_v_sse_crossdata.mdm_employee_regrettable (mdm_employee_rk bigint, valid_from_dttm timestamp, '
+                'valid_to_dttm timestamp, deleted_flg smallint, regrettable_fire_flg smallint, non_regrettable_fire_flg smallint, '
+                'potential_regrettable_flg smallint, potential_non_regrettable_flg smallint)')
     rows = []
+    END = dt.datetime(5999, 12, 31, 23, 59, 59)
     for e in W.EMPS:
+        vs = []                                     # (начало, флаги)
         for p in e.periods:
             if p.fire:
-                rows.append((e.rk, p.fire, int(p.regret == 1), int(p.regret == 2), 0, 0))
                 if W.R.random() < .2:
-                    rows.append((e.rk, p.fire - dt.timedelta(days=30), 0, 0, int(p.regret == 1), int(p.regret == 2)))
-    cur.executemany('insert into prod_v_sse_crossdata.mdm_employee_regrettable values (%s,%s,%s,%s,%s,%s)', rows)
+                    vs.append((dt.datetime.combine(p.fire - dt.timedelta(days=30), dt.time()), (0, 0, int(p.regret == 1), int(p.regret == 2))))
+                vs.append((dt.datetime.combine(p.fire, dt.time()), (int(p.regret == 1), int(p.regret == 2), 0, 0)))
+                if p.regret and W.R.random() < .1:
+                    rows.append((e.rk, dt.datetime.combine(p.fire, dt.time()), END, 1, int(p.regret == 2), int(p.regret == 1), 0, 0))
+        vs.sort(key=lambda v: v[0])
+        for k, (fr, fl) in enumerate(vs):
+            to = vs[k + 1][0] - dt.timedelta(seconds=1) if k + 1 < len(vs) else END
+            rows.append((e.rk, fr, to, 0) + fl)
+    cur.executemany('insert into prod_v_sse_crossdata.mdm_employee_regrettable values (%s,%s,%s,%s,%s,%s,%s,%s)', rows)
 
     cur.execute('drop table if exists prod_v_hrmart.legal_position_dismissal_reason')
     cur.execute('create table prod_v_hrmart.legal_position_dismissal_reason (legal_position_rk text, mdm_employee_rk bigint, '

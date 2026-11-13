@@ -98,7 +98,7 @@
   численности меньше **50**. Лучше — ниже.
 - **Источник/поля.** База `prod_v_emart.mdm_employee_structure_d` +
   **джойн вспомогательной витрины** `prod_v_sse_crossdata.mdm_employee_regrettable`
-  по `mdm_employee_rk` + `business_dt`. Из витрины берём `regrettable_fire_flg`,
+  по `mdm_employee_rk` и версии, живой в день увольнения (`valid_from_dttm` / `valid_to_dttm`, `deleted_flg = 0`; 13.11). Из витрины берём `regrettable_fire_flg`,
   `non_regrettable_fire_flg`, `potential_regrettable_flg`, `potential_non_regrettable_flg`
   (и готовое `performer_fire_type`: 'Regrettable' / 'Non-Regrettable' / 'Прочее').
 - **Подводный камень.** В самой базе `mdm_employee_structure_d` regrettable-флагов
@@ -276,7 +276,7 @@
 
 | Витрина | Что даёт | Ключ джойна к базе | Для метрик |
 |---|---|---|---|
-| `prod_v_sse_crossdata.mdm_employee_regrettable` | regrettable / non-regrettable разметка | `mdm_employee_rk` + `business_dt` | `regret`, `nonregret` |
+| `prod_v_sse_crossdata.mdm_employee_regrettable` | regrettable / non-regrettable разметка | `mdm_employee_rk` + версия на день увольнения (`valid_from_dttm` / `valid_to_dttm`, `deleted_flg`) | `regret`, `nonregret` |
 | `prod_v_hrmart.legal_position_dismissal_reason` | причины увольнений | `legal_position_rk` + `legal_fire_dt = fire_dt` | `exit_reasons` |
 | `legal_position_accum_vacation` (публикуемая `prod_proteus.legal_position_accum_vacation`) | остатки неотгуленных отпусков | `mdm_employee_rk` | `unused_vac` *(отложена)* |
 

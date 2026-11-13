@@ -424,7 +424,8 @@ python3 stand/mock.py                     # proteus/hrbp-hub.mock.json для sm
   общего параграфа с данными владельца — точечная правка словами, а не «заменить целиком».
   **Правки владельца в хелике — сначала в исходники** (13.11, по его yaml от 12.11): разметка regrettable —
   `prod_v_sse_crossdata.mdm_employee_regrettable` (было `usr_cross_data.regrettable_n_non_regrettable_base`; параграфы
-  00, 01, 07, 18, стенд); сводка 06a — ещё и таблицей `usr_cross_data.hrbp_hub_hrbp_viewers` + параграф `06b Актуалайз
+  00, 01, 07, 18, стенд) — версионная: `valid_from_dttm` / `valid_to_dttm` / `deleted_flg`, `business_dt` НЕТ (поставка 68):
+  флаг — из неудалённой версии, живой хотя бы часть дня увольнения (07; диагностика 18, запрос 4 — версии мимо дня увольнения); сводка 06a — ещё и таблицей `usr_cross_data.hrbp_hub_hrbp_viewers` + параграф `06b Актуалайз
   лабы`; OWNERS 16 — с `d.i.dyachenko`. Перед поставкой сверять с последним yaml владельца, если он его прислал.
 - **Доступ** — только через `current_username()` и `hrbp_hub_access` внутри датасета;
   юниты вне зоны не приезжают ни в каком виде. **Логин — в ключе кеша Proteus** (Superset 2):

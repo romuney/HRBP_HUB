@@ -68,11 +68,21 @@ from (
 left join hh_fire h on h.mdm_employee_rk = f.mdm_employee_rk and h.fire_dt = f.company_fire_dt
 where h.mdm_employee_rk is null;
 
--- 4. Флаг regrettable вне дня увольнения (если много — разметка не «на день увольнения»,
---    и джойн по дате её теряет).
-select count(*) as regret_flags_total,
-       sum(case when h.mdm_employee_rk is null then 1 else 0 end) as regret_flags_not_on_fire_day
-from prod_v_sse_crossdata.mdm_employee_regrettable r
-left join hh_fire h on h.mdm_employee_rk = r.mdm_employee_rk and h.fire_dt = r.business_dt
-where r.regrettable_fire_flg = 1
-  and r.business_dt >= (select min(slot_start) from hh_calendar);
+-- 4. Разметка regrettable вне дня увольнения (витрина версионная, 13.11): неудалённые версии с regrettable_fire_flg = 1,
+--    ни одна из которых не жива в день увольнения этого сотрудника. Если таких много — разметка ставится позже
+--    увольнения (версия открывается в день разметки), и «HH · увольнения» её теряет: сообщить, сдвинем правило.
+--    days_after — медиана дней от последнего увольнения до начала такой версии.
+select count(*)                                                       as regret_versions_total,
+       sum(case when x.on_day = 0 then 1 else 0 end)                  as regret_versions_not_on_fire_day,
+       percentile_cont(0.5) within group (order by x.days_after)      as days_after_median
+from (
+    select r.mdm_employee_rk, r.valid_from_dttm,
+           max(case when r.valid_from_dttm < h.fire_dt + interval '1 day' and r.valid_to_dttm >= h.fire_dt then 1 else 0 end) as on_day,
+           min(case when h.fire_dt <= r.valid_from_dttm::date then r.valid_from_dttm::date - h.fire_dt end)              as days_after
+    from prod_v_sse_crossdata.mdm_employee_regrettable r
+    left join hh_fire h on h.mdm_employee_rk = r.mdm_employee_rk
+    where r.regrettable_fire_flg = 1
+      and r.deleted_flg = 0
+      and r.valid_from_dttm >= (select min(slot_start) from hh_calendar)   -- версии, открытые в окне отчёта (hh_fire — с запасом 7 мес)
+    group by 1, 2
+) x;

@@ -1,9 +1,11 @@
 -- ============================================================================
 -- HH · увольнения → hh_fire. Событие = строка дня увольнения из компании
 -- (business_dt = company_fire_dt); юнит и разрезы — на эту дату.
---   rg / nrg — regrettable / non-regrettable: джойн вспомогательной витрины
---              prod_v_sse_crossdata.mdm_employee_regrettable по сотруднику и
---              дате (как в ультраширокой); в базе этих флагов нет;
+--   rg / nrg — regrettable / non-regrettable: вспомогательная витрина
+--              prod_v_sse_crossdata.mdm_employee_regrettable (в базе этих флагов нет). Витрина версионная
+--              (13.11: valid_from_dttm / valid_to_dttm / deleted_flg, business_dt нет): флаг берётся из любой
+--              неудалённой версии, живой хотя бы часть дня увольнения — valid_from < день + 1 и valid_to >= день
+--              (версия, открытая днём, и версия, закрытая днём, — обе в счёт);
 --   nr       — причина НЕ заполнена: legal_fire_dt не пустая, в
 --              legal_position_dismissal_reason (legal_position_rk + fire_dt =
 --              legal_fire_dt) нет причины — и с увольнения прошло nr_grace_days.
@@ -41,11 +43,15 @@ select s.mdm_employee_rk, s.company_hire_dt, s.business_dt as fire_dt,
 from hh_src s
 cross join hh_param p
 left join (
-    select mdm_employee_rk, business_dt::date as business_dt,
-           max(case when regrettable_fire_flg = 1 then 1 else 0 end)     as rg,
-           max(case when non_regrettable_fire_flg = 1 then 1 else 0 end) as nrg
-    from prod_v_sse_crossdata.mdm_employee_regrettable
-    where business_dt >= (select min(slot_start) - interval '7 month' from hh_calendar)
+    select f.mdm_employee_rk, f.business_dt,
+           max(case when r.regrettable_fire_flg = 1 then 1 else 0 end)     as rg,
+           max(case when r.non_regrettable_fire_flg = 1 then 1 else 0 end) as nrg
+    from (select distinct mdm_employee_rk, business_dt from hh_src where is_fire_row = 1) f
+    join prod_v_sse_crossdata.mdm_employee_regrettable r
+        on r.mdm_employee_rk = f.mdm_employee_rk
+       and r.valid_from_dttm <  f.business_dt + interval '1 day'
+       and r.valid_to_dttm   >= f.business_dt
+    where r.deleted_flg = 0
     group by 1, 2
 ) rt on rt.mdm_employee_rk = s.mdm_employee_rk and rt.business_dt = s.business_dt
 left join (
