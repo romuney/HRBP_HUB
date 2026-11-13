@@ -31,6 +31,9 @@
    другом значении); с ним — те же строки плюс одна строка p: всего = w_nr области в последнем месяце (все с 1 января,
    и свежие), в метрике = m_nr (30 дней прошли), у каждого флаг — по дате увольнения, свежие первыми; враждебные значения
    в носителях — через путь Superset и с носителем.
+10. Накопленный отпуск — кто в зоне (vcp_f = '1', 13.11): без носителя текст SQL — как без него; с ним — те же строки
+   плюс одна строка v: жёлтая, красная, совм. = m_vy / m_vr / m_vxy / m_vxr области в последнем месяце, у каждого 28+,
+   больше дней — первыми; у супер-HRBP — люди, ФИО, дни, типы, юнит против expect.vac_people.
 """
 import hashlib
 import json
@@ -586,6 +589,55 @@ def main():
     else:
         for label, err in _ss2.hostile_run('b.kotov', {'staff_f': ['Штат'], 'nrp_f': ['1']}):
             ok(err is None, 'враждебный ввод с nrp_f через путь Superset: %s%s' % (label, '' if err is None else ' — ' + err))
+
+    # ---------------- 10. накопленный отпуск — кто в зоне (vcp_f, 13.11) ----------------
+    for user, flt in (('a.sergeeva', {}), ('a.sergeeva', {'hct_f': ['Активная']}), ('b.kotov', {'staff_f': ['Штат']}),
+                      ('b.kotov', {'staff_f': ['Не штат']}), ('s.volkov', {}),
+                      ('s.volkov', {'unit_f': [sid(U['Департамент данных'].rk)]}),
+                      ('e.lapin', {'unit_f': [sid(U['Отдел бэкенда'].rk)], 'it_f': ['IT']}), ('nobody', {})):
+        lbl = '[%s %s]' % (user, flt)
+        for other in (['0'], ["1'"], ['1', '2']):
+            ok(ch.render(dict(flt, vcp_f=other), user) == ch.render(flt, user), 'vcp_f = %r — текст SQL как без носителя %s' % (other, lbl))
+        plain, _ = ask(flt, user)
+        rows, _ = ask(dict(flt, vcp_f=['1']), user)
+        vs = by(rows, 'v')
+        if not ok(len(vs) == 1, 'vcp_f: одна строка v %s' % lbl):
+            continue
+        ok(srt([r for r in rows if r['role'] != 'v']) == srt(plain), 'vcp_f: остальные строки — те же %s' % lbl)
+        m = meta(rows)
+        sc = by(rows, 'scope')
+        last = m['last_m']
+        want = [unarr(sc[0]['m_' + c])[last] for c in ('vy', 'vr', 'vxy', 'vxr')] if sc else [0, 0, 0, 0]
+        v0 = vs[0]
+        recs = [ln.split('\t') for ln in v0['j'].split('\n') if ln] if v0['j'] else []
+        got = [int(x) for x in (v0['pid'] or '0,0,0,0').split(',')]
+        ok(got == want and len(recs) == int(v0['n']), 'vcp_f: жёлтая, красная, совм. — %s, как m_vy / m_vr / m_vxy / m_vxr области %s %s'
+           % (got, want, lbl))
+        key = [max(float(r[4] or 0), float(r[5] or 0)) for r in recs]
+        ok(all(len(r) == 8 for r in recs) and key == sorted(key, reverse=True)
+           and all(max(float(r[4] or 0), float(r[5] or 0)) >= 28 for r in recs),
+           'vcp_f: 8 полей, у каждого 28+ дней, больше дней — первыми %s' % lbl)
+        if user == 'a.sergeeva' and 'unit_f' not in flt:
+            cuts = {'hct': flt['hct_f']} if flt else {}
+            exp = {str(x['rk']): x for x in X.vac_people(lambda u, pth, rp: True, cuts)}
+            cents = lambda v: '' if v is None else int(round(float(v) * 100))
+            bads = []
+            for r in recs:
+                x = exp.get(r[0])
+                t = dict((t.rpartition(':')[0], int(round(float(t.rpartition(':')[2]) * 100))) for t in r[6].split('|') if t)
+                if not x or r[1] != x['fio'] or r[2] != x['login'] or r[3] != str(x['hire']) \
+                        or (cents(r[4]) if r[4] else None) != x['days'] or (cents(r[5]) if r[5] else None) != x['xdays'] \
+                        or t != x['types'] or r[7] != sid(x['rp'][-1]):
+                    bads.append((r, x and {k: x[k] for k in ('fio', 'days', 'xdays', 'types')}))
+            ok(not bads and len(recs) == len(exp), 'vcp_f: люди, ФИО, логин, найм, дни, типы, юнит — как expect.vac_people (%d из %d) %s%s'
+               % (len(recs) - len(bads), len(exp), lbl, '' if not bads else '\n     ' + repr(bads[:2])))
+    try:
+        import superset as _ss3
+    except ImportError:
+        pass
+    else:
+        for label, err in _ss3.hostile_run('b.kotov', {'staff_f': ['Штат'], 'vcp_f': ['1']}):
+            ok(err is None, 'враждебный ввод с vcp_f через путь Superset: %s%s' % (label, '' if err is None else ' — ' + err))
 
     print('ClickHouse %s · %d проверок, провалено %d' % (ch.VERSION, cases, bad))
     return bad

@@ -629,6 +629,21 @@ def vac_rows(lp):
     return out
 
 
+def vac_types(lp, d):
+    """Остаток по позиции на конец дня d по типам отпуска: {тип: сотые}; пусто — записи нет (как vac_eod)."""
+    r = VAC.get(lp)
+    if not r:
+        return {}
+    t = dt.datetime(d.year, d.month, d.day, 23, 59, 59)
+    out = {}
+    for typ, lst in r['ch'].items():
+        cur = [val for f, val in lst if f <= t]
+        if not cur or any(ht == typ and hf <= t < hto for ht, hf, hto in r['holes']):
+            continue
+        out[typ] = cur[-1]
+    return out
+
+
 def vac_eod(lp, d):
     """Остаток по позиции на конец дня d (сотые дня) — по истории изменений, не по версиям; None — записи нет."""
     r = VAC.get(lp)

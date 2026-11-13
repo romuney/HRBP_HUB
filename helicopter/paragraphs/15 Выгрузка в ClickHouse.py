@@ -22,5 +22,8 @@ gp_to_click('hrbp_hub_attr_top', 'prod_proteus.hrbp_hub_attr_top',
 # Уволенные без причины (поставка 56): строка на увольнение, без массивов; режется по пути юнита, как куб.
 gp_to_click('hrbp_hub_nr_people', 'prod_proteus.hrbp_hub_nr_people',
     gp_service='gp', upload_mode='replace', order_by_columns='(path_s, fire_dt)')
+# Накопленный отпуск — кто в зоне (поставка 69): строка на сотрудника на дату данных, без массивов; режется по пути юнита.
+gp_to_click('hrbp_hub_vac_people', 'prod_proteus.hrbp_hub_vac_people',
+    gp_service='gp', upload_mode='replace', order_by_columns='(path_s)')
 gp_to_click('hrbp_hub_base', 'prod_proteus.hrbp_hub_base',
     gp_service='gp', upload_mode='replace', array_type_cast=True, order_by_columns='(paint, it, stream, spec, staff, hct)')

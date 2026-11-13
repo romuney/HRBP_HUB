@@ -56,7 +56,7 @@ lexer_patch()
 # слэш в конце, «;», управляющие, 3000 знаков. Тире chdb портит в тексте запроса — его здесь нет.
 HOSTILE = ["O'Brien; x", 'a]b', 'x -- y', 'x // y', '# x', 'a\\', 'a;b', 'Отдел «Альфа» 1',
            '[a', 'x /* y', 'y */ z', '`b`', "O\\'K", 'a\tb\x01c', 'Ж' * 3000]
-CARRIERS = ['unit_f', 'paint_f', 'it_f', 'stream_f', 'spec_f', 'staff_f', 'hct_f', 'tr_f', 'nrp_f']
+CARRIERS = ['unit_f', 'paint_f', 'it_f', 'stream_f', 'spec_f', 'staff_f', 'hct_f', 'tr_f', 'nrp_f', 'vcp_f']
 
 
 def tm(f, *a, **k):

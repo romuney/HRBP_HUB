@@ -37,7 +37,7 @@ var CFG = {
          r3n: 'w_r3n', r3d: 'w_r3d', r6n: 'w_r6n', r6d: 'w_r6d', hire: 'w_hire', fire: 'w_fire', rgs: 'w_rgs', nrgs: 'w_nrgs', nrd: 'w_nrd',
          vac: 'w_vac', vacd: 'w_vacd', vy: 'w_vy', vr: 'w_vr', vxy: 'w_vxy', vxr: 'w_vxr' }
   },
-  carriers: { unit: 'unit_f', axis: 'tr_f', depth: 'depth_f', nrp: 'nrp_f' },
+  carriers: { unit: 'unit_f', axis: 'tr_f', depth: 'depth_f', nrp: 'nrp_f', vcp: 'vcp_f' },
   // Разрезы численности: ключ колонки куба → носитель кросс-фильтра. Один перечень
   // и для фильтра отчёта, и для условий целей KPI (f_*), иначе разъедутся.
   cuts: [
@@ -483,7 +483,7 @@ function buildModel() {
             units: {}, kids: {}, hrbps: [], base: null, scope: null, c: [], g: {}, x: {}, facets: {},
             trBy: {}, trAll: false, rules: [], role: 'none', scopeIds: [], roots: [], single: false,
             sel: {}, axis: '', reqUnit: [], scopeRk: '', complete: false, cut: false, rows: rawData.length,
-            depth: '3', depthReq: '3', scopeN: 0, allMax: 0, hKids: {}, hTop: [], hBy: {}, nrp: null };
+            depth: '3', depthReq: '3', scopeN: 0, allMax: 0, hKids: {}, hTop: [], hBy: {}, nrp: null, vcp: null };
   if (!rawData.length) return M;
   var need = [F.role, F.id, F.pid, F.n, F.j];
   for (var ci = 0; ci < COMP.length; ci++) if (!COMP_OPT[COMP[ci]]) { need.push(F.m[COMP[ci]]); need.push(F.w[COMP[ci]]); }
@@ -530,6 +530,8 @@ function buildModel() {
     else if (role === 'end') M.complete = true;
     // Уволенные без причины (по запросу nrp_f, 02.11): n — всего, pid — в метрике, j — люди; разбор — nrpRows.
     else if (role === 'p') M.nrp = { n: num(r[F.n]) || 0, rp: num(pid) || 0, j: String(r[F.j] || '') };
+    // Накопленный отпуск — кто в зоне (по запросу vcp_f, 13.11): n — всего, pid — «жёлтая,красная,совм. ж.,совм. к.».
+    else if (role === 'v') M.vcp = { n: num(r[F.n]) || 0, c: String(pid || '').split(',').map(function (x) { return num(x) || 0; }), j: String(r[F.j] || '') };
     else if (role === 'kpi') {
       var kf = String(r[F.j] || '').split('\t');
       // metric_id формы — ключ метрики; старые коды компонентов и подписи метрик тоже понимаем (kpiMetricKey).
@@ -555,6 +557,7 @@ function buildModel() {
   if (M.meta.vx !== 1 || !M.vacOk) M.vxOk = false;   // неосновные позиции (12.11): ноут с поставки 67
   // Датасет умеет список уволенных без причины (nrp_f): без этого кнопки «кто без причины» нет.
   M.nrpOk = M.meta.nrp === 1;
+  M.vcpOk = M.meta.vcp === 1 && M.vacOk;   // и список «кто в зоне» у накопленного отпуска (13.11)
   var meta = M.meta;
   M.role = meta.role || 'none';
   M.scopeIds = (meta.scope || []).slice().sort();
@@ -1055,12 +1058,13 @@ function reqEcho() {
   for (var i = 0; i < MODEL.reqUnit.length; i++) if (MODEL.reqUnit[i]) u.push(MODEL.reqUnit[i]);
   r.unit = u;
   r.nrp = !!MODEL.nrp;
+  r.vcp = !!MODEL.vcp;
   return r;
 }
 function sigOf(o) {
   var s = 'u:' + (o.unit || []).slice().sort().join(',');
   for (var i = 0; i < CFG.cuts.length; i++) s += '|' + CFG.cuts[i].key + ':' + ((o.cuts && o.cuts[CFG.cuts[i].key]) || []).slice().sort().join('\u0001');
-  return s + '|a:' + (o.axis || '') + '|d:' + (o.depth === 'all' ? 'all' : '3') + (o.nrp ? '|p' : '');
+  return s + '|a:' + (o.axis || '') + '|d:' + (o.depth === 'all' ? 'all' : '3') + (o.nrp ? '|p' : '') + (o.vcp ? '|v' : '');
 }
 // Панель «Фильтры и настройки» копит выбор (юнит, HRBP, разрезы) и отправляет его одной кнопкой
 // «Применить»: staged() — применённое плюс набранное, stageDiff() — сколько фильтров изменено.
@@ -1266,6 +1270,7 @@ function maskOf(o) {
   if (o.depth === 'all') add(CFG.carriers.depth, ['all']);
   // Список уволенных без причины — только пока его открыли (reqNow его не несёт: следующий запрос его снимет).
   if (o.nrp) add(CFG.carriers.nrp, ['1']);
+  if (o.vcp) add(CFG.carriers.vcp, ['1']);
   return out;
 }
 
@@ -1945,8 +1950,10 @@ function buildCSS() {
     P + '-nrs b{font-weight:600;color:' + C.ink + ';white-space:nowrap;}',
     P + '-nrbar ' + P + '-psearch{margin:0;flex:0 0 240px;}',
     P + '-nrt{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;}',
+    P + '-vcpt ' + P + '-t td' + P + '-l{white-space:nowrap;}',
+    P + '-vcpt ' + P + '-vcn{color:' + C.muted + ';}',
+    P + '-vcpt ' + P + '-vcz{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px;}',
     P + '-nrl{display:block;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
-    P + '-nrt th:nth-child(5),' + P + '-nrt td:nth-child(5){text-align:left;}',
     P + '-nrt td' + P + '-nr0,' + P + '-nrt td' + P + '-nrm{color:' + C.muted + ';}',
     P + '-md1 ' + P + '-mdf [data-action="reset"]{margin-right:auto;}',
     P + '-btn' + P + '-sm{height:28px;padding:0 10px;}',
@@ -3864,6 +3871,7 @@ function metricNotes(m) {
   if (m.hq) out.push('Знаменатель — всегда активная численность HQ, какие бы фильтры ни были выбраны.');
   if (m.staffOnly) out.push('Считаем только штатных — и тех, у кого много дней, и всех, — какие бы фильтры ни были выбраны. При фильтре «Не штат» значения нет.');
   if (m.sec && MODEL.vxOk) out.push('Совместительство не входит в долю. Отдельно, под значением, — сколько штатных накопили столько же дней по неосновным должностям.');
+  if (m.sec && MODEL.vcpOk) out.push('Кто именно — «кто в зоне» под названием метрики: ФИО, логин, дни по типам отпуска и структура; копируется в Excel.');
   if (smallGate(m)) out.push(m.staffOnly ? 'Если в юните меньше ' + smallMin(m) + ' штатных, значение без цвета: один человек сдвигает процент на несколько пунктов.'
     : 'Если в юните меньше ' + smallMin(m) + ' человек, значение без цвета: один уход сдвигает процент на несколько пунктов.');
   if (retActive(m)) out.push('Выбран тип «Активная»: новички — пришедшие в активную численность (найм, переход кандидата, внутренний перевод), срок — от прихода.');
@@ -3887,6 +3895,8 @@ function rowNote(m) {
   if (retActive(m)) s += ' · новички — приход в активную';
   // Причины (02.11): список уволенных без причины — окно по кнопке (датасет везёт его по запросу).
   if (m.rip && MODEL.nrpOk) s += ' · <button type="button" class="' + P + '-lnk" data-action="nrp">кто без причины</button>';
+  // Накопленный отпуск (13.11): кто в зоне — то же окно со списком, отбор — зона этой метрики.
+  if (m.sec && MODEL.vcpOk) s += ' · <button type="button" class="' + P + '-lnk" data-action="vcp" data-key="' + (m.num === 'vr' ? 'r' : 'y') + '">кто в зоне</button>';
   return '<span class="' + P + '-us">' + s + '</span>';
 }
 function aboutHTML(m) {
@@ -4545,97 +4555,154 @@ function trTSV() {
   for (var i = 0; i < list.length; i++) line(trName(list[i]), list[i].ser, hn && !list[i].rest ? hrbpNm(list[i].v) : '');
   return { text: out.join('\n'), n: list.length + 1 };
 }
-// ---- окно «Уволенные без причины» (02.11, по запросу: строка p датасета, носитель nrp_f) ----
-// Люди: MDM ID, найм, увольнение, в метрике (30 дней прошли) или дозревает, уровни 3–6 на день увольнения. Разбор —
-// один раз на ответ (кеш на MODEL.nrp); дни — от даты данных; поиск, отбор и сортировка — в чарте, без запроса.
-var NRP_COLS = [['k', 'MDM ID'], ['h', 'Найм'], ['f', 'Увольнение'], ['d', 'Дней'], ['r', 'Статус'],
-  ['l0', 'Уровень 3'], ['l1', 'Уровень 4'], ['l2', 'Уровень 5'], ['l3', 'Уровень 6']];
+// ---- окна-списки людей (по запросу, носитель — строкой датасета) ----
+// «Уволенные без причины» (02.11, строка p, nrp_f) и «Накопленный отпуск — кто в зоне» (13.11, строка v, vcp_f): одно окно
+// (PLS — что показывать), разбор — один раз на ответ (кеш rows на MODEL.nrp / MODEL.vcp); поиск (state.plq), отбор
+// (state.plf), сортировка по колонке (state.pls; по умолчанию — как пришли) — в чарте, без запроса. На экране — не больше
+// CFG.nrp.show строк, «Копировать» — все найденные таблицей для Excel.
 function dmy(s) { var p = String(s || '').split('-'); return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : String(s || ''); }
-function nrpRows() {
-  var N = MODEL.nrp, t = MODEL.dataDt || (MODEL.cal.m[MODEL.L] || {}).e, out = [], f, i, l;
+function days2(v) { return v === null ? '—' : v.toFixed(2).replace('.', ','); }
+function plCell(v, t) { var P = CFG.ns; return '<td class="' + P + '-l"' + (v.length > 30 ? tip({ title: t, text: v }) : '') + '><span class="' + P + '-nrl">' + esc(v || '—') + '</span></td>'; }
+var LV_COLS = [['l0', 'Уровень 3'], ['l1', 'Уровень 4'], ['l2', 'Уровень 5'], ['l3', 'Уровень 6']];
+var PLS = {
+  // Уволенные без причины: MDM ID, найм, увольнение, дни с увольнения, в метрике (30 дней прошли) / дозревает, уровни 3–6
+  // на день увольнения.
+  nrp: { title: 'Уволенные без причины', ph: 'MDM ID, дата, структура',
+    cols: [['k', 'MDM ID'], ['h', 'Найм'], ['f', 'Увольнение'], ['d', 'Дней'], ['r', 'Статус']].concat(LV_COLS),
+    lft: function (k) { return k === 'k' || k === 'r' || k.charAt(0) === 'l'; },
+    segs: [['', 'Все'], ['r', 'В метрике'], ['u', 'Дозревают']],
+    pass: function (x, f) { return x.r === (f === 'r'); },
+    d1: function (k) { return k === 'k' || k.charAt(0) === 'l' ? 'asc' : 'desc'; },
+    val: function (x, k) { return k.charAt(0) === 'l' ? x.l[+k.charAt(1)].toLowerCase() : k === 'r' ? (x.r ? 1 : 0) : x[k]; },
+    tie: function (a, b) { return a.f < b.f ? 1 : a.f > b.f ? -1 : 0; },
+    parse: function (f) {
+      var t = MODEL.dataDt || (MODEL.cal.m[MODEL.L] || {}).e, l = f.slice(4, 8);
+      while (l.length < 4) l.push('');
+      for (var k = 0; k < 4; k++) if (l[k] === '-') l[k] = '';
+      return { k: f[0], h: f[1] || '', f: f[2] || '', r: f[3] === '1', d: t && f[2] ? dayN(t) - dayN(f[2]) : null, l: l,
+        q: (f[0] + ' ' + dmy(f[1]) + ' ' + dmy(f[2]) + ' ' + l.join(' ')).toLowerCase() };
+    },
+    tsv: function (x) { return [tsvCell(x.k), dmy(x.h), dmy(x.f), x.d === null ? '' : String(x.d), x.r ? 'в метрике' : 'дозревает']; },
+    td: function (x) {
+      var P = CFG.ns, rip = (METRIC.exit_reasons || {}).rip || 30;
+      return '<td class="' + P + '-l">' + esc(x.k) + '</td><td>' + esc(dmy(x.h)) + '</td><td>' + esc(dmy(x.f)) + '</td><td>' + (x.d === null ? '—' : x.d) + '</td>'
+        + (x.r ? '<td class="' + P + '-l">в метрике</td>' : '<td class="' + P + '-l ' + P + '-nr0"' + tip({ title: 'Дозревает', text: 'Причину ещё могут указать: ' + rip + ' дней пройдут ' + dayTxt(dayN(x.f) + rip) + '. В значение метрики попадёт, если не укажут.' }) + '>дозревает</td>');
+    },
+    sub: function () { var M = MODEL; return 'уволены с 1 января ' + (M.cal.m[12] ? dparts(M.cal.m[12].s).y : ''); },
+    empty: ['Все причины указаны', 'С 1 января никого не уволили без причины — ни в метрике, ни из свежих.'],
+    sum: function (N, got) {
+      return '<b>' + fmtInt(N.n) + '</b> ' + plural(N.n, 'уволен', 'уволены', 'уволено') + ' без причины: <b>' + fmtInt(N.rp)
+        + '</b> в метрике — ' + (METRIC.exit_reasons || {}).rip + ' дней прошли, <b>' + fmtInt(N.n - N.rp) + '</b> дозревают — причину ещё могут указать.'
+        + (got < N.n ? ' Здесь самые свежие ' + fmtInt(got) + '.' : '');
+    } },
+  // Накопленный отпуск — кто в зоне: штатные на дату данных с 28+ днями по основной должности (жёлтая / красная зона —
+  // те же, что в метрике) или по совместительству; уровни 3–6 — из справочника по юниту человека.
+  vcp: { title: 'Накопленный отпуск — кто в зоне', ph: 'ФИО, логин, MDM ID, структура',
+    cols: [['f', 'ФИО'], ['g', 'Логин'], ['k', 'MDM ID'], ['h', 'Найм'], ['d', 'Дней'], ['x', 'Совм.'], ['z', 'Зона'], ['t', 'По типам']].concat(LV_COLS),
+    lft: function (k) { return 'fgkzt'.indexOf(k) > -1 || k.charAt(0) === 'l'; },
+    segs: [['', 'Все'], ['y', 'Жёлтая'], ['r', 'Красная'], ['x', 'Совместительство']],
+    pass: function (x, f) { return f === 'x' ? x.x !== null && x.x >= 28 : x.z === f; },
+    d1: function (k) { return 'dxhz'.indexOf(k) > -1 ? 'desc' : 'asc'; },
+    val: function (x, k) {
+      if (k.charAt(0) === 'l') return x.l[+k.charAt(1)].toLowerCase();
+      if (k === 'd' || k === 'x') return x[k] === null ? -1 : x[k];
+      return k === 'z' ? 'yr'.indexOf(x.z) : String(x[k]).toLowerCase();
+    },
+    tie: function (a, b) { return (b.d || 0) - (a.d || 0); },
+    parse: function (r) {
+      var d = r[4] ? +r[4] : null, x = r[5] ? +r[5] : null, pth = pathTo(r[7] || ''), l = ['', '', '', ''], ty = [], tp = String(r[6] || '').split('|'), k, u, c;
+      for (k = 0; k < pth.length; k++) { u = MODEL.units[pth[k]]; if (u.lvl >= 3 && u.lvl <= 6) l[u.lvl - 3] = u.nm; }
+      for (k = 0; k < tp.length; k++) { c = tp[k].lastIndexOf(':'); if (c > 0) ty.push(tp[k].slice(0, c) + ' ' + days2(+tp[k].slice(c + 1))); }
+      return { k: r[0], f: r[1] || '', g: r[2] || '', h: r[3] || '', d: d, x: x, z: d === null || d < 28 ? '' : d >= 56 ? 'r' : 'y', t: ty.join(' · '), l: l,
+        q: (r[1] + ' ' + r[2] + ' ' + r[0] + ' ' + l.join(' ')).toLowerCase() };
+    },
+    zt: function (z) { return z === 'r' ? 'красная' : z === 'y' ? 'жёлтая' : '—'; },
+    tsv: function (x) { return [tsvCell(x.f), tsvCell(x.g), tsvCell(x.k), dmy(x.h), x.d === null ? '' : days2(x.d), x.x === null ? '' : days2(x.x), x.z ? PLS.vcp.zt(x.z) : '', tsvCell(x.t)]; },
+    td: function (x) {
+      var P = CFG.ns, C = CFG.colors;
+      return plCell(x.f, 'ФИО') + '<td class="' + P + '-l">' + esc(x.g || '—') + '</td><td class="' + P + '-l">' + esc(x.k) + '</td><td>' + esc(dmy(x.h)) + '</td><td>' + days2(x.d) + '</td>'
+        + '<td' + (x.x === null ? ' class="' + P + '-vcn"' : x.x >= 28 ? tip({ title: 'Совместительство', text: SEC_TIP }) : '') + '>' + days2(x.x) + '</td>'
+        + '<td class="' + P + '-l">' + (x.z ? '<span class="' + P + '-vcz" style="background:' + (x.z === 'r' ? C.redTx : C.kpi) + '"></span>' : '') + PLS.vcp.zt(x.z) + '</td>' + plCell(x.t, 'По типам отпуска');
+    },
+    sub: function () { return 'штатные на ' + dmy(MODEL.dataDt || (MODEL.cal.m[MODEL.L] || {}).e); },
+    empty: ['Никого в зоне', 'Ни у кого из штатных не накопилось 28 дней и больше — ни по основной должности, ни по совместительству.'],
+    sum: function (N, got) {
+      var c = N.c, x = (c[2] || 0) + (c[3] || 0);
+      return '<b>' + fmtInt(N.n) + '</b> ' + plural(N.n, 'штатный', 'штатных', 'штатных') + ' с 28 днями и больше: <b>' + fmtInt(c[0] || 0)
+        + '</b> в жёлтой зоне (28–56 дней), <b>' + fmtInt(c[1] || 0) + '</b> в красной (56+) — те же люди, что в метрике'
+        + (x ? '; <b>' + fmtInt(x) + '</b> накопили 28+ по совместительству' : '') + '.' + (got < N.n ? ' Здесь — у кого больше всего дней, ' + fmtInt(got) + '.' : '');
+    } }
+};
+function plRows(K) {
+  var N = MODEL[K], f, i, out = [];
   if (!N) return out;
   if (N.rows) return N.rows;
   f = splitRecords(N.j);
-  for (i = 0; i < f.length; i++) {
-    l = f[i].slice(4, 8);
-    while (l.length < 4) l.push('');
-    for (var k = 0; k < 4; k++) if (l[k] === '-') l[k] = '';
-    out.push({ k: f[i][0], h: f[i][1] || '', f: f[i][2] || '', r: f[i][3] === '1', d: t && f[i][2] ? dayN(t) - dayN(f[i][2]) : null, l: l,
-      q: (f[i][0] + ' ' + dmy(f[i][1]) + ' ' + dmy(f[i][2]) + ' ' + l.join(' ')).toLowerCase() });
-  }
+  for (i = 0; i < f.length; i++) out.push(PLS[K].parse(f[i]));
   N.rows = out;
   return out;
 }
-function nrpVal(x, k) { return k.charAt(0) === 'l' ? x.l[+k.charAt(1)].toLowerCase() : k === 'r' ? (x.r ? 1 : 0) : k === 'd' ? x.d : x[k]; }
-// Найденное: поиск (state.nrq), отбор «в метрике / дозревают» (state.nrf), сортировка по колонке (state.nrs; по умолчанию —
-// свежие первыми, как пришли). MDM ID — числом, если это число.
-function nrpList() {
-  var all = nrpRows(), q = String(state.nrq || '').replace(/^\s+|\s+$/g, '').toLowerCase(), f = state.nrf || '', s = state.nrs, out = [];
+function plList(K) {
+  var S = PLS[K], all = plRows(K), q = String(state.plq || '').replace(/^\s+|\s+$/g, '').toLowerCase(), f = state.plf || '', s = state.pls, out = [];
   for (var i = 0; i < all.length; i++) {
     var x = all[i];
-    if (f && x.r !== (f === 'r')) continue;
+    if (f && !S.pass(x, f)) continue;
     if (q && x.q.indexOf(q) < 0) continue;
     out.push(x);
   }
   if (s && s.k) {
     var sg = s.d === 'asc' ? 1 : -1;
     out.sort(function (a, b) {
-      var u = nrpVal(a, s.k), v = nrpVal(b, s.k);
+      var u = S.val(a, s.k), v = S.val(b, s.k);
       if (s.k === 'k' && isFinite(+u) && isFinite(+v)) { u = +u; v = +v; }
-      return (u < v ? -1 : u > v ? 1 : 0) * sg || (a.f < b.f ? 1 : a.f > b.f ? -1 : 0);
+      return (u < v ? -1 : u > v ? 1 : 0) * sg || S.tie(a, b);
     });
   }
   return out;
 }
-function nrpTSV() {
-  var list = nrpList(), out = [], i, h = [];
-  for (i = 0; i < NRP_COLS.length; i++) h.push(NRP_COLS[i][1]);
+function plTSV(K) {
+  var S = PLS[K], list = plList(K), out = [], i, h = [];
+  for (i = 0; i < S.cols.length; i++) h.push(S.cols[i][1]);
   out.push(h.join('\t'));
-  for (i = 0; i < list.length; i++) {
-    var x = list[i];
-    out.push([tsvCell(x.k), dmy(x.h), dmy(x.f), x.d === null ? '' : String(x.d), x.r ? 'в метрике' : 'дозревает'].concat(x.l.map(tsvCell)).join('\t'));
-  }
+  for (i = 0; i < list.length; i++) out.push(S.tsv(list[i]).concat(list[i].l.map(tsvCell)).join('\t'));
   return { text: out.join('\n'), n: list.length };
 }
-function nrpRowsHTML(list) {
-  var P = CFG.ns, s = '', n = Math.min(list.length, CFG.nrp.show), rip = (METRIC.exit_reasons || {}).rip || 30;
+function plRowsHTML(K, list) {
+  var P = CFG.ns, S = PLS[K], s = '', n = Math.min(list.length, CFG.nrp.show), cs = S.cols.length;
   for (var i = 0; i < n; i++) {
-    var x = list[i];
-    s += '<tr><td class="' + P + '-l">' + esc(x.k) + '</td><td>' + esc(dmy(x.h)) + '</td><td>' + esc(dmy(x.f)) + '</td><td>' + (x.d === null ? '—' : x.d) + '</td>'
-      + (x.r ? '<td>в метрике</td>' : '<td class="' + P + '-nr0"' + tip({ title: 'Дозревает', text: 'Причину ещё могут указать: ' + rip + ' дней пройдут ' + dayTxt(dayN(x.f) + rip) + '. В значение метрики попадёт, если не укажут.' }) + '>дозревает</td>');
-    for (var k = 0; k < 4; k++) s += '<td class="' + P + '-l"' + (x.l[k].length > 30 ? tip({ title: 'Уровень ' + (k + 3), text: x.l[k] }) : '') + '><span class="' + P + '-nrl">' + esc(x.l[k] || '—') + '</span></td>';
+    s += '<tr>' + S.td(list[i]);
+    for (var k = 0; k < 4; k++) s += plCell(list[i].l[k], 'Уровень ' + (k + 3));
     s += '</tr>';
   }
-  if (list.length > n) s += '<tr><td colspan="9" class="' + P + '-l ' + P + '-nrm">На экране первые ' + fmtInt(n) + ' из ' + fmtInt(list.length) + ' — уточните поиском. «Копировать» берёт все ' + fmtInt(list.length) + '.</td></tr>';
-  if (!list.length) s += '<tr><td colspan="9" class="' + P + '-l ' + P + '-nrm">Никого не нашли — измените поиск.</td></tr>';
+  if (list.length > n) s += '<tr><td colspan="' + cs + '" class="' + P + '-l ' + P + '-nrm">На экране первые ' + fmtInt(n) + ' из ' + fmtInt(list.length) + ' — уточните поиском. «Копировать» берёт все ' + fmtInt(list.length) + '.</td></tr>';
+  if (!list.length) s += '<tr><td colspan="' + cs + '" class="' + P + '-l ' + P + '-nrm">Никого не нашли — измените поиск или отбор.</td></tr>';
   return s;
 }
-function nrpModalHTML() {
-  var P = CFG.ns, M = MODEL, N = M.nrp, list = N ? nrpList() : [], ys = M.cal.m[12] ? dparts(M.cal.m[12].s).y : '', sel = selLabel(), body;
+function plCnt(n) { return 'Найдено ' + fmtInt(n) + ' · «Копировать» — таблицей для Excel'; }
+function plModalHTML(K) {
+  var P = CFG.ns, S = PLS[K], N = MODEL[K], list = N ? plList(K) : [], sel = selLabel(), body;
   if (!N) body = state.pend ? hEmpty('Загружаю список…', 'Один запрос — дальше окно открывается сразу.') : hEmpty('Список не пришёл', 'Закройте окно и откройте снова.');
-  else if (!N.n) body = hEmpty('Все причины указаны', 'С 1 января никого не уволили без причины — ни в метрике, ни из свежих.');
+  else if (!N.n) body = hEmpty(S.empty[0], S.empty[1]);
   else {
-    var ts = state.nrs || {}, th = '';
-    for (var i = 0; i < NRP_COLS.length; i++) {
-      var c = NRP_COLS[i], on = ts.k === c[0];
-      th += '<th class="' + P + '-sth' + (i === 0 || i > 4 ? ' ' + P + '-l' : '') + (on ? ' ' + P + '-son' : '') + '" data-action="nrsort" data-key="' + c[0] + '" tabindex="0" aria-sort="'
+    var ts = state.pls || {}, th = '';
+    for (var i = 0; i < S.cols.length; i++) {
+      var c = S.cols[i], on = ts.k === c[0];
+      th += '<th class="' + P + '-sth' + (S.lft(c[0]) ? ' ' + P + '-l' : '') + (on ? ' ' + P + '-son' : '') + '" data-action="plsort" data-key="' + c[0] + '" tabindex="0" aria-sort="'
         + (on ? (ts.d === 'asc' ? 'ascending' : 'descending') : 'none') + '">' + esc(c[1]) + (on ? '<span class="' + P + '-sa">' + (ts.d === 'asc' ? '↑' : '↓') + '</span>' : '') + '</th>';
     }
-    body = '<div class="' + P + '-nrbar"><span class="' + P + '-nrs"><b>' + fmtInt(N.n) + '</b> ' + plural(N.n, 'уволен', 'уволены', 'уволено') + ' без причины: <b>' + fmtInt(N.rp)
-      + '</b> в метрике — ' + (METRIC.exit_reasons || {}).rip + ' дней прошли, <b>' + fmtInt(N.n - N.rp) + '</b> дозревают — причину ещё могут указать.'
-      + (nrpRows().length < N.n ? ' Здесь самые свежие ' + fmtInt(nrpRows().length) + '.' : '') + '</span>'
-      + hSeg([['', 'Все'], ['r', 'В метрике'], ['u', 'Дозревают']], state.nrf || '', 'nrf')
-      + '<div class="' + P + '-psearch">' + SEARCH_SVG + '<input class="' + P + '-srch" type="text" data-nrq="1" placeholder="MDM ID, дата, структура" value="' + esc(state.nrq || '') + '"></div></div>'
-      + '<div class="' + P + '-nrt"><table class="' + P + '-t"><thead><tr>' + th + '</tr></thead><tbody data-nrbody="1">' + nrpRowsHTML(list) + '</tbody></table></div>';
+    body = '<div class="' + P + '-nrbar"><span class="' + P + '-nrs">' + S.sum(N, plRows(K).length) + '</span>'
+      + hSeg(S.segs, state.plf || '', 'plf')
+      + '<div class="' + P + '-psearch">' + SEARCH_SVG + '<input class="' + P + '-srch" type="text" data-plq="1" placeholder="' + esc(S.ph) + '" value="' + esc(state.plq || '') + '"></div></div>'
+      + '<div class="' + P + '-nrt ' + P + '-' + K + 't"><table class="' + P + '-t"><thead><tr>' + th + '</tr></thead><tbody data-plbody="1">' + plRowsHTML(K, list) + '</tbody></table></div>';
   }
   return '<div class="' + P + '-mdb" data-action="dclose"></div>'
-    + '<div class="' + P + '-mdl ' + P + '-nrp" role="dialog" aria-modal="true" aria-label="Уволенные без причины" tabindex="-1" data-drawer="1">'
-    + '<div class="' + P + '-mdh"><div class="' + P + '-mdhx"><span class="' + P + '-mdt">Уволенные без причины</span>'
-    + '<span class="' + P + '-mdd">' + esc(scopeLabel() + (sel ? ' · ' + sel : '') + ' · уволены с 1 января ' + ys) + '</span></div>'
+    + '<div class="' + P + '-mdl ' + P + '-nrp" role="dialog" aria-modal="true" aria-label="' + esc(S.title) + '" tabindex="-1" data-drawer="1">'
+    + '<div class="' + P + '-mdh"><div class="' + P + '-mdhx"><span class="' + P + '-mdt">' + esc(S.title) + '</span>'
+    + '<span class="' + P + '-mdd">' + esc(scopeLabel() + (sel ? ' · ' + sel : '') + ' · ' + S.sub()) + '</span></div>'
     + '<button type="button" class="' + P + '-ib" data-action="dclose" aria-label="Закрыть окно">' + CLOSE_SVG + '</button></div>'
     + '<div class="' + P + '-mdbd">' + body + '</div>'
-    + '<div class="' + P + '-mdf"><span class="' + P + '-mdfs" data-nrcnt="1">' + (N && N.n ? 'Найдено ' + fmtInt(list.length) + ' · «Копировать» — таблицей для Excel' : '') + '</span>'
-    + (N && N.n ? '<button class="' + P + '-btn" data-action="nrcopy">Копировать</button>' : '')
+    + '<div class="' + P + '-mdf"><span class="' + P + '-mdfs" data-plcnt="1">' + (N && N.n ? plCnt(list.length) : '') + '</span>'
+    + (N && N.n ? '<button class="' + P + '-btn" data-action="plcopy">Копировать</button>' : '')
     + '<button class="' + P + '-btn ' + P + '-pri" data-action="dclose">Закрыть</button></div></div>';
 }
 
@@ -5238,6 +5305,8 @@ function tourSteps(view) {
       html: 'Главное по метрике: сейчас против ориентира, год назад, пиковый месяц. Ниже — что это за метрика и как её считаем.' });
     add({ sel: '[data-action="nrp"]', lock: true, pad: 4, title: 'Кто без причины',
       html: 'У «Незаполненных причин» — список уволенных без причины с 1 января: MDM ID, даты, уровни структуры 3–6. Свежие, у кого 30 дней ещё не прошли, помечены «дозревает». «Копировать» — таблицей в Excel.' });
+    add({ sel: '[data-action="vcp"]', lock: true, pad: 4, title: 'Кто в зоне',
+      html: 'У накопленного отпуска — кто именно в жёлтой и красной зоне на вчера: ФИО, логин, дни по типам отпуска, совместительство, уровни структуры 3–6. «Копировать» — таблицей в Excel.' });
   } else if (view === 'teams') {
     add({ sel: function (R) { var b = R.querySelector('[data-action="block"]'); return b ? b.parentNode : null; }, title: 'Группы метрик',
       html: 'Все метрики сразу или одна группа: удержание, текучесть, структура.' });
@@ -5347,7 +5416,7 @@ function buildHTML() {
   }
   h.push('<div class="' + P + '-stick">' + headHTML() + filterBarHTML() + noticesHTML() + '</div>');
   h.push('<div class="' + P + '-content" role="tabpanel">' + tabHTML(v) + '</div>');
-  if (state.drawer) h.push(state.drawer === 'nrp' ? nrpModalHTML() : filtersModalHTML());
+  if (state.drawer) h.push(PLS[state.drawer] ? plModalHTML(state.drawer) : filtersModalHTML());
   h.push('</div>');
   return buildCSS() + h.join('');
 }
@@ -6577,24 +6646,24 @@ function buildHTML() {
         return;
       }
       if (act === 'dclose') { closeDrawer(); return; }
-      // «Кто без причины» (02.11): окно со списком; список уже в ответе — сразу, иначе — один запрос с nrp_f.
-      if (act === 'nrp') {
-        state.drawer = 'nrp'; state.nrq = ''; state.nrf = ''; state.nrs = null; state.tip = null; hideTip();
-        if (MODEL.nrp) { render(); focusPop('nrp'); return; }
+      // Окна-списки (02.11 «кто без причины», 13.11 «кто в зоне»): список уже в ответе — сразу, иначе — один запрос с носителем.
+      if (act === 'nrp' || act === 'vcp') {
+        state.drawer = act; state.plq = ''; state.plf = key || ''; state.pls = null; state.tip = null; hideTip();
+        if (MODEL[act]) { render(); focusPop(act); return; }
         var nx = reqNow();
-        nx.nrp = true;
+        nx[act] = true;
         emit(nx, true);
         return;
       }
-      if (act === 'nrf') { state.nrf = key; render(); return; }
-      if (act === 'nrsort') {
-        var ns = state.nrs || {}, n1 = key === 'k' || key.charAt(0) === 'l' ? 'asc' : 'desc';
-        state.nrs = ns.k !== key ? { k: key, d: n1 } : ns.d === n1 ? { k: key, d: n1 === 'asc' ? 'desc' : 'asc' } : null;
+      if (act === 'plf') { state.plf = key; render(); return; }
+      if (act === 'plsort') {
+        var ns = state.pls || {}, n1 = PLS[state.drawer].d1(key);
+        state.pls = ns.k !== key ? { k: key, d: n1 } : ns.d === n1 ? { k: key, d: n1 === 'asc' ? 'desc' : 'asc' } : null;
         render();
         return;
       }
-      if (act === 'nrcopy') {
-        var nt = nrpTSV(), okn = nt.n > 0 && copyText(nt.text);
+      if (act === 'plcopy') {
+        var nt = plTSV(state.drawer), okn = nt.n > 0 && copyText(nt.text);
         copyNote(a, okn ? 'Скопировано: ' + nt.n + ' ' + plural(nt.n, 'строка', 'строки', 'строк') : 'Не удалось: браузер закрыл буфер обмена');
         return;
       }
@@ -6901,12 +6970,12 @@ function buildHTML() {
         return;
       }
       if (t.getAttribute('data-tsearch') !== null) { state.tq = t.value; refreshTeams(); return; }
-      // Поиск в списке уволенных без причины — только тело таблицы и счётчик: поле ввода не пересоздаётся.
-      if (t.getAttribute('data-nrq') !== null) {
-        state.nrq = t.value;
-        var nb = overlay.querySelector('[data-nrbody]'), nc = overlay.querySelector('[data-nrcnt]'), nl = nrpList();
-        if (nb) nb.innerHTML = nrpRowsHTML(nl);
-        if (nc) nc.textContent = 'Найдено ' + fmtInt(nl.length) + ' · «Копировать» — таблицей для Excel';
+      // Поиск в окне-списке — только тело таблицы и счётчик: поле ввода не пересоздаётся.
+      if (t.getAttribute('data-plq') !== null) {
+        state.plq = t.value;
+        var nb = overlay.querySelector('[data-plbody]'), nc = overlay.querySelector('[data-plcnt]'), nl = plList(state.drawer);
+        if (nb) nb.innerHTML = plRowsHTML(state.drawer, nl);
+        if (nc) nc.textContent = plCnt(nl.length);
         return;
       }
       if (t.getAttribute('data-dsq') !== null) {

@@ -142,6 +142,28 @@ cross join (
                 from hh_param p cross join hh_vac_start s) o
 ) s;
 
+-- 4е. Список «кто в зоне» (поставка 69) сходится с метрикой: на дату данных в hrbp_hub_vac_people жёлтая / красная зона по
+--     основной позиции — столько же людей, сколько m_vy / m_vr базы в последнем месяце, по совместительству — m_vxy / m_vxr;
+--     в списке нет никого вне зон (у каждого 28+ хотя бы по одной из сумм).
+select 1 / (case when p.y = b.y and p.r = b.r and p.xy = b.xy and p.xr = b.xr and p.bad = 0 then 1 else 0 end) as vac_people_check,
+       p.n as people, p.y as people_yellow, b.y as base_yellow, p.r as people_red, b.r as base_red,
+       p.xy as people_sec_yellow, b.xy as base_sec_yellow, p.xr as people_sec_red, b.xr as base_sec_red, p.bad as people_out_of_zone
+from (select count(*) as n,
+             coalesce(sum(case when days >= 28 and days < 56 then 1 else 0 end), 0) as y,
+             coalesce(sum(case when days >= 56 then 1 else 0 end), 0) as r,
+             coalesce(sum(case when xdays >= 28 and xdays < 56 then 1 else 0 end), 0) as xy,
+             coalesce(sum(case when xdays >= 56 then 1 else 0 end), 0) as xr,
+             coalesce(sum(case when coalesce(days, 0) < 28 and coalesce(xdays, 0) < 28 then 1 else 0 end), 0) as bad
+      from hrbp_hub_vac_people) p
+cross join (
+    select coalesce(sum(k.m_vy[l.pos]), 0) as y, coalesce(sum(k.m_vr[l.pos]), 0) as r,
+           coalesce(sum(k.m_vxy[l.pos]), 0) as xy, coalesce(sum(k.m_vxr[l.pos]), 0) as xr
+    from hrbp_hub_base k
+    cross join (select c.idx + 1 as pos
+                from hrbp_hub_calendar c
+                join hh_param p on c.grain = 'm' and c.slot_end = p.last_month_end) l
+) b;
+
 -- 4в. Глубина пути: компания + не больше 10 уровней (lvl3…lvl12).
 select 1 / (case when max(array_length(path, 1)) <= 11 then 1 else 0 end) as path_depth_check,
        max(array_length(path, 1)) as max_path_len

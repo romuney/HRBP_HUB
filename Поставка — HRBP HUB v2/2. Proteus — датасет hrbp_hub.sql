@@ -38,6 +38,10 @@
              строка: n — сколько всего, pid — сколько в метрике (30 дней прошли), j — люди (самые свежие первыми, не
              больше NRP_MAX): mdm_employee_rk, найм, увольнение, 1 — в метрике / 0 — дозревает, уровни 3–6 на день
              увольнения (поля через \t, строки через \n)
+      v      только по запросу (vcp_f = '1', 13.11): накопленный отпуск — кто в зоне на дату данных в области и разрезах —
+             одна строка: n — сколько всего, pid — «жёлтая,красная,совм. жёлтая,совм. красная» (люди), j — люди (больше
+             всего дней — первыми, не больше VCP_MAX): mdm_employee_rk, ФИО, логин, найм, дни по основной позиции, по
+             совместительству (пусто — записи нет), типы «код:дни|…», id юнита (последний на пути; названия — из dict)
       end    1 строка-маркер «ответ целиком»: всегда последняя
     Массивы m_* — 24 месяца, w_* — 24 недели (позиция = idx календаря), строкой
     через запятую без хвостовых нулей («0» — все нули; у трансформеров «N@…» — первые N слотов
@@ -100,6 +104,11 @@
 {% set NRP = (filter_values('nrp_f') or [])|map('string')|list == ['1'] %}
 {%- set NRP_MAX = 5000 %}
 {%- if NRP %}{% set ROLES = ROLES[:5] + ['p'] + ROLES[5:] %}{% endif %}
+{#- Накопленный отпуск — кто в зоне (13.11): так же, только по запросу — vcp_f = '1'. VCP_MAX — сколько людей везём
+    (у кого больше дней), n строки — сколько их всего (вся компания — около 9 тыс.). -#}
+{% set VCP = (filter_values('vcp_f') or [])|map('string')|list == ['1'] %}
+{%- set VCP_MAX = 12000 %}
+{%- if VCP %}{% set ROLES = ROLES[:5] + ['v'] + ROLES[5:] %}{% endif %}
 {#- Трансформеры: все 12 атрибутов в каждом ответе. Без разрезов — из свёртки (если она есть
     у открытых юнитов), с разрезами — из листового куба ветки, пока в ней не больше TR_ALL_MAX
     юнитов. По умолчанию предела нет; запасной режим — TR_ALL_MAX = 1500: большая ветка с
@@ -541,6 +550,31 @@ FROM (
       AND notEmpty(ctx.roots) AND hasAny(splitByChar('/', ifNull(np.path_s, '')), ctx.scope) AND ({{ cond('') }})
   )
 {%- endif %}
+{%- if VCP %}
+  UNION ALL
+  {#- ---------- накопленный отпуск — кто в зоне, только по запросу (vcp_f): одна строка на всех ----------
+      hrbp_hub_vac_people (GP 04b): штатные на дату данных с 28+ днями по основной позиции или по совместительству.
+      Область и разрезы — как у роли p. Числа — через toFloat64: тип выгрузки (Decimal / Float64) не важен. #}
+  SELECT 'v' AS role, '' AS id,
+    concat(toString(countIf(dy >= 28 AND dy < 56)), ',', toString(countIf(dy >= 56)), ',',
+           toString(countIf(dx >= 28 AND dx < 56)), ',', toString(countIf(dx >= 56))) AS pid,
+    toInt64(count()) AS n,
+    arrayStringConcat(arrayMap(t -> t.2, arraySlice(arrayReverseSort(groupArray((greatest(dy, dx), pl))), 1, {{ VCP_MAX }})), '\n') AS j,
+    emptyArrayInt64() AS a, -1 AS lw
+  FROM (
+    SELECT ifNull(toFloat64(vp.days), 0) AS dy, ifNull(toFloat64(vp.xdays), 0) AS dx,
+      concat(ifNull(toString(vp.mdm_employee_rk), ''), '\t',
+             arrayStringConcat(arrayMap(x -> replaceRegexpAll(ifNull(x, ''), '[\\t\\n\\r]', ' '), [vp.fio, vp.login]), '\t'), '\t',
+             ifNull(toString(toDate(vp.hire_dt)), ''), '\t',
+             ifNull(toString(round(toFloat64(vp.days), 2)), ''), '\t', ifNull(toString(round(toFloat64(vp.xdays), 2)), ''), '\t',
+             replaceRegexpAll(ifNull(vp.types, ''), '[\\t\\n\\r]', ' '), '\t',
+             arrayElement(splitByChar('/', ifNull(vp.path_s, '')), -1)) AS pl
+    FROM prod_proteus.hrbp_hub_vac_people AS vp
+    CROSS JOIN ctx
+    WHERE vp.path_s >= tupleElement({{ EX }}, 1) AND vp.path_s < tupleElement({{ EX }}, 2)
+      AND notEmpty(ctx.roots) AND hasAny(splitByChar('/', ifNull(vp.path_s, '')), ctx.scope) AND ({{ cond('') }})
+  )
+{%- endif %}
 
   UNION ALL
   {#- ---------- эхо и календарь: по нему чарт понимает, что именно применилось ---------- #}
@@ -571,6 +605,8 @@ FROM (
       ',"vx":', toString(hasColumnInTable('prod_proteus', 'hrbp_hub_cube', 'm_vxy')),
       {#- датасет умеет список уволенных без причины (роль p по nrp_f): без этого чарт кнопку не показывает -#}
       ',"nrp":1',
+      {#- и список «кто в зоне» у накопленного отпуска (роль v по vcp_f, 13.11) -#}
+      ',"vcp":1',
       ',"last_m":', toString(ctx.last_m),
       ',"fdv":', tupleElement({{ FZ }}, 12),
       ',"end":1',

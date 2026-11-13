@@ -8,7 +8,8 @@
 --    Ждали: calendar 48 строк; unit, access, cube, base, attr, attr_top — не пусто; kpi —
 --    сколько целей в реестре. base — тысячи строк (комбинации разрезов), cube — десятки
 --    тысяч, attr_top — около десятой части attr; nr_people (с 56-й поставки) — уволенные без причины с 1 января,
---    десятки–сотни строк, data_dt — последний день увольнения в ней.
+--    десятки–сотни строк, data_dt — последний день увольнения в ней; vac_people (с 69-й) — накопленный отпуск, кто в
+--    зоне на дату данных: около 9 тысяч строк.
 SELECT 'hrbp_hub_calendar' AS t, count() AS rows, toString(max(ifNull(data_dt, toDate('1970-01-01')))) AS data_dt FROM prod_proteus.hrbp_hub_calendar
 UNION ALL SELECT 'hrbp_hub_unit', count(), toString(max(ifNull(last_dt, toDate('1970-01-01')))) FROM prod_proteus.hrbp_hub_unit
 UNION ALL SELECT 'hrbp_hub_access', count(), '' FROM prod_proteus.hrbp_hub_access
@@ -17,7 +18,8 @@ UNION ALL SELECT 'hrbp_hub_cube', count(), '' FROM prod_proteus.hrbp_hub_cube
 UNION ALL SELECT 'hrbp_hub_base', count(), '' FROM prod_proteus.hrbp_hub_base
 UNION ALL SELECT 'hrbp_hub_attr', count(), '' FROM prod_proteus.hrbp_hub_attr
 UNION ALL SELECT 'hrbp_hub_attr_top', count(), '' FROM prod_proteus.hrbp_hub_attr_top
-UNION ALL SELECT 'hrbp_hub_nr_people', count(), toString(max(ifNull(fire_dt, toDate('1970-01-01')))) FROM prod_proteus.hrbp_hub_nr_people;
+UNION ALL SELECT 'hrbp_hub_nr_people', count(), toString(max(ifNull(fire_dt, toDate('1970-01-01')))) FROM prod_proteus.hrbp_hub_nr_people
+UNION ALL SELECT 'hrbp_hub_vac_people', count(), '' FROM prod_proteus.hrbp_hub_vac_people;
 
 -- 2. Календарь: какие месяцы и недели лежат в позициях массивов, последний закрытый.
 --    Ждали: m 0–23 = январь прошлого года … декабрь текущего, closed = 1 до последнего
@@ -190,3 +192,24 @@ FROM (
 )
 WHERE staff > 0
 ORDER BY idx;
+
+-- 17. Накопленный отпуск — кто в зоне (поставка 69) сходится с метрикой по всей компании на дату данных: жёлтая / красная
+--     зона по основной должности и по совместительству. Ждали: все четыре diff — 0 (так же сверяет «HH · проверки», 4е).
+--     Ошибка «Table … hrbp_hub_vac_people doesn't exist» — ноут после поставки 69 ещё не перезапускали.
+SELECT p.y, p.y - b.y AS diff_y, p.r, p.r - b.r AS diff_r, p.xy, p.xy - b.xy AS diff_xy, p.xr, p.xr - b.xr AS diff_xr, p.n, p.no_fio
+FROM (SELECT countIf(ifNull(toFloat64(days), 0) >= 28 AND ifNull(toFloat64(days), 0) < 56) AS y, countIf(ifNull(toFloat64(days), 0) >= 56) AS r,
+             countIf(ifNull(toFloat64(xdays), 0) >= 28 AND ifNull(toFloat64(xdays), 0) < 56) AS xy, countIf(ifNull(toFloat64(xdays), 0) >= 56) AS xr,
+             count() AS n, countIf(ifNull(fio, '') = '') AS no_fio
+      FROM prod_proteus.hrbp_hub_vac_people) AS p
+CROSS JOIN (
+  SELECT toUInt64(sum(ifNull(arrayElement(m_vy, l.pos), 0))) AS y, toUInt64(sum(ifNull(arrayElement(m_vr, l.pos), 0))) AS r,
+         toUInt64(sum(ifNull(arrayElement(m_vxy, l.pos), 0))) AS xy, toUInt64(sum(ifNull(arrayElement(m_vxr, l.pos), 0))) AS xr
+  FROM prod_proteus.hrbp_hub_base
+  CROSS JOIN (SELECT toUInt32(max(idx) + 1) AS pos FROM prod_proteus.hrbp_hub_calendar WHERE grain = 'm' AND is_closed = 1) AS l
+) AS b;
+
+-- 17б. Кто это: 50 человек с наибольшим остатком. types — остаток основной должности по типам отпуска («код:дни»).
+SELECT mdm_employee_rk, fio, login, hire_dt, days, xdays, types, hct
+FROM prod_proteus.hrbp_hub_vac_people
+ORDER BY greatest(ifNull(toFloat64(days), 0), ifNull(toFloat64(xdays), 0)) DESC
+LIMIT 50;

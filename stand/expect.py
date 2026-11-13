@@ -283,3 +283,28 @@ def vac_series(grain, pred, flt, attr=None):
                 o['vxy'][i] += int(2800 <= x < 5600)
                 o['vxr'][i] += int(x >= 5600)
     return out if attr else out.get(None, {k: [0] * 24 for k in VAC_KEYS})
+
+
+def vac_people(pred, flt):
+    """Список «кто в зоне» (GP 04b, поставка 69) на дату данных: штатные в численности, у кого 28+ дней по основной
+    позиции или в сумме по неосновным. → [{rk, fio, login, hire, days, xdays (сотые | None), types {тип: сотые}, rp}]."""
+    d = W.D
+    if d < vac_start():
+        return []
+    out = []
+    for emp in W.EMPS:
+        st = W.state(emp, d)
+        if st is None or st[0].fire == d:
+            continue
+        p, a = st
+        if a['rel'] != 'Штатный сотрудник':
+            continue
+        v, x = W.vac_eod(p.lp, d), W.sec_eod(emp, d)
+        if (v or 0) < 2800 and (x or 0) < 2800:
+            continue
+        rp = rpath(a['unit'], d)
+        if not rp or not passes(a, flt) or not pred(a['unit'], frozenset(rp), rp):
+            continue
+        out.append({'rk': emp.rk, 'fio': (emp.last + ' ' + emp.first).strip(), 'login': emp.login, 'hire': p.hire,
+                    'days': v, 'xdays': x, 'types': W.vac_types(p.lp, d), 'rp': rp})
+    return out
