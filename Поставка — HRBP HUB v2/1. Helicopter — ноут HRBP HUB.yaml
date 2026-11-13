@@ -14,7 +14,7 @@ paragraphs:
 
       #### Sources
       - `prod_v_emart.mdm_employee_structure_d` — база всех метрик (подневная витрина сотрудника)
-      - `usr_cross_data.regrettable_n_non_regrettable_base` — разметка regrettable / non-regrettable
+      - `prod_v_sse_crossdata.mdm_employee_regrettable` — разметка regrettable / non-regrettable
       - `prod_v_hrmart.legal_position_dismissal_reason` — причины увольнений
       - `prod_v_sse_crossdata.mdm_employee_residence` — город и макрорегион (только для трансформеров)
       - `prod_v_sse_crossdata.legal_position_vacation` — накопленные дни отпуска по позиции (версии; метрика «Накопленный отпуск»)
@@ -35,7 +35,7 @@ paragraphs:
 
       Остаётся в GP (не выгружается, отчёт не читает): `hrbp_hub_hrbp_viewers` — HRBP → кто видит его данные
       (HRBP с зоной выше, супер-HRBP, админы), вся зона или часть, руководитель ли по структуре, кто в связи старший
-      (в должности — «старший»).
+      (в должности — «старший»). Сводка по ней — в лабе `usr_cross_data.hrbp_hub_hrbp_viewers` (параграф «Актуалайз лабы»).
 
       #### Порядок
       Параметры → календарь → строки источника → отпуска → справочник юнитов → зоны HRBP → кто видит HRBP →
@@ -54,7 +54,7 @@ paragraphs:
       is_actual = tactuality.tables_wait(
           [
               'prod_v_emart.mdm_employee_structure_d'
-              , 'usr_cross_data.regrettable_n_non_regrettable_base'
+              , 'prod_v_sse_crossdata.mdm_employee_regrettable'
               , 'prod_v_hrmart.legal_position_dismissal_reason'
               , 'prod_v_sse_crossdata.mdm_employee_residence'
               , 'prod_v_sse_crossdata.legal_position_vacation'
@@ -916,6 +916,9 @@ paragraphs:
       distributed by (hrbp_login);
 
       -- Сводка: строка на связь «HRBP · видящий», связь и старший — отдельными столбцами (админы — только в таблице).
+      -- Владелец 12.11: сводка — таблицей в лабе usr_cross_data (её актуализирует следующий параграф «Актуалайз лабы»).
+      drop table if exists usr_cross_data.hrbp_hub_hrbp_viewers;
+      create table usr_cross_data.hrbp_hub_hrbp_viewers as
       select hrbp_login, hrbp_nm, hrbp_position_nm                    as "должность HRBP",
              viewer_login, viewer_nm, viewer_position_nm              as "должность видящего",
              link                                                     as "связь",
@@ -927,6 +930,13 @@ paragraphs:
       order by case hrbp_role when 'hrbp' then 0 else 1 end, hrbp_login,
                case viewer_role when 'hrbp' then 0 else 1 end, viewer_login;
     isEnabled: true
+  - sid: 01a0c821-1564-75d0-9f66-7d4d8c074903
+    title: Актуалайз лабы
+    shebang: python
+    code: |-
+      import userlabs_tools
+      userlabs_tools.object_actualize('usr_cross_data.hrbp_hub_hrbp_viewers', source_name='cross')
+    isEnabled: true
   - sid: 01a0c821-1758-7967-87b9-1b2597f7e98c
     title: HH · увольнения
     shebang: gp
@@ -935,7 +945,7 @@ paragraphs:
       -- HH · увольнения → hh_fire. Событие = строка дня увольнения из компании
       -- (business_dt = company_fire_dt); юнит и разрезы — на эту дату.
       --   rg / nrg — regrettable / non-regrettable: джойн вспомогательной витрины
-      --              usr_cross_data.regrettable_n_non_regrettable_base по сотруднику и
+      --              prod_v_sse_crossdata.mdm_employee_regrettable по сотруднику и
       --              дате (как в ультраширокой); в базе этих флагов нет;
       --   nr       — причина НЕ заполнена: legal_fire_dt не пустая, в
       --              legal_position_dismissal_reason (legal_position_rk + fire_dt =
@@ -977,7 +987,7 @@ paragraphs:
           select mdm_employee_rk, business_dt::date as business_dt,
                  max(case when regrettable_fire_flg = 1 then 1 else 0 end)     as rg,
                  max(case when non_regrettable_fire_flg = 1 then 1 else 0 end) as nrg
-          from usr_cross_data.regrettable_n_non_regrettable_base
+          from prod_v_sse_crossdata.mdm_employee_regrettable
           where business_dt >= (select min(slot_start) - interval '7 month' from hh_calendar)
           group by 1, 2
       ) rt on rt.mdm_employee_rk = s.mdm_employee_rk and rt.business_dt = s.business_dt
@@ -2184,7 +2194,7 @@ paragraphs:
       # Впишите логины команды отчёта. hrbp_hub_kpi создаёт переливка целей из DLH (форма n8n) — права на неё тоже здесь.
       from proteus_py.database.clickhouse import set_table_owners
 
-      OWNERS = ['r.kazantsev']
+      OWNERS = ['r.kazantsev', 'd.i.dyachenko']
       for t in ['hrbp_hub_calendar', 'hrbp_hub_unit', 'hrbp_hub_access', 'hrbp_hub_kpi', 'hrbp_hub_cube', 'hrbp_hub_attr', 'hrbp_hub_attr_top', 'hrbp_hub_base', 'hrbp_hub_nr_people']:
           set_table_owners(database='prod_proteus', table=t, usernames=OWNERS)
     isEnabled: true
@@ -2281,7 +2291,7 @@ paragraphs:
       --    и джойн по дате её теряет).
       select count(*) as regret_flags_total,
              sum(case when h.mdm_employee_rk is null then 1 else 0 end) as regret_flags_not_on_fire_day
-      from usr_cross_data.regrettable_n_non_regrettable_base r
+      from prod_v_sse_crossdata.mdm_employee_regrettable r
       left join hh_fire h on h.mdm_employee_rk = r.mdm_employee_rk and h.fire_dt = r.business_dt
       where r.regrettable_fire_flg = 1
         and r.business_dt >= (select min(slot_start) from hh_calendar);

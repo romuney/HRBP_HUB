@@ -72,7 +72,7 @@ where h.mdm_employee_rk is null;
 --    и джойн по дате её теряет).
 select count(*) as regret_flags_total,
        sum(case when h.mdm_employee_rk is null then 1 else 0 end) as regret_flags_not_on_fire_day
-from usr_cross_data.regrettable_n_non_regrettable_base r
+from prod_v_sse_crossdata.mdm_employee_regrettable r
 left join hh_fire h on h.mdm_employee_rk = r.mdm_employee_rk and h.fire_dt = r.business_dt
 where r.regrettable_fire_flg = 1
   and r.business_dt >= (select min(slot_start) from hh_calendar);

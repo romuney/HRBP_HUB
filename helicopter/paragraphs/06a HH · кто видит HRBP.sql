@@ -142,6 +142,9 @@ from t
 distributed by (hrbp_login);
 
 -- Сводка: строка на связь «HRBP · видящий», связь и старший — отдельными столбцами (админы — только в таблице).
+-- Владелец 12.11: сводка — таблицей в лабе usr_cross_data (её актуализирует следующий параграф «Актуалайз лабы»).
+drop table if exists usr_cross_data.hrbp_hub_hrbp_viewers;
+create table usr_cross_data.hrbp_hub_hrbp_viewers as
 select hrbp_login, hrbp_nm, hrbp_position_nm                    as "должность HRBP",
        viewer_login, viewer_nm, viewer_position_nm              as "должность видящего",
        link                                                     as "связь",

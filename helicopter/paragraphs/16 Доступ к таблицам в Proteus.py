@@ -3,6 +3,6 @@
 # Впишите логины команды отчёта. hrbp_hub_kpi создаёт переливка целей из DLH (форма n8n) — права на неё тоже здесь.
 from proteus_py.database.clickhouse import set_table_owners
 
-OWNERS = ['r.kazantsev']
+OWNERS = ['r.kazantsev', 'd.i.dyachenko']
 for t in ['hrbp_hub_calendar', 'hrbp_hub_unit', 'hrbp_hub_access', 'hrbp_hub_kpi', 'hrbp_hub_cube', 'hrbp_hub_attr', 'hrbp_hub_attr_top', 'hrbp_hub_base', 'hrbp_hub_nr_people']:
     set_table_owners(database='prod_proteus', table=t, usernames=OWNERS)

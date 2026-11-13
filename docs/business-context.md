@@ -97,7 +97,7 @@
   средняя численность месяца) с января. Применима только для **активной численности HQ**; не оценивается при
   численности меньше **50**. Лучше — ниже.
 - **Источник/поля.** База `prod_v_emart.mdm_employee_structure_d` +
-  **джойн вспомогательной витрины** `usr_cross_data.regrettable_n_non_regrettable_base`
+  **джойн вспомогательной витрины** `prod_v_sse_crossdata.mdm_employee_regrettable`
   по `mdm_employee_rk` + `business_dt`. Из витрины берём `regrettable_fire_flg`,
   `non_regrettable_fire_flg`, `potential_regrettable_flg`, `potential_non_regrettable_flg`
   (и готовое `performer_fire_type`: 'Regrettable' / 'Non-Regrettable' / 'Прочее').
@@ -115,7 +115,7 @@
 - **Окно (HRBP 13.10).** Как у `regret`: с начала года, сумма помесячных значений; только активная
   численность HQ; порог численности — **100**.
 - **Источник/поля.** То же, что у `regret`: база `mdm_employee_structure_d` +
-  джойн `usr_cross_data.regrettable_n_non_regrettable_base`, колонка
+  джойн `prod_v_sse_crossdata.mdm_employee_regrettable`, колонка
   `non_regrettable_fire_flg`.
 
 ### 2.4. `exit_reasons` — Заполнение причин увольнений ✅
@@ -276,7 +276,7 @@
 
 | Витрина | Что даёт | Ключ джойна к базе | Для метрик |
 |---|---|---|---|
-| `usr_cross_data.regrettable_n_non_regrettable_base` | regrettable / non-regrettable разметка | `mdm_employee_rk` + `business_dt` | `regret`, `nonregret` |
+| `prod_v_sse_crossdata.mdm_employee_regrettable` | regrettable / non-regrettable разметка | `mdm_employee_rk` + `business_dt` | `regret`, `nonregret` |
 | `prod_v_hrmart.legal_position_dismissal_reason` | причины увольнений | `legal_position_rk` + `legal_fire_dt = fire_dt` | `exit_reasons` |
 | `legal_position_accum_vacation` (публикуемая `prod_proteus.legal_position_accum_vacation`) | остатки неотгуленных отпусков | `mdm_employee_rk` | `unused_vac` *(отложена)* |
 
@@ -298,5 +298,5 @@ HRBP строятся из тех же полей базы (`lvl1..13_mapped_*`,
 | `exit_reasons` | ✅ **Зафиксировано:** доля уволенных с **незаполненной** причиной от всех уволенных (с 16.10; было — от численности юнита; с учётом фильтров). Незаполненная = не проставлена 30+ дней после увольнения (срок — по каждому уволенному; с 02.11 значение — средняя с 1 января, в динамике — по месяцам увольнения, месяц, где срок прошёл не у всех, — бледно-серым); `coalesce(fr.dismissal_reason_desc, 'Причина отсутствует')`; проверить, что дата увольнения не пустая. |
 | `retention_new_3/6` | ✅ **Зафиксировано:** закрепляемость = доля работающих через 3/6 мес от даты найма. База отсчёта по фильтру: при `active_type_nm = 'Активная'` — `active_hire_dt`, иначе — `company_hire_dt`. |
 | ~~`unused_vac`~~ | ~~Решить, что считать «неотгуленным»~~ — **отложена**: сначала докрутить логику источника «Накопленные дни отпуска». |
-| `regret`, `nonregret` | Проверить содержимое и покрытие внешней `regrettable_n_non_regrettable_base`. |
+| `regret`, `nonregret` | Проверить содержимое и покрытие внешней `mdm_employee_regrettable`. |
 | Все | ✅ **Решено:** эталон L1 = `prod_v_emart.mdm_employee_structure_d` + джойны вспомогательных витрин к базе (сборка витрины в Greenplum; далее новые источники — в ClickHouse). |

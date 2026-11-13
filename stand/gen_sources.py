@@ -6,7 +6,7 @@
   prod_v_emart.mdm_employee_structure_d                подневная витрина (подмножество колонок,
                                                         которое читает ноут; дни — концы месяцев и
                                                         недель, дни событий, срез и каждый 5-й день)
-  usr_cross_data.regrettable_n_non_regrettable_base    разметка regrettable на день увольнения
+  prod_v_sse_crossdata.mdm_employee_regrettable    разметка regrettable на день увольнения
   prod_v_hrmart.legal_position_dismissal_reason        причины увольнений
   prod_v_sse_crossdata.mdm_employee_residence          город / регион / макрорегион
   prod_v_sse_crossdata.legal_position_vacation         накопленные дни отпуска по позиции — версии (world.VAC, 11.11)
@@ -156,8 +156,8 @@ def main():
     cur.execute('analyze prod_v_emart.mdm_employee_structure_d')
 
     # regrettable-разметка: строка на день увольнения + шум нулевыми строками
-    cur.execute('drop table if exists usr_cross_data.regrettable_n_non_regrettable_base')
-    cur.execute('create table usr_cross_data.regrettable_n_non_regrettable_base (mdm_employee_rk bigint, business_dt date, '
+    cur.execute('drop table if exists prod_v_sse_crossdata.mdm_employee_regrettable')
+    cur.execute('create table prod_v_sse_crossdata.mdm_employee_regrettable (mdm_employee_rk bigint, business_dt date, '
                 'regrettable_fire_flg smallint, non_regrettable_fire_flg smallint, potential_regrettable_flg smallint, '
                 'potential_non_regrettable_flg smallint)')
     rows = []
@@ -167,7 +167,7 @@ def main():
                 rows.append((e.rk, p.fire, int(p.regret == 1), int(p.regret == 2), 0, 0))
                 if W.R.random() < .2:
                     rows.append((e.rk, p.fire - dt.timedelta(days=30), 0, 0, int(p.regret == 1), int(p.regret == 2)))
-    cur.executemany('insert into usr_cross_data.regrettable_n_non_regrettable_base values (%s,%s,%s,%s,%s,%s)', rows)
+    cur.executemany('insert into prod_v_sse_crossdata.mdm_employee_regrettable values (%s,%s,%s,%s,%s,%s)', rows)
 
     cur.execute('drop table if exists prod_v_hrmart.legal_position_dismissal_reason')
     cur.execute('create table prod_v_hrmart.legal_position_dismissal_reason (legal_position_rk text, mdm_employee_rk bigint, '

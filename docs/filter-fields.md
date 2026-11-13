@@ -119,7 +119,7 @@
 
 5. **В витрине нет regrettable-флагов и `subordination_lvl`.** Они появляются
    только в производной ультраширокой (`all_employee_add_flags`) из внешних
-   джойнов (`usr_cross_data.regrettable_n_non_regrettable_base`). Для фильтров
+   джойнов (`prod_v_sse_crossdata.mdm_employee_regrettable`). Для фильтров
    не нужны; метрики regret/nonregret строятся на ультраширокой, а не напрямую
    на `mdm_employee_structure_d`.
 

@@ -2,7 +2,7 @@
 -- HH · увольнения → hh_fire. Событие = строка дня увольнения из компании
 -- (business_dt = company_fire_dt); юнит и разрезы — на эту дату.
 --   rg / nrg — regrettable / non-regrettable: джойн вспомогательной витрины
---              usr_cross_data.regrettable_n_non_regrettable_base по сотруднику и
+--              prod_v_sse_crossdata.mdm_employee_regrettable по сотруднику и
 --              дате (как в ультраширокой); в базе этих флагов нет;
 --   nr       — причина НЕ заполнена: legal_fire_dt не пустая, в
 --              legal_position_dismissal_reason (legal_position_rk + fire_dt =
@@ -44,7 +44,7 @@ left join (
     select mdm_employee_rk, business_dt::date as business_dt,
            max(case when regrettable_fire_flg = 1 then 1 else 0 end)     as rg,
            max(case when non_regrettable_fire_flg = 1 then 1 else 0 end) as nrg
-    from usr_cross_data.regrettable_n_non_regrettable_base
+    from prod_v_sse_crossdata.mdm_employee_regrettable
     where business_dt >= (select min(slot_start) - interval '7 month' from hh_calendar)
     group by 1, 2
 ) rt on rt.mdm_employee_rk = s.mdm_employee_rk and rt.business_dt = s.business_dt
